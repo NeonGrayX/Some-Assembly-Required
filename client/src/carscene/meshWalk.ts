@@ -2,6 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import type { Intent } from '../testmap/walk.ts';
 import { SHAPES, TUBES } from './kit.ts';
+import type { SolidPart } from './solidParts.ts';
 
 /**
  * Walking about the car test map against the models themselves, as the game's players walk: a
@@ -67,7 +68,7 @@ export function intangible(o: THREE.Object3D): boolean {
  * what `skip` says to leave out (and all that hangs from it), and the parts `apart` takes on
  * itself (if given).
  */
-function triangles(
+export function triangles(
   o: THREE.Object3D,
   frame: THREE.Matrix4 | null,
   skip: (o: THREE.Object3D) => boolean,
@@ -111,11 +112,11 @@ function triangles(
 }
 
 /**
- * `mesh` as the shape it was made as, if it was made as a box, a ball, a can or a cone, and is
- * placed in the world unsheared: a collider the physics engine meets far more quickly than
- * the many triangles drawn for it. Else null.
+ * `mesh` as the shape it was made as, in the world, if it was made as a box, a ball, a can, a
+ * cone or a capsule, its corners still where that shape has them (not moved or turned after it
+ * was made), and is placed in the world unsheared (see `SolidPart`). Else null.
  */
-function primitive(R: typeof RAPIER, mesh: THREE.Mesh): RAPIER.ColliderDesc | null {
+export function madeShape(mesh: THREE.Mesh): SolidPart | null {
   const made = SHAPES.get(mesh.geometry) ?? mesh.geometry;
   const p = (made as THREE.BufferGeometry & { parameters?: Record<string, number> }).parameters;
   if (!p) return null;
@@ -128,45 +129,99 @@ function primitive(R: typeof RAPIER, mesh: THREE.Mesh): RAPIER.ColliderDesc | nu
   const round = (a: number, b: number) => Math.abs(a - b) <= 1e-3 * Math.max(1, Math.abs(a));
   const whole = (angle: number | undefined, full: number) =>
     angle === undefined || angle >= full - 1e-3;
-  let desc: RAPIER.ColliderDesc | null = null;
+  const drawn = mesh.geometry;
+  if (!drawn.boundingBox) drawn.computeBoundingBox();
+  const { min, max } = drawn.boundingBox!;
+  // Whether its corners reach `x` and `z` out from its upright and `y` up and down from its
+  // middle: a box's exactly, a round one's sides within the few flats it is drawn with.
+  const spans = (x: number, y: number, z: number) =>
+    round(min.y, -y) &&
+    round(max.y, y) &&
+    [
+      [min.x, max.x, x],
+      [min.z, max.z, z],
+    ].every(
+      ([lo, hi, r]) =>
+        hi! <= r! * 1.001 + 1e-6 && lo! >= -r! * 1.001 - 1e-6 && hi! - lo! >= r! * 1.8,
+    );
+  const sized = () => new THREE.Vector3(p.width! * s.x, p.height! * s.y, p.depth! * s.z);
+  const boxed = () =>
+    [min.x, min.y, min.z].every((v, i) => round(v, -[p.width!, p.height!, p.depth!][i]! / 2)) &&
+    [max.x, max.y, max.z].every((v, i) => round(v, [p.width!, p.height!, p.depth!][i]! / 2));
   switch (made.type) {
     case 'BoxGeometry':
-      desc = R.ColliderDesc.cuboid(
-        (p.width! * s.x) / 2,
-        (p.height! * s.y) / 2,
-        (p.depth! * s.z) / 2,
-      );
+      if (boxed()) return { shape: 'box', at, turn, size: sized() };
       break;
-    case 'RoundedBoxGeometry': {
-      const r = p.radius! * Math.min(s.x, s.y, s.z);
-      const h = [p.width! * s.x, p.height! * s.y, p.depth! * s.z].map((d) =>
-        Math.max(1e-4, d / 2 - r),
-      );
-      desc = R.ColliderDesc.roundCuboid(h[0]!, h[1]!, h[2]!, r);
+    case 'RoundedBoxGeometry':
+      if (boxed())
+        return {
+          shape: 'roundBox',
+          at,
+          turn,
+          size: sized(),
+          r: p.radius! * Math.min(s.x, s.y, s.z),
+        };
       break;
-    }
     case 'SphereGeometry':
       if (
+        spans(p.radius!, p.radius!, p.radius!) &&
         round(s.x, s.y) &&
         round(s.y, s.z) &&
         whole(p.phiLength, 2 * Math.PI) &&
         whole(p.thetaLength, Math.PI)
       )
-        desc = R.ColliderDesc.ball(p.radius! * s.x);
+        return { shape: 'ball', at, turn, r: p.radius! * s.x };
       break;
-    case 'CylinderGeometry':
-      if (!round(s.x, s.z) || !whole(p.thetaLength, 2 * Math.PI)) break;
+    case 'CylinderGeometry': {
+      const r = Math.max(p.radiusTop!, p.radiusBottom!);
+      if (!spans(r, p.height! / 2, r) || !round(s.x, s.z) || !whole(p.thetaLength, 2 * Math.PI))
+        break;
       if (round(p.radiusTop!, p.radiusBottom!))
-        desc = R.ColliderDesc.cylinder((p.height! * s.y) / 2, p.radiusTop! * s.x);
-      else if (p.radiusTop! === 0)
-        desc = R.ColliderDesc.cone((p.height! * s.y) / 2, p.radiusBottom! * s.x);
+        return { shape: 'can', at, turn, r: p.radiusTop! * s.x, h: p.height! * s.y };
+      if (p.radiusTop! === 0)
+        return { shape: 'cone', at, turn, r: p.radiusBottom! * s.x, h: p.height! * s.y };
       break;
+    }
     case 'CapsuleGeometry':
-      if (round(s.x, s.z) && round(s.x, s.y))
-        desc = R.ColliderDesc.capsule(((p.length ?? p.height)! * s.y) / 2, p.radius! * s.x);
+      if (
+        spans(p.radius!, (p.length ?? p.height)! / 2 + p.radius!, p.radius!) &&
+        round(s.x, s.z) &&
+        round(s.x, s.y)
+      )
+        return { shape: 'capsule', at, turn, r: p.radius! * s.x, h: (p.length ?? p.height)! * s.y };
       break;
   }
-  return desc && desc.setTranslation(at.x, at.y, at.z).setRotation(turn);
+  return null;
+}
+
+/**
+ * `mesh` as the shape it was made as (see `madeShape`): a collider the physics engine meets far
+ * more quickly than the many triangles drawn for it. Else null.
+ */
+export function primitive(R: typeof RAPIER, mesh: THREE.Mesh): RAPIER.ColliderDesc | null {
+  const part = madeShape(mesh);
+  if (!part) return null;
+  const { shape, at, turn, size, r = 0, h = 0 } = part;
+  const desc =
+    shape === 'box'
+      ? R.ColliderDesc.cuboid(size!.x / 2, size!.y / 2, size!.z / 2)
+      : shape === 'roundBox'
+        ? R.ColliderDesc.roundCuboid(
+            ...([size!.x, size!.y, size!.z].map((d) => Math.max(1e-4, d / 2 - r)) as [
+              number,
+              number,
+              number,
+            ]),
+            r,
+          )
+        : shape === 'ball'
+          ? R.ColliderDesc.ball(r)
+          : shape === 'can'
+            ? R.ColliderDesc.cylinder(h / 2, r)
+            : shape === 'cone'
+              ? R.ColliderDesc.cone(h / 2, r)
+              : R.ColliderDesc.capsule(h / 2, r);
+  return desc.setTranslation(at.x, at.y, at.z).setRotation(turn);
 }
 
 /** How long (m) each capsule along a tube is, at most. */
@@ -177,7 +232,7 @@ const LINK = 0.12;
  * is many long thin triangles, which the character controller is slow to slide along (a
  * fraction of a second a frame, stood against a car's roof rack), where a capsule is quick.
  */
-function links(
+export function links(
   mesh: THREE.Mesh,
 ): { at: THREE.Vector3; turn: THREE.Quaternion; half: number; r: number }[] {
   const { path, radius } = TUBES.get(mesh.geometry)!;

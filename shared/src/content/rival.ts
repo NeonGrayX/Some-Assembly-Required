@@ -98,10 +98,10 @@ export function rivalLevel(base: LevelDef): LevelDef {
     ...base,
     floor: { x0: -half, x1: half, z0: 2 * zm - half, z1: half },
     boxes: [...kept, ...wall, ...kept.map(copyBox)],
-    ...(base.solids && {
-      solids: [
-        ...base.solids,
-        ...base.solids.map((d) => ({
+    ...(base.meshes && {
+      meshes: [
+        ...base.meshes,
+        ...base.meshes.map((d) => ({
           ...d,
           at: T(d.at),
           turn: mulQuat(HALF_ROUND, d.turn ?? IDENTITY),

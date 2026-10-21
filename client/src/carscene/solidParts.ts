@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { SOLID_SHAPES } from '@sar/shared';
-import type { SceneSolid } from '@sar/shared';
+import { SOLID_SHAPES, packTriangles } from '@sar/shared';
+import type { SceneMesh, SceneSolid } from '@sar/shared';
 import { SHAPES, TUBES } from './kit.ts';
-import { intangible } from './meshWalk.ts';
+import { intangible, madeShape, triangles } from './meshWalk.ts';
 
 /**
  * What is solid of the car scene's models, part by part as each is made, for a map of it to be
@@ -35,6 +35,8 @@ const THIN = 0.01;
 const BULGE = 0.42;
 /** How long each capsule along a tube is, at most (m). */
 const LINK = 0.12;
+/** How long each piece of a mesh's packed triangles is (see `SceneMesh`). */
+const LINE = 96;
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -603,10 +605,46 @@ export function sceneSolid(p: SolidPart): SceneSolid {
     mm(p.at.y),
     mm(p.at.z),
     ...(size
-      ? [mm(size.x), mm(size.y), mm(size.z)]
+      ? [mm(size.x), mm(size.y), mm(size.z), ...(p.shape === 'roundBox' ? [mm(p.r!)] : [])]
       : p.shape === 'ball'
         ? [mm(p.r!)]
         : [mm(p.r!), mm(p.h!)]),
     ...(turned ? [quat(q.x), quat(q.y), quat(q.z), quat(q.w)] : []),
   ];
+}
+
+/**
+ * What hangs from `root` as it is met (see `SceneMesh`), in `frame`'s space (the world if
+ * null), but for what `skip` says to leave out (and all that hangs from it), and what is walked
+ * through (see `passable`): as the car scene's walker meets it (see `MeshWalker`).
+ */
+export function sceneMesh(
+  root: THREE.Object3D,
+  frame: THREE.Matrix4 | null,
+  skip: (o: THREE.Object3D) => boolean,
+): SceneMesh {
+  root.updateMatrixWorld(true);
+  const shapes: SceneSolid[] = [];
+  const into = (p: SolidPart): SolidPart => {
+    if (!frame) return p;
+    const m = new THREE.Matrix4().compose(p.at, p.turn, new THREE.Vector3(1, 1, 1));
+    m.premultiply(frame);
+    const [at, turn] = [new THREE.Vector3(), new THREE.Quaternion()];
+    m.decompose(at, turn, new THREE.Vector3());
+    return { ...p, at, turn };
+  };
+  const apart = (mesh: THREE.Mesh) => {
+    if (TUBES.has(mesh.geometry)) {
+      for (const link of links(mesh)) shapes.push(sceneSolid(into(link)));
+      return true;
+    }
+    const part = madeShape(mesh);
+    if (part) shapes.push(sceneSolid(into(part)));
+    return !!part;
+  };
+  const { vertices, indices } = triangles(root, frame, (o) => skip(o) || passable(o), apart);
+  const packed = packTriangles(vertices, indices);
+  const pieces: string[] = [];
+  for (let i = 0; i < packed.length; i += LINE) pieces.push(packed.slice(i, i + LINE));
+  return { shapes, triangles: pieces };
 }

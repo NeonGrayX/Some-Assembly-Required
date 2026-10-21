@@ -66,8 +66,10 @@ import type {
   OutputSlot,
   PrintJob,
   SiteDef,
+  MeshDef,
   SolidDef,
 } from '../content/house.ts';
+import { meshOf } from '../content/maps/meshes.ts';
 import { makeableColours } from '../builds/variant.ts';
 import { sideOf } from '../content/rival.ts';
 import { groundHeight, groundSlope, inSea, terrainTriangles } from '../content/terrain.ts';
@@ -904,20 +906,38 @@ export interface SnapPreview {
 
 const QUARTER = Math.PI / 2;
 
-/** The collider for one of a level's model's solid parts (see `SolidDef`). */
-function solidDesc(R: typeof RAPIER, s: SolidDef): ColliderDesc {
+/** The collider for a shape of a level's models (see `SolidDef`), placed by `place`. */
+export function solidDesc(R: typeof RAPIER, s: SolidDef, place: MeshDef): ColliderDesc {
   const [r, half] = [s.r ?? 0, (s.h ?? 0) / 2];
+  const size = s.size ?? { x: 0, y: 0, z: 0 };
+  const round = (d: number) => Math.max(1e-4, d / 2 - r);
   const desc =
     s.shape === 'box'
-      ? R.ColliderDesc.cuboid(s.size!.x / 2, s.size!.y / 2, s.size!.z / 2)
-      : s.shape === 'ball'
-        ? R.ColliderDesc.ball(r)
-        : s.shape === 'can'
-          ? R.ColliderDesc.cylinder(half, r)
-          : s.shape === 'cone'
-            ? R.ColliderDesc.cone(half, r)
-            : R.ColliderDesc.capsule(half, r);
-  return desc.setTranslation(s.at.x, s.at.y, s.at.z).setRotation(s.turn ?? IDENTITY);
+      ? R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+      : s.shape === 'roundBox'
+        ? R.ColliderDesc.roundCuboid(round(size.x), round(size.y), round(size.z), r)
+        : s.shape === 'ball'
+          ? R.ColliderDesc.ball(r)
+          : s.shape === 'can'
+            ? R.ColliderDesc.cylinder(half, r)
+            : s.shape === 'cone'
+              ? R.ColliderDesc.cone(half, r)
+              : R.ColliderDesc.capsule(half, r);
+  const turn = place.turn ?? IDENTITY;
+  const at = add(rotate(turn, s.at), place.at);
+  return desc.setTranslation(at.x, at.y, at.z).setRotation(mulQuat(turn, s.turn ?? IDENTITY));
+}
+
+/** The colliders a level's mesh (see `MeshDef`) is met as: its shapes, and the rest as triangles. */
+export function meshDescs(R: typeof RAPIER, place: MeshDef): ColliderDesc[] {
+  const { shapes, vertices, indices } = meshOf(place.mesh);
+  const { at } = place;
+  return [
+    ...shapes.map((s) => solidDesc(R, s, place)),
+    R.ColliderDesc.trimesh(vertices, indices)
+      .setTranslation(at.x, at.y, at.z)
+      .setRotation(place.turn ?? IDENTITY),
+  ];
 }
 
 /** Direction the player is looking. Yaw 0 looks down -z, positive pitch looks up. */
@@ -1246,12 +1266,9 @@ export class Sim {
         this.trashBins.push(trashBinMouth(box));
       }
     }
-    for (const solid of level.solids ?? []) {
-      const c = this.addStatic(solidDesc(R, solid), fixed);
-      const { size } = solid;
-      if (size && !solid.turn && size.y <= SLAB.thick && Math.min(size.x, size.z) >= SLAB.wide)
-        this.floors.add(c.handle);
-    }
+    // The level's models, met as they are drawn: their shapes, and the rest as triangles.
+    for (const place of level.meshes ?? [])
+      for (const desc of meshDescs(R, place)) this.addStatic(desc, fixed);
     for (const machine of level.machines) this.addMachine(machine, fixed);
     this.sites.forEach((site, i) => {
       for (const [at, buttonId] of [
