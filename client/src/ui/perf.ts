@@ -23,6 +23,12 @@ const BUDGET = 1000 / 60;
 const LANES = ['gc', 'sh', 'up'] as const;
 const LANE = 6;
 const STORE = 'sar.perf.open';
+/** Where the card was dragged to, and whether it shows one column or two. */
+const LAYOUT = 'sar.perf.layout';
+/** Kept clear between the card and the window's edges. */
+const EDGE = 8;
+/** How much of the card stays on screen when it is dragged towards an edge: its title bar. */
+const GRIP = 40;
 
 const NS = SECTIONS.length;
 const NG = GPU_SECTIONS.length;
@@ -64,6 +70,23 @@ interface Stack {
   peak: number;
 }
 
+/**
+ * Where the card sits, measured from the window's nearer edges, so it grows away from them: a card
+ * dragged to the bottom right opens its graphs upwards and its second column leftwards.
+ */
+interface Spot {
+  h: 'left' | 'right';
+  x: number;
+  v: 'top' | 'bottom';
+  y: number;
+}
+
+interface Layout {
+  /** Null until the card is first dragged: it sits where the page's styles put it. */
+  spot: Spot | null;
+  columns: 1 | 2;
+}
+
 /** One collapsible graph: its summary line and what draws it while it is open. */
 interface Group {
   id: string;
@@ -101,9 +124,17 @@ function outside(i: number): number {
  * time went (physics, game logic, the scene, lighting, rendering, the solo server, and what is
  * outside the game), and a graph for each of those broken down further, with the graphics
  * card's time, ping and memory. Each graph folds away; hover any of them to read one moment.
+ * The card drags by its title bar and shows the whole frame beside its breakdowns, or all in one
+ * column.
  */
 export class PerfPanel {
   private readonly el: HTMLElement;
+  /** The graphs: the whole frame in the first column, its breakdowns in the second. */
+  private readonly cols: HTMLElement;
+  private readonly sides: [HTMLElement, HTMLElement];
+  /** The column the next group goes in. */
+  private side = 0;
+  private layout: Layout = { spot: null, columns: 2 };
   private readonly groups: Group[] = [];
   private readonly fps: Line;
   private readonly ping: Line;
@@ -127,6 +158,10 @@ export class PerfPanel {
     this.el = document.createElement('div');
     this.el.id = 'perf';
     this.el.hidden = true;
+    this.cols = this.card();
+    this.sides = [document.createElement('div'), document.createElement('div')];
+    for (const side of this.sides) side.className = 'perf-col';
+    this.cols.append(...this.sides);
     let shown: string[] = ['fps', 'frame'];
     try {
       const saved = JSON.parse(localStorage.getItem(STORE) ?? 'null') as unknown;
@@ -184,7 +219,8 @@ export class PerfPanel {
     this.slowest = this.note(frameBody, '');
     this.slowest.className = 'perf-slowest';
 
-    // Each group on its own, section by section.
+    // Each group on its own, section by section, beside the whole frame.
+    this.side = 1;
     for (const [k, g] of GROUPS.entries()) {
       const from = SECTIONS.indexOf(g.sections[0][0]);
       const parts = g.sections.map(([id, name], j) => ({
@@ -273,9 +309,155 @@ export class PerfPanel {
       return last === undefined || Number.isNaN(last) ? '' : `${Math.round(last)} MB`;
     };
 
-    status.after(this.el);
+    // On the page itself rather than in the HUD, so it can float over the game's other panels.
+    document.body.append(this.el);
     status.title = 'Click for frame rate and where the time goes, over the last 10 seconds';
     status.addEventListener('click', () => this.toggle());
+    window.addEventListener('resize', () => this.place());
+    // A graph opened or a column added can push the card past the window's edge.
+    new ResizeObserver(() => this.place()).observe(this.el);
+  }
+
+  /** The title bar, which drags the card, and the box the graphs go in, which scrolls. */
+  private card(): HTMLElement {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAYOUT) ?? 'null') as Partial<Layout> | null;
+      if (saved?.columns === 1) this.layout.columns = 1;
+      const spot = saved?.spot;
+      if (
+        spot &&
+        (spot.h === 'left' || spot.h === 'right') &&
+        (spot.v === 'top' || spot.v === 'bottom') &&
+        Number.isFinite(spot.x) &&
+        Number.isFinite(spot.y)
+      )
+        this.layout.spot = spot;
+    } catch {
+      // Private browsing or blocked storage: the card starts where it always did.
+    }
+
+    const bar = document.createElement('div');
+    bar.className = 'perf-bar';
+    bar.title = 'Drag to move. Double-click to put it back.';
+    const title = document.createElement('strong');
+    title.textContent = 'Performance';
+    const choice = document.createElement('span');
+    choice.className = 'perf-columns';
+    choice.append('columns');
+    const buttons = ([1, 2] as const).map((n) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = String(n);
+      b.title = n === 1 ? 'One column' : 'Two columns side by side';
+      b.addEventListener('click', () => {
+        this.layout.columns = n;
+        this.applyColumns(buttons);
+        this.save();
+      });
+      return b;
+    });
+    choice.append(...buttons);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'perf-close';
+    close.textContent = '×';
+    close.title = 'Close';
+    close.setAttribute('aria-label', 'Close the performance graphs');
+    close.addEventListener('click', () => this.toggle());
+    bar.append(title, choice, close);
+
+    let grab: { id: number; dx: number; dy: number; w: number; h: number } | null = null;
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target as Element).closest('button')) return;
+      const r = this.el.getBoundingClientRect();
+      grab = {
+        id: e.pointerId,
+        dx: e.clientX - r.left,
+        dy: e.clientY - r.top,
+        w: r.width,
+        h: r.height,
+      };
+      bar.setPointerCapture(e.pointerId);
+      bar.classList.add('dragging');
+      e.preventDefault();
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (!grab || e.pointerId !== grab.id) return;
+      const { innerWidth: W, innerHeight: H } = window;
+      const left = Math.max(EDGE, Math.min(e.clientX - grab.dx, W - grab.w - EDGE));
+      const top = Math.max(EDGE, Math.min(e.clientY - grab.dy, H - GRIP));
+      const right = left + grab.w / 2 > W / 2;
+      const bottom = top + grab.h / 2 > H / 2;
+      this.layout.spot = {
+        h: right ? 'right' : 'left',
+        x: right ? W - left - grab.w : left,
+        v: bottom ? 'bottom' : 'top',
+        y: bottom ? H - top - grab.h : top,
+      };
+      this.place();
+    });
+    const drop = (e: PointerEvent) => {
+      if (!grab || e.pointerId !== grab.id) return;
+      grab = null;
+      bar.classList.remove('dragging');
+      this.save();
+    };
+    bar.addEventListener('pointerup', drop);
+    bar.addEventListener('pointercancel', drop);
+    bar.addEventListener('dblclick', (e) => {
+      if ((e.target as Element).closest('button')) return;
+      this.layout.spot = null;
+      this.place();
+      this.save();
+    });
+
+    const scroll = document.createElement('div');
+    scroll.className = 'perf-scroll';
+    const cols = document.createElement('div');
+    cols.className = 'perf-cols';
+    scroll.append(cols);
+    this.el.append(bar, scroll);
+    this.applyColumns(buttons, cols);
+    this.place();
+    return cols;
+  }
+
+  private applyColumns(buttons: HTMLButtonElement[], cols = this.cols): void {
+    cols.classList.toggle('two', this.layout.columns === 2);
+    buttons.forEach((b, k) =>
+      b.setAttribute('aria-pressed', String(k + 1 === this.layout.columns)),
+    );
+  }
+
+  /** Puts the card where it was dragged, kept on screen with its title bar in reach. */
+  private place(): void {
+    const s = this.el.style;
+    const spot = this.layout.spot;
+    if (!spot) {
+      s.left = s.right = s.top = s.bottom = s.maxHeight = '';
+      // Where the page puts it can be past the right edge of a narrow window, as on a phone.
+      const r = this.el.getBoundingClientRect();
+      if (r.right > window.innerWidth) {
+        s.left = `${Math.max(0, window.innerWidth - r.width - EDGE)}px`;
+      }
+      return;
+    }
+    const { innerWidth: W, innerHeight: H } = window;
+    const x = Math.max(0, Math.min(spot.x, W - this.el.offsetWidth - EDGE));
+    s.left = spot.h === 'left' ? `${x}px` : 'auto';
+    s.right = spot.h === 'right' ? `${x}px` : 'auto';
+    const y = Math.max(0, Math.min(spot.y, H - GRIP));
+    s.top = spot.v === 'top' ? `${y}px` : 'auto';
+    s.bottom = spot.v === 'bottom' ? `${y}px` : 'auto';
+    s.maxHeight = `${H - y - EDGE}px`;
+  }
+
+  private save(): void {
+    try {
+      localStorage.setItem(LAYOUT, JSON.stringify(this.layout));
+    } catch {
+      // Not remembered, that is all.
+    }
   }
 
   get open(): boolean {
@@ -371,7 +553,7 @@ export class PerfPanel {
         // Not remembered, that is all.
       }
     });
-    this.el.append(el);
+    this.sides[this.side]!.append(el);
     this.groups.push({ id, el, readout, draw, summary: () => '' });
     return body;
   }
