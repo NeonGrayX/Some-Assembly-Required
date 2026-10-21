@@ -106,7 +106,7 @@ import type { Quat, Vec3 } from '../math.ts';
 
 type Rapier = typeof RAPIER;
 
-export { DT, TICK_RATE } from './time.ts';
+export { DT, TICK_RATE, catchUp } from './time.ts';
 
 // Player
 export const PLAYER_RADIUS = 0.3;
@@ -132,6 +132,20 @@ const CLIMB_SPEED = 2.4;
  */
 const STEP_UP = 0.45;
 const CLIMB_TRIES = [0.2, 0.32, STEP_UP];
+/**
+ * Caught inside something they walk into: how deep in it they are, at least (m), and how far off
+ * a way out is looked for (m), nearest first, each way round them and then up (see `wayOut`).
+ * Less deep than that, the controller sees to it (stepping up leaves them a little way in now
+ * and then).
+ */
+const CAUGHT = 0.05;
+const WAY_OUT = [0.04, 0.08, 0.12, 0.18, 0.25, 0.35];
+const WAYS_OUT = [
+  ...Array.from({ length: 8 }, (_, k) =>
+    v3(Math.cos((k * Math.PI) / 4), 0, Math.sin((k * Math.PI) / 4)),
+  ),
+  v3(0, 1, 0),
+];
 /**
  * How far round their middle a player's feet stand (m), and how far below them the ground may
  * be there for them to stand: the capsule's round foot reaches out past theirs, and can rest on
@@ -1185,6 +1199,11 @@ export class Sim {
   private readonly flights: Flight[];
   /** Every corkboard, site by site (see `levelBoards`): slots run board by board. */
   private readonly boards: { site: number; pos: Vec3; facing: number }[];
+  /**
+   * A player's capsule, and their slim shape side-on, each `CAUGHT` in from its surface all
+   * round: what is caught inside something overlaps it even so (see `wayOut`).
+   */
+  private readonly cores: { capsule: Shape; slim: Shape };
 
   constructor(
     private readonly R: Rapier,
@@ -1199,6 +1218,10 @@ export class Sim {
     this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -WORLD_GRAVITY, z: 0 });
     this.world.timestep = DT;
+    this.cores = {
+      capsule: new R.Capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS - CAUGHT),
+      slim: new R.RoundCylinder(PLAYER_FEET - 0.04 - CAUGHT, SQUEEZE.slim - 0.04 - CAUGHT, 0.04),
+    };
     this.rng = makeRng(seed);
     this.flights = (level.stairs ?? []).map((s) => ({
       ...stairsAxes(s),
@@ -1924,7 +1947,7 @@ export class Sim {
       }
       // Flung: carried along until landing, with a little steering.
       if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
-      const at = add(start, total);
+      let at = add(start, total);
       // Walking straight into a ladder takes hold of it a little to one side of it too (and
       // keeps hold while drawn onto it), and backing off its top catches hold of it even further
       // to one side.
@@ -1987,13 +2010,26 @@ export class Sim {
         desired.z += (SLIP_SPEED * DT - back) * slip.z;
       }
       const c = a ? p.slim : p.collider;
-      let m = this.walk(p, c, at, desired);
+      // Caught inside what they walk into (in among the triangles of a car's wheel arch, say):
+      // out to the nearest place clear of it first. Started inside, the controller slides about
+      // in there for every pass it makes, each pass going over every triangle round them, and a
+      // wheel arch has thousands: most of a second a move.
+      const out = this.wayOut(p, c, at);
+      if (out) {
+        at = add(at, out);
+        total = add(total, out);
+      }
+      // Stuck fast (no way out): a single pass, and nothing more tried this tick (stepping up,
+      // turning side-on), each a move as dear.
+      const stuck = !out;
+      let m = this.walk(p, c, at, desired, true, !stuck);
       const wasFalling = !p.grounded ? p.vy : 0;
       // Rising, they are not on the ground, whatever they brush against on the way up.
       p.grounded = p.controller.computedGrounded() && (onLadder || p.vy <= 0);
       // Held up on the ground: a step up, perhaps, that the controller would not take.
       const flat = Math.hypot(desired.x, desired.z);
-      if (steered && !onLadder && p.grounded && flat > 1e-4 && Math.hypot(m.x, m.z) < flat * 0.9) {
+      const heldUp = flat > 1e-4 && Math.hypot(m.x, m.z) < flat * 0.9;
+      if (steered && !onLadder && p.grounded && heldUp && !stuck) {
         const up = this.climb(p, c, at, desired);
         if (up && up.x * desired.x + up.z * desired.z > m.x * desired.x + m.z * desired.z) m = up;
       }
@@ -2008,7 +2044,7 @@ export class Sim {
       // it, they turn back.
       const asked = Math.hypot(dir.x, dir.z);
       if (a) m = add(m, this.edge(p, a, along, add(at, m), asked));
-      else if (steered && !onLadder && p.grounded && asked > 0.5)
+      else if (steered && !onLadder && p.grounded && asked > 0.5 && !stuck)
         this.wedged(p, add(at, m), dir.x / asked, dir.z / asked);
       p.ladder = onLadder && !p.grounded ? ladderId : null;
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
@@ -2039,10 +2075,12 @@ export class Sim {
    * Moves `c` (a player's capsule, or side-on their slim shape) with its middle at `at` by
    * `delta` as far as it goes; how far it went. Stepping up no higher than there is room
    * overhead: the controller steps up only where it can rise the whole way, which under a
-   * stair's upper flight or a low ceiling it could not.
+   * stair's upper flight or a low ceiling it could not. Without `slide`, it stops at the first
+   * thing in the way, in a single pass.
    */
-  private walk(p: Player, c: Collider, at: Vec3, delta: Vec3, step = true): Vec3 {
+  private walk(p: Player, c: Collider, at: Vec3, delta: Vec3, step = true, slide = true): Vec3 {
     c.setTranslation(at);
+    if (!slide) p.controller.setSlideEnabled(false);
     if (!step) p.controller.disableAutostep();
     const over = !step
       ? null
@@ -2067,8 +2105,35 @@ export class Sim {
       PLAYER_GROUPS,
       (o) => o !== p.collider,
     );
+    if (!slide) p.controller.setSlideEnabled(true);
     const m = p.controller.computedMovement();
     return v3(m.x, m.y, m.z);
+  }
+
+  /**
+   * How far `c` (a player's capsule, or side-on their slim shape) with its middle at `at` must go
+   * not to be caught inside what they walk into (`CAUGHT` deep or more): nowhere if it is not,
+   * else the nearest way out of those `WAY_OUT` and `WAYS_OUT` try; or null if none of those is.
+   */
+  private wayOut(p: Player, c: Collider, at: Vec3): Vec3 | null {
+    const core = c === p.slim ? this.cores.slim : this.cores.capsule;
+    const caught = (q: Vec3) =>
+      !!this.world.intersectionWithShape(
+        q,
+        IDENTITY,
+        core,
+        this.R.QueryFilterFlags.EXCLUDE_SENSORS | this.R.QueryFilterFlags.EXCLUDE_DYNAMIC,
+        groups(G_PLAYER, G_WORLD),
+        p.collider,
+      );
+    if (!caught(at)) return v3();
+    for (const r of WAY_OUT) {
+      for (const way of WAYS_OUT) {
+        const out = scale(way, r);
+        if (!caught(add(at, out))) return out;
+      }
+    }
+    return null;
   }
 
   /**

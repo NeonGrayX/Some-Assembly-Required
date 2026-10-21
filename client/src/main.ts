@@ -4,6 +4,7 @@ import {
   BRICK_TYPES,
   brickName,
   DT,
+  catchUp,
   EYE_OFFSET,
   GEAR_IDS,
   LIGHTHOUSE,
@@ -1473,9 +1474,9 @@ function frame(now: number): void {
     if (readerShown) closeReader();
   }
 
-  acc += elapsed;
   profiler.begin('logic.rules');
-  while (acc >= DT) {
+  // Ticks that fell behind are caught up on, unless they are too slow to (see `catchUp`).
+  acc = catchUp(acc + elapsed, () => {
     const actions: Action[] =
       g.round?.phase === 'results'
         ? []
@@ -1484,8 +1485,7 @@ function frame(now: number): void {
             .filter((a) => !pickFirst(g, a))
             .map((a) => markOutput(g, a));
     g.tick(input.state, actions);
-    acc -= DT;
-  }
+  });
   profiler.end();
   const simulated = performance.now();
   profiler.begin('logic.ui');

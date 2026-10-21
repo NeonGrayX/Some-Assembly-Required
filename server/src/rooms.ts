@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { DT, Room, decode, encode, isHello } from '@sar/shared';
+import { DT, Room, catchUp, decode, encode, isHello } from '@sar/shared';
 import type { ClientMsg, IceServer, RoomListing, ServerMsg } from '@sar/shared';
 import { iceFromEnv } from './ice.ts';
 import { Bucket, clientAddress } from './limits.ts';
@@ -204,19 +204,18 @@ export class RoomManager {
     return entry;
   }
 
-  /** Runs every room at a fixed 60 Hz, catching up a few ticks after a hiccup. */
+  /**
+   * Runs every room at a fixed 60 Hz, catching up a few ticks after a hiccup, as long as they are
+   * quick enough to (see `catchUp`).
+   */
   start(): void {
     let last = performance.now();
     let acc = 0;
     this.timers.push(
       setInterval(() => {
         const now = performance.now();
-        acc = Math.min(acc + (now - last) / 1000, DT * 5);
+        acc = catchUp(Math.min(acc + (now - last) / 1000, DT * 5), () => this.tick(now));
         last = now;
-        while (acc >= DT) {
-          acc -= DT;
-          this.tick(now);
-        }
       }, 1000 * DT),
       setInterval(() => this.report(), 60_000),
     );

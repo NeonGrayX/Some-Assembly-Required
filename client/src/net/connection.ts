@@ -1,5 +1,5 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { DT, Room, decode, encode } from '@sar/shared';
+import { DT, Room, catchUp, decode, encode } from '@sar/shared';
 import type { ClientMsg, ServerMsg } from '@sar/shared';
 
 /** A link to whoever runs the room: a server over WebSocket, or a room inside this tab. */
@@ -84,12 +84,8 @@ export function localConnection(
     : setInterval(() => {
         const now = performance.now();
         const started = now;
-        acc = Math.min(acc + (now - last) / 1000, DT * 5);
+        acc = catchUp(Math.min(acc + (now - last) / 1000, DT * 5), () => room.update());
         last = now;
-        while (acc >= DT) {
-          acc -= DT;
-          room.update();
-        }
         soloServerMs += performance.now() - started;
       }, 1000 * DT);
   const conn: LocalConnection = {
