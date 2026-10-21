@@ -40,10 +40,13 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 /** How wide `b` is along `axis`. */
 
+/** Whether `o` is walked through, not into: what cannot be (see `intangible`), and grass. */
+export const passable = (o: THREE.Object3D): boolean =>
+  intangible(o) || !!(o as THREE.Mesh).geometry?.userData.grass;
+
 /**
  * Every solid part of what hangs from `root`, in the world, but for what `skip` says to leave
- * out (and all that hangs from it), what cannot be walked into (see `intangible`), and what is
- * hidden.
+ * out (and all that hangs from it), and what is walked through (see `passable`) or hidden.
  */
 export function solidParts(
   root: THREE.Object3D,
@@ -52,7 +55,7 @@ export function solidParts(
   root.updateMatrixWorld(true);
   const parts: SolidPart[] = [];
   const take = (o: THREE.Object3D) => {
-    if (skip(o) || intangible(o)) return;
+    if (skip(o) || passable(o)) return;
     const mesh = o as THREE.Mesh;
     if (mesh.isMesh) parts.push(...partsOf(mesh));
     o.children.forEach(take);

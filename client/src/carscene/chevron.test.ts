@@ -16,7 +16,7 @@ import { DEMO_PAGE, SITE_BOARDS, SITE_BUTTONS, SITE_PAD } from './jobsite.ts';
 import { intangible } from './meshWalk.ts';
 import { CHEVRON_BAYS, CHEVRON_HALF, CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
-import { coverOf, sceneSolid, solidParts } from './solidParts.ts';
+import { coverOf, passable, sceneSolid, solidParts } from './solidParts.ts';
 import type { SolidPart } from './solidParts.ts';
 import type { CarScene, Place } from './scene.ts';
 import { carSolids } from './walk.ts';
@@ -235,6 +235,37 @@ function blockBox(b: {
 /** Whether `inner` lies inside `outer`, to a centimetre. */
 const within = (inner: Box, outer: Box, slack = 0.01) =>
   bounds(outer).expandByScalar(slack).containsBox(bounds(inner));
+
+/** How high above the ground what lies on it is walked over, and laid nothing out by. */
+const UNDERFOOT = 0.06;
+/** How high a ledge round the foot of something is stepped up on, and laid out by as part of it. */
+const LEDGE = 0.35;
+/** How far what juts from a wall high enough to be overhead (see `covering`) is the wall's. */
+const [OVERHEAD, JUT] = [0.6, 0.2];
+
+/**
+ * Whether `boxes` hold all of `inner` between them, to `slack`: at points through it no further
+ * apart than a few centimetres (or as many as eight along a side).
+ */
+function heldBy(inner: Box, boxes: Box[], slack: number): boolean {
+  const b = bounds(inner);
+  const near = boxes.map((o) => bounds(o).expandByScalar(slack)).filter((o) => o.intersectsBox(b));
+  if (near.some((o) => o.containsBox(b))) return true;
+  if (!near.length) return false;
+  const n = [0, 1, 2].map((i) => Math.min(8, Math.max(2, Math.ceil(inner[3 + i]! / 0.05) + 1)));
+  const at = new THREE.Vector3();
+  for (let i = 0; i < n[0]!; i++)
+    for (let j = 0; j < n[1]!; j++)
+      for (let k = 0; k < n[2]!; k++) {
+        at.set(
+          b.min.x + ((b.max.x - b.min.x) * i) / (n[0]! - 1),
+          b.min.y + ((b.max.y - b.min.y) * j) / (n[1]! - 1),
+          b.min.z + ((b.max.z - b.min.z) * k) / (n[2]! - 1),
+        );
+        if (!near.some((o) => o.containsPoint(at))) return false;
+      }
+  return true;
+}
 
 /** Leaves out every box another holds. */
 function pruned(boxes: Box[]): Box[] {
@@ -537,9 +568,16 @@ function chevronScene(): ChevronScene {
     const held = [...rough, ...walls];
     for (const s of solids)
       for (const piece of coverOf(s)) {
+        // What lies on the ground underfoot, a paving stone or a pebble, is walked over.
+        if (piece.max.y < UNDERFOOT) continue;
         const b = boxOf(piece);
-        // What lies on a wall's face, a panel or a skirting, is the wall's for laying out by.
-        if (!held.some((r) => within(b, r, 0.03))) out.push(b);
+        // What lies on a wall's face, a panel or a skirting, is the wall's for laying out by, and
+        // a house's floor under its walls the floor's and the walls', a ledge it stands out by
+        // that is stepped up on as well.
+        if (heldBy(b, held, piece.max.y < LEDGE ? 0.12 : 0.03)) continue;
+        // And what juts from a wall over the dog's head, a sill or a gutter, the wall's too.
+        if (piece.min.y > OVERHEAD && heldBy(b, walls, JUT)) continue;
+        out.push(b);
       }
     return pruned(out);
   };
@@ -724,7 +762,7 @@ describe('Chevron Street’s solids', () => {
       const left = unmet(gamesOwn(scene));
       const meshes: THREE.Mesh[] = [];
       const take = (o: THREE.Object3D) => {
-        if (left(o) || intangible(o)) return;
+        if (left(o) || passable(o)) return;
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
           const span = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3());
