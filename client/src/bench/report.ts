@@ -500,7 +500,7 @@ export class BenchReport {
     table.innerHTML =
       '<thead><tr><th>Phase</th><th>Time</th><th>Average</th><th></th><th>1% low</th>' +
       '<th>99th frame</th><th>Worst</th><th>Over 33 ms</th><th>Game work</th>' +
-      '<th>Graphics card</th><th>Draw calls</th><th>Triangles</th><th>Shader compiles</th>' +
+      '<th>GPU</th><th>Draw calls</th><th>Triangles</th><th>Shaders</th>' +
       '</tr></thead>';
     const body = document.createElement('tbody');
     const sums = this.spans.map((s) => summarize(s.frames));
@@ -603,9 +603,10 @@ export class BenchReport {
         w.kind === 'loading'
           ? `Loading: ${w.step}`
           : w.kind === 'shaders'
-            ? `${w.programs} shader programs compiled${w.cut ? ' (drawn before all were ready)' : ''}`
+            ? `${w.programs} shader ${w.programs === 1 ? 'program' : 'programs'} compiled` +
+              (w.cut ? ' (drawn before all were ready)' : '')
             : w.kind === 'stored'
-              ? `${w.textures} painted textures read from the browser`
+              ? `${w.textures} painted ${w.textures === 1 ? 'texture' : 'textures'} read from the browser`
               : `Texture ${w.key} ${from[w.from]}`;
       const tr = document.createElement('tr');
       for (const text of [w.t < 0 ? 'before the run' : fmtTime(w.t), what, fmtMs(w.ms)]) {
