@@ -191,6 +191,20 @@ export function doorsIn(root: THREE.Object3D): THREE.Object3D[] {
   return found;
 }
 
+/**
+ * The houses' doors under `root` slid open, and the bus's `bus`: as a game of the car scene has
+ * them, nothing in its houses shutting them.
+ */
+export function openForGame(root: THREE.Object3D, bus: THREE.Object3D): void {
+  root.traverse((o) => {
+    const slide = o.userData.slide as number | undefined;
+    if (o.name === 'door' && slide !== undefined) o.position.x += slide;
+  });
+  const busDoors = doorsIn(bus).filter((d) => d.userData.axis === 'slide');
+  for (const d of busDoors) (d.userData.swing as Swing).shut = false;
+  new CarDoors(busDoors).update(1, null);
+}
+
 /** The vehicles' doors, swinging, and the one the crosshair is on. */
 export class CarDoors {
   /** The door's hinge the crosshair is on: what a click opens or shuts. */

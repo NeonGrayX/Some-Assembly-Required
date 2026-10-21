@@ -91,6 +91,26 @@ export interface BoxDef {
   role?: 'wall' | 'southFence' | 'shutterSlats';
   /** Drawn by the level's models (see `SceneryDef`): nothing is drawn for the box itself. */
   scenery?: true;
+  /**
+   * A rough box round some of the level's models, which the map is laid out by (its pages, its
+   * bins, the dog's walks) but which nothing meets: the level's `solids` are solid in its place.
+   */
+  rough?: true;
+}
+
+/**
+ * Something solid of a level's models, as the model is made (see `LevelDef.solids`): a `box` of
+ * `size`, or something round of radius `r`: a `ball`, a `can` (a cylinder `h` tall), a `cone`
+ * (`h` tall, its point up) or a `capsule` (`h` between its ends' middles), upright along y. Its
+ * middle is `at`, and it is turned by `turn` (square to the axes if left out).
+ */
+export interface SolidDef {
+  shape: 'box' | 'ball' | 'can' | 'cone' | 'capsule';
+  at: Vec3;
+  turn?: Quat;
+  size?: Vec3;
+  r?: number;
+  h?: number;
 }
 
 export type BoxModel =
@@ -783,6 +803,11 @@ export interface LevelDef {
    */
   sea?: number;
   boxes: BoxDef[];
+  /**
+   * What is solid of the level's models (see `SceneryDef`), part by part as each is made: what
+   * players, bricks and the camera meet in place of the rough boxes the map is laid out by.
+   */
+  solids?: SolidDef[];
   decals: DecalDef[];
   /**
    * The brick works: moulding machines, the pellet silo, the mould dispenser and the UV

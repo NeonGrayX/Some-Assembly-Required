@@ -1,3 +1,4 @@
+import { IDENTITY, mulQuat, yawQuat } from '../../math.ts';
 import type { Vec3 } from '../../math.ts';
 import {
   MACHINES,
@@ -19,6 +20,7 @@ import type {
   MachineKind,
   ParkingDef,
   SceneryDef,
+  SolidDef,
 } from '../house.ts';
 import {
   DOG_CLEAR,
@@ -37,6 +39,8 @@ import {
 import { RIVAL_WALL } from '../rival.ts';
 import { CHEVRON_SCENE } from './chevronScene.ts';
 
+export { CHEVRON_SCENE };
+
 /**
  * Chevron Street: the car scene as a map, laid out as its plan has it. Along the north two
  * houses, the small one the site office with the quality inspector beside it; across the middle
@@ -52,6 +56,15 @@ import { CHEVRON_SCENE } from './chevronScene.ts';
 
 /** A box: its middle and its size, x y z each. */
 export type SceneBox = [number, number, number, number, number, number];
+/**
+ * A solid part of a model (see `SolidDef`), its shape first (see `SOLID_SHAPES`), then its
+ * middle, x y z: a box's size, x y z, or a round one's radius and height; and last, if it is
+ * turned, its turn as a quaternion, x y z w.
+ */
+export type SceneSolid = number[];
+
+/** What each `SceneSolid`'s first number stands for. */
+export const SOLID_SHAPES = ['box', 'ball', 'can', 'cone', 'capsule'] as const;
 /** A room: its floor's rectangle, x0 z0 x1 z1, and its floor's and ceiling's heights. */
 export type SceneRoom = [number, number, number, number, number, number];
 /** A parking bay's rectangle, x0 z0 x1 z1. */
@@ -59,8 +72,13 @@ export type SceneBay = [number, number, number, number];
 
 /** What `chevronScene.ts` holds: the car scene's solids and places, in its own axes. */
 export interface ChevronScene {
-  /** What is solid and stays put. */
+  /**
+   * What is solid and stays put, roughly: what the map is laid out by (its pages, its bins, the
+   * dog's walks). What is met is `solids`.
+   */
   boxes: SceneBox[];
+  /** What is solid and stays put, part by part as the models are made. */
+  solids: SceneSolid[];
   /** The houses' walls, full height and thin. */
   walls: SceneBox[];
   /** The big house's roof's slopes: boxes tilted about x, the tilt last. */
@@ -130,6 +148,7 @@ export interface ChevronScene {
 interface SceneVehicle {
   middle: [number, number];
   boxes: SceneBox[];
+  solids: SceneSolid[];
 }
 
 /** Where the car scene's own origin lies in the level: on the level's. */
@@ -185,6 +204,19 @@ function dockBase(at: Vec3, facing: number): BoxDef {
   };
 }
 
+/** `s` as the level's, its middle placed by `at`. */
+function solidAt(s: SceneSolid, at: (x: number, y: number, z: number) => Vec3): SolidDef {
+  const shape = SOLID_SHAPES[s[0]!]!;
+  const box = shape === 'box';
+  const q = s.slice(box ? 7 : 6);
+  return {
+    shape,
+    at: at(s[1]!, s[2]!, s[3]!),
+    ...(box ? { size: { x: s[4]!, y: s[5]!, z: s[6]! } } : { r: s[4]!, h: s[5] ?? 0 }),
+    ...(q.length === 4 && { turn: { x: q[0]!, y: q[1]!, z: q[2]!, w: q[3]! } }),
+  };
+}
+
 /** The side a box faces whose front looks along yaw `facing`, to the nearest quarter. */
 function frontFacing(facing: number): NonNullable<BoxDef['front']> {
   const q = ((Math.round(facing / (Math.PI / 2)) % 4) + 4) % 4;
@@ -235,8 +267,10 @@ export function chevronTry(seed: number): LevelDef {
     park('sports', shorts[1]!),
     { vehicle: 'bus', x: busX, z: busZ, turned: bus !== 0 },
   ];
+  // The scene's own parts, as they are made; the rough boxes round them only lay the map out.
+  const solids: SolidDef[] = S.solids.map((s) => solidAt(s, at));
   const boxes: BoxDef[] = [
-    ...S.boxes.map((b) => solid(b)),
+    ...S.boxes.map((b) => solid(b, { rough: true })),
     ...S.walls.map((b): BoxDef => ({
       pos: at(b[0], b[1], b[2]),
       size: { x: b[3], y: b[4], z: b[5] },
@@ -268,6 +302,14 @@ export function chevronTry(seed: number): LevelDef {
       const [x, z] = to(b[0], b[2]);
       parkedBoxes.push([tidy(x), b[1], tidy(z), b[3], b[4], b[5]]);
     }
+    for (const part of v.solids) {
+      const d = solidAt(part, (x, y, z) => {
+        const [px, pz] = to(x, z);
+        return at(px, y, pz);
+      });
+      if (p.turned) d.turn = mulQuat(yawQuat(Math.PI), d.turn ?? IDENTITY);
+      solids.push(d);
+    }
     if (p.vehicle === 'bus') {
       const c = S.vehicles.bus.cabin;
       const [a, b] = [to(c[0], c[1]), to(c[2], c[3])];
@@ -287,7 +329,7 @@ export function chevronTry(seed: number): LevelDef {
       }
     }
   }
-  boxes.push(...parkedBoxes.map((b) => solid(b)));
+  boxes.push(...parkedBoxes.map((b) => solid(b, { rough: true })));
   /** Whether (`x`, `z`) lies under a parked vehicle, or right by one. */
   const buried = (x: number, z: number) =>
     parkedBoxes.some(
@@ -383,6 +425,7 @@ export function chevronTry(seed: number): LevelDef {
     floorSize: 2 * H,
     scenery: { kind: 'chevron', x: ox, z: oz, parked } satisfies SceneryDef,
     boxes,
+    solids,
     decals: [],
     machines,
     baseplate: at(bx, by, bz),
