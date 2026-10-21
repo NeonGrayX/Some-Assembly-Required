@@ -103,15 +103,17 @@ export interface BoxDef {
  * `roundBox` its edges rounded `r`), or something round of radius `r`: a `ball`, a `can` (a
  * cylinder `h` tall), a `cone` (`h` tall, its point up) or a `capsule` (`h` between its ends'
  * middles), upright along y. Its middle is `at`, and it is turned by `turn` (square to the axes
- * if left out).
+ * if left out). Or a part with little or no bulge in, met as the `hull` round its corners
+ * (`points`, x y z each from its middle).
  */
 export interface SolidDef {
-  shape: 'box' | 'ball' | 'can' | 'cone' | 'capsule' | 'roundBox';
+  shape: 'box' | 'ball' | 'can' | 'cone' | 'capsule' | 'roundBox' | 'hull';
   at: Vec3;
   turn?: Quat;
   size?: Vec3;
   r?: number;
   h?: number;
+  points?: number[];
 }
 
 /** One of a level's meshes (see `LevelDef.meshes`): each of its points turned by `turn`, then moved by `at`. */

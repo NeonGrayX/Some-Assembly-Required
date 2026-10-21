@@ -981,17 +981,19 @@ export function solidDesc(R: typeof RAPIER, s: SolidDef, place: MeshDef): Collid
   const size = s.size ?? { x: 0, y: 0, z: 0 };
   const round = (d: number) => Math.max(1e-4, d / 2 - r);
   const desc =
-    s.shape === 'box'
-      ? R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
-      : s.shape === 'roundBox'
-        ? R.ColliderDesc.roundCuboid(round(size.x), round(size.y), round(size.z), r)
-        : s.shape === 'ball'
-          ? R.ColliderDesc.ball(r)
-          : s.shape === 'can'
-            ? R.ColliderDesc.cylinder(half, r)
-            : s.shape === 'cone'
-              ? R.ColliderDesc.cone(half, r)
-              : R.ColliderDesc.capsule(half, r);
+    s.shape === 'hull'
+      ? R.ColliderDesc.convexHull(new Float32Array(s.points!))!
+      : s.shape === 'box'
+        ? R.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2)
+        : s.shape === 'roundBox'
+          ? R.ColliderDesc.roundCuboid(round(size.x), round(size.y), round(size.z), r)
+          : s.shape === 'ball'
+            ? R.ColliderDesc.ball(r)
+            : s.shape === 'can'
+              ? R.ColliderDesc.cylinder(half, r)
+              : s.shape === 'cone'
+                ? R.ColliderDesc.cone(half, r)
+                : R.ColliderDesc.capsule(half, r);
   const turn = place.turn ?? IDENTITY;
   const at = add(rotate(turn, s.at), place.at);
   return desc.setTranslation(at.x, at.y, at.z).setRotation(mulQuat(turn, s.turn ?? IDENTITY));
@@ -1001,8 +1003,11 @@ export function solidDesc(R: typeof RAPIER, s: SolidDef, place: MeshDef): Collid
 export function meshDescs(R: typeof RAPIER, place: MeshDef): ColliderDesc[] {
   const { shapes, vertices, indices } = meshOf(place.mesh);
   const { at } = place;
+  const shapeDescs = shapes.map((s) => solidDesc(R, s, place));
+  // A mesh made wholly of shapes has no triangles left, and an empty trimesh can't be made.
+  if (!indices.length) return shapeDescs;
   return [
-    ...shapes.map((s) => solidDesc(R, s, place)),
+    ...shapeDescs,
     R.ColliderDesc.trimesh(vertices, indices)
       .setTranslation(at.x, at.y, at.z)
       .setRotation(place.turn ?? IDENTITY),

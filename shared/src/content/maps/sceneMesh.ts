@@ -16,12 +16,13 @@ export interface SceneMesh {
 /**
  * A shape of the models (see `SolidDef`), its kind first (see `SOLID_SHAPES`), then its middle,
  * x y z: a box's size, x y z (and a rounded box's radius after it), or a round one's radius and
- * height; and last, if it is turned, its turn as a quaternion, x y z w.
+ * height; and last, if it is turned, its turn as a quaternion, x y z w. A hull's middle is
+ * followed by its corners instead, x y z each from its middle.
  */
 export type SceneSolid = number[];
 
 /** What each `SceneSolid`'s first number stands for. */
-export const SOLID_SHAPES = ['box', 'ball', 'can', 'cone', 'capsule', 'roundBox'] as const;
+export const SOLID_SHAPES = ['box', 'ball', 'can', 'cone', 'capsule', 'roundBox', 'hull'] as const;
 
 /** How fine the triangles' corners are snapped (m). */
 export const MESH_GRAIN = 0.02;
@@ -29,6 +30,7 @@ export const MESH_GRAIN = 0.02;
 /** `s` as a level's, its middle placed by `at`. */
 export function solidAt(s: SceneSolid, at: (x: number, y: number, z: number) => Vec3): SolidDef {
   const shape = SOLID_SHAPES[s[0]!]!;
+  if (shape === 'hull') return { shape, at: at(s[1]!, s[2]!, s[3]!), points: s.slice(4) };
   const sized = shape === 'box' || shape === 'roundBox';
   const q = s.slice(shape === 'box' ? 7 : shape === 'roundBox' ? 8 : 6);
   return {
