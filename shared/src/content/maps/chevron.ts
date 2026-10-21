@@ -149,6 +149,8 @@ export interface ChevronScene {
 
 interface SceneVehicle {
   middle: [number, number];
+  /** Whether the scene parks it turned end for end (see `ParkingDef`). */
+  turned: boolean;
   boxes: SceneBox[];
 }
 
@@ -291,7 +293,8 @@ export function chevronTry(seed: number): LevelDef {
   for (const p of parked) {
     const v = S.vehicles[p.vehicle];
     const [mx, mz] = v.middle;
-    const s = p.turned ? -1 : 1;
+    // Turned end for end from as the scene parks it, or not.
+    const s = p.turned === v.turned ? 1 : -1;
     /** Where (`x`, `z`) on the vehicle as the scene parks it is, parked here. */
     const to = (x: number, z: number) => [p.x + s * (x - mx), p.z + s * (z - mz)] as const;
     for (const b of v.boxes) {
@@ -301,7 +304,7 @@ export function chevronTry(seed: number): LevelDef {
     // Its mesh is as the scene parks it: moved, or turned end for end about its middle.
     const place = {
       at: at(p.x + s * -mx, 0, p.z + s * -mz),
-      ...(p.turned && { turn: yawQuat(Math.PI) }),
+      ...(s < 0 && { turn: yawQuat(Math.PI) }),
     };
     meshes.push({ mesh: `chevron ${p.vehicle}`, ...place });
     if (p.vehicle === 'bus') {

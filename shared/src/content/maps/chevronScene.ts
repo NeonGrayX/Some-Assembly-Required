@@ -3043,6 +3043,7 @@ export const CHEVRON_SCENE: ChevronScene = {
   vehicles: {
     car: {
       middle: [11.75,0.5],
+      turned: true,
       boxes: [
         [11.75,1.519,0.5,5.675,2.717,2.888],
         [10.247,0.258,1.468,0.206,0.263,0.311],
@@ -3053,12 +3054,14 @@ export const CHEVRON_SCENE: ChevronScene = {
     },
     sports: {
       middle: [-5.75,3.9],
+      turned: true,
       boxes: [
         [-5.75,0.841,3.9,5.06,1.363,2.636],
       ],
     },
     bus: {
       middle: [10.5,3.9],
+      turned: false,
       cabin: [6.527,2.88,12.917,4.92,0.83,3.14],
       doors: [[12.218,1.569,5.107,0,0,0.14,-0.94,0,0],[6.435,1.835,3.651,0,0,0,0,0,-0.5],[6.435,1.835,4.149,0,0,0,0,0,0.5]],
       boxes: [

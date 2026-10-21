@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BASEPLATE_SIZE, DOOR_THICKNESS, IDENTITY, meshDescs } from '@sar/shared';
-import type { ChevronScene, SceneBox, SceneDoor, SceneMesh } from '@sar/shared';
+import { BASEPLATE_SIZE, DOOR_THICKNESS, IDENTITY, MAPS, meshDescs } from '@sar/shared';
+import type { ChevronScene, LevelDef, SceneBox, SceneDoor, SceneMesh } from '@sar/shared';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { BUS_BODY, BUS_CABIN } from './bus.ts';
 import { CarDoors, openForGame, slidingDoors } from './doors.ts';
@@ -443,6 +443,7 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
     if (prop.name === 'prop') take(prop);
 
   const cut = (bs: Box[]) => bs.map((b) => cutBehind(b, hideouts));
+  const turned = (k: keyof typeof vehicles) => L.parked.find((p) => p.vehicle === k)!.turned;
   const middle = (k: keyof typeof vehicles) => {
     const c = spans[k]!.getCenter(new THREE.Vector3());
     return [mm(c.x), mm(c.z)] as [number, number];
@@ -646,14 +647,17 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
     vehicles: {
       car: {
         middle: middle('car'),
+        turned: turned('car'),
         boxes: covering(owned.car, vehicleSolids.car),
       },
       sports: {
         middle: middle('sports'),
+        turned: turned('sports'),
         boxes: covering(owned.sports, vehicleSolids.sports),
       },
       bus: {
         middle: middle('bus'),
+        turned: turned('bus'),
         boxes: covering(owned.bus, vehicleSolids.bus),
         cabin: [
           mm(cabin.min.x),
@@ -697,8 +701,12 @@ function source(scene: ChevronScene): string {
   const lines = (rows: unknown[], pad: string) =>
     rows.map((r) => `${pad}${JSON.stringify(r)},`).join('\n');
   const { boxes, walls, roofs, vehicles, hideouts, gadgets, bins, bays, ...rest } = scene;
-  const vehicle = (name: string, v: { middle: [number, number]; boxes: Box[] }, more = '') =>
-    `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
+  const vehicle = (
+    name: string,
+    v: { middle: [number, number]; turned: boolean; boxes: Box[] },
+    more = '',
+  ) =>
+    `    ${name}: {\n      middle: ${JSON.stringify(v.middle)},\n      turned: ${v.turned},${more}\n      boxes: [\n${lines(v.boxes, '        ')}\n      ],\n    },`;
   return [
     '// Worked out from the car scene’s models by client/src/carscene/chevron.test.ts: not to be',
     '// edited by hand (see there). In the car scene’s own axes.',
@@ -822,6 +830,66 @@ function modelTops(
   return tops;
 }
 
+/**
+ * Where what is met in `world` stands over or under what is drawn in `meshes` by more than the
+ * slack, all round a cell, on an `nx × nz` grid TOP_CELL square from (`x0`, `z0`): `world` is
+ * `shift` along x and z from the drawing.
+ */
+function mismatches(
+  meshes: THREE.Mesh[],
+  world: RAPIER.World,
+  x0: number,
+  z0: number,
+  nx: number,
+  nz: number,
+  shift = { x: 0, z: 0 },
+): string[] {
+  // What is drawn anywhere in a cell, to stand on; what is drawn over its middle, to fall into.
+  const [over, mid] = [true, false].map((edges) => modelTops(meshes, x0, z0, nx, nz, edges));
+  const met = new Float32Array(nx * nz);
+  for (let i = 0; i < nx; i++)
+    for (let k = 0; k < nz; k++) {
+      const [x, z] = [x0 + (i + 0.5) * TOP_CELL + shift.x, z0 + (k + 0.5) * TOP_CELL + shift.z];
+      const hit = world.castRay(new RAPIER.Ray({ x, y: 12, z }, { x: 0, y: -1, z: 0 }), 12, true);
+      met[i * nz + k] = hit ? Math.max(0, 12 - hit.timeOfImpact) : 0;
+    }
+  // Out by more than the slack all round a cell, a player's foot's width: a model's edge filled
+  // out a little on its grid is no matter.
+  const wrong: string[] = [];
+  const off = (i: number, k: number, d: number) =>
+    d * (met[i * nz + k]! - (d > 0 ? over : mid)![i * nz + k]!) > TOP_SLACK;
+  for (let i = 1; i + 1 < nx; i++)
+    for (let k = 1; k + 1 < nz; k++)
+      for (const [d, what] of [
+        [1, 'stood on air'],
+        [-1, 'fallen into'],
+      ] as const) {
+        let all = true;
+        for (let di = -1; di <= 1 && all; di++)
+          for (let dk = -1; dk <= 1 && all; dk++) all = off(i + di, k + dk, d);
+        if (all) {
+          const [x, z] = [x0 + (i + 0.5) * TOP_CELL, z0 + (k + 0.5) * TOP_CELL];
+          wrong.push(
+            `${what} at ${x.toFixed(2)}, ${z.toFixed(2)}: met ${met[i * nz + k]!.toFixed(2)}, drawn ${(d > 0 ? over : mid)![i * nz + k]!.toFixed(2)}`,
+          );
+        }
+      }
+  return wrong;
+}
+
+/** The meshes under `root` that are met, as `sceneMesh` takes them, but for what `left` leaves. */
+function metMeshes(root: THREE.Object3D, left: (o: THREE.Object3D) => boolean): THREE.Mesh[] {
+  const meshes: THREE.Mesh[] = [];
+  const take = (o: THREE.Object3D) => {
+    if (left(o) || passable(o) || intangible(o)) return;
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) meshes.push(mesh);
+    o.children.forEach(take);
+  };
+  take(root);
+  return meshes;
+}
+
 describe('Chevron Street’s solids', () => {
   it(
     'are where the models are: no standing on air, and no falling into what is drawn',
@@ -831,16 +899,7 @@ describe('Chevron Street’s solids', () => {
       const scene = buildCarScene({ noWorks: true, layout: CHEVRON_LAYOUT });
       // With its doors shut, as a game's stand while nobody is by them.
       scene.root.updateMatrixWorld(true);
-      // The models' meshes that are met, as `sceneMesh` takes them.
-      const left = unmet(gamesOwn(scene));
-      const meshes: THREE.Mesh[] = [];
-      const take = (o: THREE.Object3D) => {
-        if (left(o) || passable(o) || intangible(o)) return;
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) meshes.push(mesh);
-        o.children.forEach(take);
-      };
-      take(scene.root);
+      const meshes = metMeshes(scene.root, unmet(gamesOwn(scene)));
       // What is met: the street's meshes, the vehicles' parked as the scene parks them, and the
       // sliding doors shut, as the game builds them.
       const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
@@ -858,41 +917,64 @@ describe('Chevron Street’s solids', () => {
       world.step();
       const H = CHEVRON_HALF;
       const n = Math.round((2 * H) / TOP_CELL);
-      // What is drawn anywhere in a cell, to stand on; what is drawn over its middle, to fall into.
-      const [over, mid] = [true, false].map((edges) => modelTops(meshes, -H, -H, n, n, edges));
-      const met = new Float32Array(n * n);
-      for (let i = 0; i < n; i++)
-        for (let k = 0; k < n; k++) {
-          const [x, z] = [-H + (i + 0.5) * TOP_CELL, -H + (k + 0.5) * TOP_CELL];
-          const hit = world.castRay(
-            new RAPIER.Ray({ x, y: 12, z }, { x: 0, y: -1, z: 0 }),
-            12,
-            true,
-          );
-          met[i * n + k] = hit ? Math.max(0, 12 - hit.timeOfImpact) : 0;
-        }
-      // Out by more than the slack all round a cell, a player's foot's width: a model's edge
-      // filled out a little on its grid is no matter.
-      const wrong: string[] = [];
-      const off = (i: number, k: number, d: number) =>
-        d * (met[i * n + k]! - (d > 0 ? over : mid)![i * n + k]!) > TOP_SLACK;
-      for (let i = 1; i + 1 < n; i++)
-        for (let k = 1; k + 1 < n; k++)
-          for (const [d, what] of [
-            [1, 'stood on air'],
-            [-1, 'fallen into'],
-          ] as const) {
-            let all = true;
-            for (let di = -1; di <= 1 && all; di++)
-              for (let dk = -1; dk <= 1 && all; dk++) all = off(i + di, k + dk, d);
-            if (all) {
-              const [x, z] = [-H + (i + 0.5) * TOP_CELL, -H + (k + 0.5) * TOP_CELL];
-              wrong.push(
-                `${what} at ${x.toFixed(2)}, ${z.toFixed(2)}: met ${met[i * n + k]!.toFixed(2)}, drawn ${(d > 0 ? over : mid)![i * n + k]!.toFixed(2)}`,
-              );
-            }
-          }
+      const wrong = mismatches(meshes, world, -H, -H, n, n);
       expect(wrong).toEqual([]);
+    },
+  );
+
+  it(
+    'are where a round draws each vehicle, turned end for end or not',
+    { timeout: 600000 },
+    async () => {
+      await RAPIER.init();
+      const chevron = MAPS.find((m) => m.id === 'chevron')!;
+      // A round for each way each car can park.
+      const rounds: LevelDef[] = [];
+      const ways = new Set<string>();
+      for (let seed = 1; ways.size < 4 && seed < 40; seed++) {
+        const level = chevron.layout(seed);
+        const fresh = level
+          .scenery!.parked.filter((p) => p.vehicle !== 'bus')
+          .map((p) => `${p.vehicle} ${p.turned}`)
+          .filter((w) => !ways.has(w));
+        if (!fresh.length) continue;
+        fresh.forEach((w) => ways.add(w));
+        rounds.push(level);
+      }
+      expect(ways.size).toBe(4);
+      for (const level of rounds) {
+        const def = level.scenery!;
+        const scene = buildCarScene({ noWorks: true, layout: CHEVRON_LAYOUT, parked: def.parked });
+        scene.root.updateMatrixWorld(true);
+        const left = unmet(gamesOwn(scene));
+        // The vehicles' meshes and the bus's doors, as the level places them.
+        const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+        for (const place of [
+          ...level.meshes!.filter((m) => m.mesh !== 'chevron'),
+          ...level
+            .slidingDoors!.filter((d) => d.mesh.mesh.startsWith('chevron bus'))
+            .map((d) => d.mesh),
+        ])
+          for (const desc of meshDescs(RAPIER, place)) world.createCollider(desc);
+        world.step();
+        for (const v of [scene.car, scene.sports, scene.bus]) {
+          const span = new THREE.Box3().setFromObject(v.root).expandByScalar(0.3);
+          const [nx, nz] = [span.max.x - span.min.x, span.max.z - span.min.z].map((d) =>
+            Math.ceil(d / TOP_CELL),
+          );
+          const wrong = mismatches(
+            metMeshes(v.root, left),
+            world,
+            span.min.x,
+            span.min.z,
+            nx!,
+            nz!,
+            def,
+          );
+          const turned = def.parked.find((p) => v.root === scene[p.vehicle].root)!.turned;
+          expect(wrong, `${v.root.name || 'vehicle'} turned ${turned}`).toEqual([]);
+        }
+      }
     },
   );
 });
