@@ -81,9 +81,10 @@ const STREET: StreetPlan = {
     { x: 4.4, side: 'south', length: 2.5 },
   ],
   furniture: [
-    // Before the houses: a hydrant, a bin and a charging post.
+    // Before the houses: a hydrant, a pair of bins and a charging post.
     { kind: 'hydrant', x: -10, side: 'south', back: 1.5 },
     { kind: 'bin', x: -15.2, side: 'south', back: 1.7, toRoad: true },
+    { kind: 'bin', x: -14.6, side: 'south', back: 1.7, toRoad: true, colour: BUS.yellow },
     { kind: 'charger', x: 14.5, side: 'south', back: 1.8, toRoad: true },
     // Along the lot: a pair of bins by the bus stop, a bench, a planter, bollards at the crossing.
     { kind: 'bin', x: -15.2, side: 'north', back: 1.75, toRoad: true },

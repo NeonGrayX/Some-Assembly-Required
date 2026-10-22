@@ -391,6 +391,39 @@ describe('the Chevron Street map', () => {
     }
   });
 
+  it('stands its bins out of doors in pairs, a teal and a yellow side by side', () => {
+    const [teal, yellow] = [0x2c6670, 0xf0bd1c];
+    for (let seed = 1; seed <= 12; seed++) {
+      const level = chevron.layout(seed);
+      const bins = level.boxes.filter(isTrashBin);
+      expect(bins.length, `seed ${seed}`).toBeLessThanOrEqual(11);
+      const outdoors = bins.filter(
+        (b) =>
+          !level.interiors.some(
+            (i) =>
+              i.rect.x0 <= b.pos.x &&
+              b.pos.x <= i.rect.x1 &&
+              i.rect.z0 <= b.pos.z &&
+              b.pos.z <= i.rect.z1,
+          ),
+      );
+      expect(outdoors.length % 2, `seed ${seed}`).toBe(0);
+      for (const b of outdoors) {
+        // Its partner beside it: the other colour, facing the same way, along its side.
+        const sideways = b.front === '+x' || b.front === '-x';
+        const pair = outdoors.filter(
+          (o) =>
+            o !== b &&
+            o.front === b.front &&
+            o.colour === (b.colour === teal ? yellow : teal) &&
+            Math.abs(sideways ? o.pos.x - b.pos.x : o.pos.z - b.pos.z) < 0.01 &&
+            Math.abs(Math.abs(sideways ? o.pos.z - b.pos.z : o.pos.x - b.pos.x) - 0.6) < 0.01,
+        );
+        expect(pair, `seed ${seed}: the bin at ${b.pos.x}, ${b.pos.z}`).toHaveLength(1);
+      }
+    }
+  });
+
   it('slides each sliding door open while a player is by it, and shut after', () => {
     const level = chevron.layout(1);
     const doors = level.slidingDoors!;
