@@ -1,5 +1,9 @@
 import { BIG_HOUSE_BODY } from './bighouse.ts';
+import { HOUSE_DOOR } from './house.ts';
+import { INSPECTOR_PAD } from './inspector.ts';
+import type { Rect } from './paint.ts';
 import { BAY, BRICK_WORKS } from './scene.ts';
+import type { GroundCover } from './ground.ts';
 import type { CarSceneLayout, Place, RoadWorks } from './scene.ts';
 import type { StreetPlan } from './street.ts';
 import { BUS } from './bus.ts';
@@ -102,6 +106,83 @@ const OFFICE: Place = { x: 8.1, z: -13.6, heading: -Math.PI / 2 };
 /** The job site, its corkboards on its west and its Done button and bell on its east. */
 const JOB_SITE: Place = { x: 0, z: 9.5, heading: 0 };
 
+/** The quality inspector, in the office's yard on its east side, a build carried in from the street. */
+const INSPECTOR: Place = { x: 13.2, z: -12.4, heading: -Math.PI / 2 };
+/** The power cabinet, in the alley between the houses, its doors to the street. */
+const POWER: Place = { x: 2.6, z: -14.6, heading: -Math.PI / 2 };
+
+/** The back of each pavement: the lot's and the houses'. */
+const BACK = { lot: ROAD.lot + STREET.pavement, houses: ROAD.houses - STREET.pavement };
+
+/**
+ * A path of slabs a metre or more wide from under the houses' pavement out to `z`, its middle
+ * at `x`.
+ */
+function path(x: number, z: number, wide = 1): Rect {
+  const z1 = BACK.houses + 0.2;
+  return [x - wide / 2, z, wide, z1 - z];
+}
+
+/**
+ * The open ground: the lot gravelled from under its pavement to the hoarding, cut off straight
+ * at the map's south edge, where a rival team's lot meets it; ruts worn in from the gateway to
+ * the job site and round to the pallets by the start. Lawns all round the houses, under the
+ * yards' cobbles, out to the hedges, and paths over them from the pavement to the office's door,
+ * up to the inspector's pad, and up the alley to the power cabinet. Past the map's other edges
+ * they are brushed out over the floor.
+ */
+const COVER: GroundCover = {
+  gravel: {
+    outline: square(-CHEVRON_HALF - 0.6, BACK.lot - 0.3, CHEVRON_HALF + 0.6, CHEVRON_HALF + 0.8),
+    tracks: [
+      [
+        [0.3, CHEVRON_HALF + 1],
+        [0.2, 14.5],
+        [0, JOB_SITE.z + 1.1],
+      ],
+      [
+        [-0.5, CHEVRON_HALF + 1],
+        [-0.8, 16.0],
+        [-1.6, 15.35],
+        [-3.0, 15.1],
+        [-5.5, 15.0],
+        [-9.5, 14.6],
+        [-11.1, 14.0],
+        [-12.2, 13.0],
+      ],
+    ],
+    rect: [
+      -CHEVRON_HALF - 1.3,
+      BACK.lot - 0.6,
+      2 * CHEVRON_HALF + 2.6,
+      CHEVRON_HALF - BACK.lot + 0.6,
+    ],
+  },
+  lawns: [
+    {
+      outline: square(
+        -CHEVRON_HALF - 0.6,
+        -CHEVRON_HALF - 0.6,
+        CHEVRON_HALF + 0.6,
+        BACK.houses + 0.3,
+      ),
+      rect: [
+        -CHEVRON_HALF - 1.3,
+        -CHEVRON_HALF - 1.3,
+        2 * CHEVRON_HALF + 2.6,
+        CHEVRON_HALF + BACK.houses + 1.9,
+      ],
+    },
+  ],
+  paths: [
+    // Into the office's cobbles before its door.
+    path(OFFICE.x - HOUSE_DOOR.at, OFFICE.z + 2.8),
+    // Wide enough for a build carried in, to just under the pad's edge.
+    path(INSPECTOR.x, INSPECTOR.z + INSPECTOR_PAD.size / 2 - 0.1, 1.5),
+    path(POWER.x, POWER.z + 0.3),
+  ],
+};
+
 /** Turned from (`x`, `z`) to face `at`. */
 const facing = (x: number, z: number, at: Place) => Math.atan2(at.x - x, at.z - z);
 /** Turned from (`x`, `z`) to light `at` (a mast's lamps look along its +x). */
@@ -113,6 +194,7 @@ const PLAN: CarSceneLayout = {
   // The picture's patch of mossy cobbles where the lot meets the street, by the crossing.
   patch: { x: 0, z: 5.6 },
   roads: [],
+  cover: COVER,
   // Parked as the bays first take them; a round parks them afresh (see `chevronLayout`). The
   // bus with its door to the kerb.
   parked: [
@@ -139,9 +221,8 @@ const PLAN: CarSceneLayout = {
   // In the office's yard on its east side (on the right of it, seen from the street), a build
   // carried in from the street; its screen and short wall behind the pad, on the north, clear of
   // the vacuum's dock on the office's east wall and of the hedges.
-  inspector: { x: 13.2, z: -12.4, heading: -Math.PI / 2 },
-  // In the alley between the houses, its doors to the street.
-  powerCabinet: { x: 2.6, z: -14.6, heading: -Math.PI / 2 },
+  inspector: INSPECTOR,
+  powerCabinet: POWER,
   // Up the big house's east gable, by its back corner, its back to the wall.
   ladder: {
     x: BIG_HOUSE.x + BIG_HOUSE_BODY.depth + 0.62,
@@ -191,6 +272,16 @@ function xz([x, z]: [number, number]): { x: number; z: number } {
   return { x, z };
 }
 
+/** The outline of the rectangle from (`x0`, `z0`) to (`x1`, `z1`). */
+function square(x0: number, z0: number, x1: number, z1: number): [number, number][] {
+  return [
+    [x0, z0],
+    [x1, z0],
+    [x1, z1],
+    [x0, z1],
+  ];
+}
+
 /** Turned half round about the middle. */
 const turn = <T extends { x: number; z: number; heading: number }>(p: T): T => ({
   ...p,
@@ -199,6 +290,8 @@ const turn = <T extends { x: number; z: number; heading: number }>(p: T): T => (
   heading: p.heading + Math.PI,
 });
 const turnBay = (b: Bay): Bay => [-b[2], -b[3], -b[0], -b[1]];
+const turnPoint = ([x, z]: [number, number]): [number, number] => [-x, -z];
+const turnRect = (r: Rect): Rect => [-r[0] - r[2], -r[1] - r[3], r[2], r[3]];
 const other = { north: 'south', south: 'north' } as const;
 
 /** The layout as the plan draws it, turned half round about the middle. */
@@ -207,6 +300,18 @@ function halfTurn(L: CarSceneLayout): CarSceneLayout {
   return {
     ...L,
     patch: { x: -L.patch.x, z: -L.patch.z },
+    cover: L.cover && {
+      gravel: {
+        outline: L.cover.gravel.outline.map(turnPoint),
+        tracks: L.cover.gravel.tracks.map((t) => t.map(turnPoint)),
+        rect: turnRect(L.cover.gravel.rect),
+      },
+      lawns: L.cover.lawns.map((l) => ({
+        outline: l.outline.map(turnPoint),
+        rect: turnRect(l.rect),
+      })),
+      paths: L.cover.paths.map(turnRect),
+    },
     parked: L.parked.map((p) => ({ ...p, x: -p.x, z: -p.z, turned: !p.turned })),
     house: turn(L.house),
     bigHouse: turn(L.bigHouse),
