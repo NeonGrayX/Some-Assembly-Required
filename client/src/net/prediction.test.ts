@@ -12,12 +12,14 @@ beforeAll(async () => {
 /**
  * Runs a client against a room with uneven timing on both sides and messages delayed by a
  * random number of ticks, and counts how often the client's prediction had to be corrected.
+ * `meddle` may have the server let ticks go, as one too slow to catch up on does (see
+ * `catchUp`), by saying how many.
  */
 function play(
   seed: number,
   walk: (t: number) => { forward: number; yaw: number },
   seconds = 20,
-  meddle: (tick: number, room: Room, id: number) => void = () => {},
+  meddle: (tick: number, room: Room, id: number) => number | void = () => {},
 ) {
   const rng = makeRng(seed);
   const toServer: { at: number; msg: ClientMsg }[] = [];
@@ -58,7 +60,9 @@ function play(
     clientDebt += 1;
     const s = rng() < 0.2 ? 0 : rng() < 0.25 ? 2 : 1;
     for (let k = 0; k < Math.min(s, serverDebt); k++, serverDebt--) room.update();
-    meddle(tick, room, id);
+    const gone = meddle(tick, room, id) ?? 0;
+    serverDebt -= gone;
+    room.letGo(gone);
     deliver();
     const c = rng() < 0.2 ? 0 : rng() < 0.25 ? 2 : 1;
     for (let k = 0; k < Math.min(c, clientDebt); k++, clientDebt--) {
@@ -113,5 +117,24 @@ describe('client prediction', () => {
     expect(Math.abs(from.z - server.z - (2 - WORK_STANDOFF))).toBeLessThan(0.1);
     expect(me.works).toBe(1);
     expect(me.work).toBeNull();
+  });
+
+  it('keeps up with the client after the server lets a second go', () => {
+    // A second the server could not catch up on: the client played on through it, and its
+    // inputs for it are worked off over the next few, not applied a second late from then on.
+    let most = 0;
+    play(
+      4,
+      (t) => ({ forward: 1, yaw: t * 0.6 }),
+      20,
+      (tick, room, id) => {
+        if (tick === 5 * 60) return 60;
+        const backlog = (
+          room as unknown as { clients: Map<number, { inputs: unknown[] }> }
+        ).clients.get(id)?.inputs.length;
+        if (tick > 10 * 60) most = Math.max(most, backlog ?? 0);
+      },
+    );
+    expect(most).toBeLessThanOrEqual(6);
   });
 });

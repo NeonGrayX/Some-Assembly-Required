@@ -625,7 +625,7 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
     d.updateMatrixWorld(true);
     const at = d.getWorldPosition(new THREE.Vector3());
     const open = d.parent!.localToWorld(d.position.clone().setX(d.position.x + slide));
-    doorMeshes[`door ${i}`] = sceneMesh(d, null, left);
+    doorMeshes[`door ${i}`] = sceneMesh(d, null, left, true);
     d.position.x += slide;
     d.updateMatrixWorld(true);
     return [...vec(at), 0, 0, 0, ...vec(open.sub(at))];
@@ -650,7 +650,7 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
         along?: THREE.Vector3;
       };
       const axis = new THREE.Vector3(0, u.axis === 'y' ? 1 : 0, u.axis === 'z' ? 1 : 0);
-      doorMeshes[`${k} door ${i}`] = sceneMesh(d, null, left);
+      doorMeshes[`${k} door ${i}`] = sceneMesh(d, null, left, true);
       swing.t = was;
       new CarDoors([d]).update(0, null);
       d.updateMatrixWorld(true);

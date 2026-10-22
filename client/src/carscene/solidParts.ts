@@ -618,14 +618,20 @@ export function sceneSolid(p: SolidPart): SceneSolid {
 /**
  * What hangs from `root` as it is met (see `SceneMesh`), in `frame`'s space (the world if
  * null), but for what `skip` says to leave out (and all that hangs from it), and what is walked
- * through (see `passable`): as the car scene's walker meets it (see `MeshWalker`).
+ * through (see `passable`): as the car scene's walker meets it (see `MeshWalker`). `whole`, it
+ * is met as the one hull round all of it if that hull is no more than `GAP` out of it anywhere
+ * (a door, say: a slab, but for its panels' relief).
  */
 export function sceneMesh(
   root: THREE.Object3D,
   frame: THREE.Matrix4 | null,
   skip: (o: THREE.Object3D) => boolean,
+  whole = false,
 ): SceneMesh {
   root.updateMatrixWorld(true);
+  const solid = (o: THREE.Object3D) => skip(o) || passable(o);
+  const all = whole ? hullOf(meshesOf(root, solid), frame) : null;
+  if (all) return packed([all], new Float32Array(), new Uint32Array());
   const shapes: SceneSolid[] = [];
   const into = (p: SolidPart): SolidPart => {
     if (!frame) return p;
@@ -642,14 +648,19 @@ export function sceneMesh(
     }
     const part = madeShape(mesh);
     if (part) shapes.push(sceneSolid(into(part)));
-    const hull = part ? null : hullOf(mesh, frame);
+    const hull = part ? null : hullOf([mesh], frame);
     if (hull) shapes.push(hull);
     return !!part || !!hull;
   };
-  const { vertices, indices } = triangles(root, frame, (o) => skip(o) || passable(o), apart);
-  const packed = packTriangles(vertices, indices);
+  const { vertices, indices } = triangles(root, frame, solid, apart);
+  return packed(shapes, vertices, indices);
+}
+
+/** `shapes` and the triangles of `vertices` and `indices`, packed (see `SceneMesh`). */
+function packed(shapes: SceneSolid[], vertices: Float32Array, indices: Uint32Array): SceneMesh {
+  const all = packTriangles(vertices, indices);
   const pieces: string[] = [];
-  for (let i = 0; i < packed.length; i += LINE) pieces.push(packed.slice(i, i + LINE));
+  for (let i = 0; i < all.length; i += LINE) pieces.push(all.slice(i, i + LINE));
   return { shapes, triangles: pieces };
 }
 
@@ -666,30 +677,40 @@ const CONVEX = 0.97;
  */
 const GAP = 0.1;
 
+/** The meshes hanging from `root` (and `root`, if one) that are met, but for what `skip` says. */
+function meshesOf(root: THREE.Object3D, skip: (o: THREE.Object3D) => boolean): THREE.Mesh[] {
+  const meshes: THREE.Mesh[] = [];
+  const take = (o: THREE.Object3D, top: boolean) => {
+    if ((!top && skip(o)) || intangible(o)) return;
+    if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+    for (const c of o.children) take(c, false);
+  };
+  take(root, true);
+  return meshes;
+}
+
 /**
- * `mesh`, if it has no bulge in (it fills `CONVEX` of the hull round its corners) or none deeper
- * than `GAP`, as that hull (see `SceneSolid`) in `frame`'s space (the world if null); else null.
- * The character controller meets a hull in one go, where the triangles of the same rounded,
- * bevelled part each cost it a test, every pass it makes: pressed into a corner between two such
- * parts, it made a dozen passes or more a move, over hundreds of triangles.
+ * `meshes`, if together they have no bulge in (one part filling `CONVEX` of the hull round its
+ * corners) or none deeper than `GAP`, as that hull (see `SceneSolid`) in `frame`'s space (the
+ * world if null); else null. The character controller meets a hull in one go, where the
+ * triangles of the same rounded, bevelled part each cost it a test, every pass it makes: pressed
+ * into a corner between two such parts, or against a door's panels set a little way in, it made
+ * a dozen passes or more a move, over hundreds of triangles.
  */
-function hullOf(mesh: THREE.Mesh, frame: THREE.Matrix4 | null): SceneSolid | null {
-  const m = mesh.matrixWorld.clone();
-  if (frame) m.premultiply(frame);
-  const pos = mesh.geometry.attributes.position!;
+function hullOf(meshes: THREE.Mesh[], frame: THREE.Matrix4 | null): SceneSolid | null {
+  const placed = placedGeometry(meshes, frame);
+  const pos = placed.attributes.position!;
+  const index = placed.index!;
   const points = Array.from({ length: pos.count }, (_, i) =>
-    new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m),
+    new THREE.Vector3().fromBufferAttribute(pos, i),
   );
   if (points.length < 4) return null;
   // Its volume, from its triangles (each with the origin), outside out: a shell or anything
-  // open or turned inside out falls short.
-  const index = mesh.geometry.index;
-  const corner = (i: number) => points[index ? index.getX(i) : i]!;
-  const count = index ? index.count : pos.count;
+  // open or turned inside out falls short. (Of parts that overlap, it is more than there is.)
+  const corner = (i: number) => points[index.getX(i)]!;
   let volume = 0;
-  for (let i = 0; i + 2 < count; i += 3)
+  for (let i = 0; i + 2 < index.count; i += 3)
     volume += corner(i).dot(new THREE.Vector3().crossVectors(corner(i + 1), corner(i + 2))) / 6;
-  if (m.determinant() < 0) volume = -volume;
   const hull = new ConvexHull().setFromPoints(points);
   let [whole, area] = [0, 0];
   const corners = new Map<string, THREE.Vector3>();
@@ -703,8 +724,9 @@ function hullOf(mesh: THREE.Mesh, frame: THREE.Matrix4 | null): SceneSolid | nul
       edge = edge.next;
     } while (edge !== face.edge);
   }
-  if (whole < 1e-6 || volume > whole / CONVEX) return null;
-  if (volume < CONVEX * whole && !within(mesh.geometry, m, hull, whole - volume, area)) return null;
+  if (whole < 1e-6 || (meshes.length === 1 && volume > whole / CONVEX)) return null;
+  const filled = meshes.length === 1 && volume >= CONVEX * whole;
+  if (!filled && !within(placed, hull, Math.max(0, whole - volume), area)) return null;
   const middle = new THREE.Box3()
     .setFromPoints([...corners.values()])
     .getCenter(new THREE.Vector3());
@@ -726,19 +748,46 @@ function hullOf(mesh: THREE.Mesh, frame: THREE.Matrix4 | null): SceneSolid | nul
 }
 
 /**
- * Whether all of `hull`, round `geometry` as `m` places it, but for `missing` of its volume
- * (`area` its surface), is in the part or within `GAP` of it: its bulges in no deeper than that.
+ * `meshes`' triangles together, each placed in `frame`'s space (the world if null), indexed, and
+ * each turned outside out.
+ */
+function placedGeometry(meshes: THREE.Mesh[], frame: THREE.Matrix4 | null): THREE.BufferGeometry {
+  const [positions, indices] = [[] as number[], [] as number[]];
+  const [m, q] = [new THREE.Matrix4(), new THREE.Vector3()];
+  for (const mesh of meshes) {
+    m.copy(mesh.matrixWorld);
+    if (frame) m.premultiply(frame);
+    const pos = mesh.geometry.attributes.position!;
+    const index = mesh.geometry.index;
+    const base = positions.length / 3;
+    for (let i = 0; i < pos.count; i++)
+      positions.push(...q.fromBufferAttribute(pos, i).applyMatrix4(m).toArray());
+    // Mirrored, its triangles' corners go round the other way.
+    const flip = m.determinant() < 0;
+    const count = index ? index.count : pos.count;
+    for (let i = 0; i + 2 < count; i += 3) {
+      const [a, b, c] = [i, i + 1, i + 2].map((k) => base + (index ? index.getX(k) : k));
+      indices.push(a!, flip ? c! : b!, flip ? b! : c!);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  return geometry;
+}
+
+/**
+ * Whether all of `hull`, round `placed`, but for `missing` of its volume (`area` its surface),
+ * is in it or within `GAP` of it: its bulges in no deeper than that.
  */
 function within(
-  geometry: THREE.BufferGeometry,
-  m: THREE.Matrix4,
+  placed: THREE.BufferGeometry,
   hull: ConvexHull,
   missing: number,
   area: number,
 ): boolean {
   // More missing than a skin `GAP` thick all round: it has a hollow somewhere deeper.
   if (missing > GAP * area) return false;
-  const placed = geometry.clone().applyMatrix4(m);
   const bvh = new MeshBVH(placed);
   const box = placed.boundingBox ?? (placed.computeBoundingBox(), placed.boundingBox!);
   const size = box.getSize(new THREE.Vector3());
@@ -747,21 +796,17 @@ function within(
   const [p, ray] = [new THREE.Vector3(), new THREE.Ray()];
   const way = new THREE.Vector3(0.36, 0.48, 0.8).normalize();
   const hit = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 };
-  try {
-    for (const x of across(box.min.x, size.x, step))
-      for (const y of across(box.min.y, size.y, step))
-        for (const z of across(box.min.z, size.z, step)) {
-          if (!hull.containsPoint(p.set(x, y, z))) continue;
-          const near = bvh.closestPointToPoint(p, hit, 0, GAP);
-          if (near && near.distance <= GAP) continue;
-          // Further from it than that, and outside it: a ray out crosses its skin an even number
-          // of times.
-          if (bvh.raycast(ray.set(p, way), THREE.DoubleSide).length % 2 === 0) return false;
-        }
-    return true;
-  } finally {
-    placed.dispose();
-  }
+  for (const x of across(box.min.x, size.x, step))
+    for (const y of across(box.min.y, size.y, step))
+      for (const z of across(box.min.z, size.z, step)) {
+        if (!hull.containsPoint(p.set(x, y, z))) continue;
+        const near = bvh.closestPointToPoint(p, hit, 0, GAP);
+        if (near && near.distance <= GAP) continue;
+        // Further from it than that, and outside it: a ray out crosses its skin an even number
+        // of times.
+        if (bvh.raycast(ray.set(p, way), THREE.DoubleSide).length % 2 === 0) return false;
+      }
+  return true;
 }
 
 /**

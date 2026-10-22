@@ -214,7 +214,14 @@ export class RoomManager {
     this.timers.push(
       setInterval(() => {
         const now = performance.now();
-        acc = catchUp(Math.min(acc + (now - last) / 1000, DT * 5), () => this.tick(now));
+        // More than a few ticks behind, the rest is let go.
+        const behind = acc + (now - last) / 1000;
+        this.letGo(Math.floor(Math.max(0, behind - DT * 5) / DT));
+        acc = catchUp(
+          Math.min(behind, DT * 5),
+          () => this.tick(now),
+          (ticks) => this.letGo(ticks),
+        );
         last = now;
       }, 1000 * DT),
       setInterval(() => this.report(), 60_000),
@@ -224,6 +231,11 @@ export class RoomManager {
   stop(): void {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+  }
+
+  /** `ticks` let go rather than run, in every room (see `Room.letGo`). */
+  private letGo(ticks: number): void {
+    if (ticks > 0) for (const { room } of this.rooms.values()) room.letGo(ticks);
   }
 
   private tick(now: number): void {

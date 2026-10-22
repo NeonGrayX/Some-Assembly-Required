@@ -9,14 +9,19 @@ describe('catching up on ticks', () => {
     expect(left).toBeCloseTo(DT / 2, 9);
   });
 
-  it('lets the rest go once the ticks have taken too long', () => {
-    let steps = 0;
-    const left = catchUp(DT * 15.5, () => {
-      steps++;
-      const until = Date.now() + CATCH_UP_MS / 2 + 1;
-      while (Date.now() < until);
-    });
+  it('lets the rest go once the ticks have taken too long, and says how many', () => {
+    let [steps, gone] = [0, 0];
+    const left = catchUp(
+      DT * 15.5,
+      () => {
+        steps++;
+        const until = Date.now() + CATCH_UP_MS / 2 + 1;
+        while (Date.now() < until);
+      },
+      (ticks) => (gone += ticks),
+    );
     expect(steps).toBe(2);
+    expect(gone).toBe(13);
     expect(left).toBeCloseTo(DT / 2, 9);
   });
 });
