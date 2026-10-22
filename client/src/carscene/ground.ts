@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { fbm, hash, noise, paintedOnce, rng } from './kit.ts';
+import { polygonField } from './paint.ts';
+import type { Field } from './paint.ts';
 import { BACKDROP, SWEEP_GLSL } from './studio.ts';
+
+export { mix, polygonField } from './paint.ts';
+export type { Field } from './paint.ts';
 
 /**
  * The ground the car stands on: a seamless studio floor, pale and warm round the car and greying
@@ -222,109 +227,6 @@ export function groundMaterial(
   return m;
 }
 
-/** A field over the ground: below 0 inside the patch, rising through 0 at its edge. */
-export type Field = (x: number, z: number) => number;
-
-/** A field over the ground: how far a point is outside `outline` (negative inside), in metres. */
-export function polygonField(outline: [number, number][]): Field {
-  return (x, z) => {
-    let inside = false;
-    let best = Infinity;
-    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
-      const [xi, zi] = outline[i]!;
-      const [xj, zj] = outline[j]!;
-      if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-      const dx = xj - xi;
-      const dz = zj - zi;
-      const t = Math.max(0, Math.min(1, ((x - xi) * dx + (z - zi) * dz) / (dx * dx + dz * dz)));
-      best = Math.min(best, Math.hypot(x - xi - t * dx, z - zi - t * dz));
-    }
-    return inside ? -best : best;
-  };
-}
-
-/** Moss, its ragged rim and dark streaks, painted into a texture over `rect` (x0, z0, w, d). */
-function patchTexture(
-  field: Field,
-  rect: [number, number, number, number],
-  perMetre: number,
-): THREE.DataTexture {
-  const [x0, z0, w, d] = rect;
-  const W = Math.round(w * perMetre);
-  const H = Math.round(d * perMetre);
-  const data = new Uint8Array(W * H * 4);
-  const dark = [0x1e, 0x26, 0x14];
-  const mid = [0x3a, 0x4c, 0x22];
-  const light = [0x9c, 0xc0, 0x4a];
-  const dirt = [0x2a, 0x26, 0x1e];
-  const rim = [0x56, 0x60, 0x6a];
-  // Round the moss, a band of dark wet ground; beyond it the brushed rim out over the floor, a
-  // grey a little darker than the floor, as dry paint.
-  const wet = [0x4a, 0x4e, 0x50];
-  const wash = [0x9a, 0x94, 0x8c];
-  for (let j = 0; j < H; j++)
-    for (let i = 0; i < W; i++) {
-      const x = x0 + ((i + 0.5) / W) * w;
-      // Rows run along z: the texture's v is 1 at z0 + d (see `patch`).
-      const z = z0 + (1 - (j + 0.5) / H) * d;
-      // The edge roughened, and dragged out into streaks along x, as by a dry brush.
-      const rough = (fbm(x * 0.35, z * 0.35, 8, 3, 4) - 0.5) * 0.9;
-      const streak = (noise(x * 0.25, z * 14, 1000, 5) - 0.5) * 0.6;
-      const f = field(x, z) + rough + streak * 0.6;
-      const k = (j * W + i) * 4;
-      if (f > 0.7) {
-        data[k + 3] = 0;
-        continue;
-      }
-      let c: number[];
-      let a: number;
-      if (f > 0.0) {
-        const broken = noise(x * 3, z * 14, 1000, 9);
-        if (f < 0.25) {
-          // The wet band, ragged where it meets the wash.
-          c = wet.map((v) => v * (0.85 + 0.3 * broken));
-          a = 0.85 * Math.min(1, (0.25 - f) / 0.06 + broken * 0.5);
-        } else {
-          // The rim: a grey wash, broken and streaky, fading out.
-          const t = (f - 0.25) / 0.45;
-          a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15) * 0.6;
-          c = mix(wet, wash, Math.min(1, t * 3)).map((v) => v * (0.85 + 0.3 * broken));
-        }
-      } else {
-        const m = fbm(x * 0.25, z * 0.25, 8, 13, 4);
-        const fleck = noise(x * 18, z * 18, 1000, 17);
-        const base = m < 0.5 ? mix(dark, mid, m / 0.5) : mix(mid, light, (m - 0.5) / 0.5);
-        c = mix(base, light, Math.max(0, fleck - 0.78) * 2.2);
-        // Clumps: darker hollows between brighter cushions.
-        const clump = fbm(x * 0.25, z * 0.25, 40, 29, 3);
-        c = mix(c, dark, Math.max(0, 0.42 - clump) * 2);
-        c = mix(c, light, Math.max(0, clump - 0.6) * 1.8);
-        // Bare dark earth showing through it here and there.
-        c = mix(c, dirt, Math.max(0, fbm(x * 0.9, z * 0.9, 8, 19, 3) - 0.55) * 2.2);
-        // Greyer toward the edge, where the moss gives out.
-        c = mix(c, rim, Math.max(0, 1 + f / 0.25) * 0.6);
-        a = 1;
-      }
-      data[k] = c[0]!;
-      data[k + 1] = c[1]!;
-      data[k + 2] = c[2]!;
-      data[k + 3] = Math.round(Math.min(1, a) * 255);
-    }
-  const t = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.magFilter = THREE.LinearFilter;
-  t.minFilter = THREE.LinearMipmapLinearFilter;
-  t.generateMipmaps = true;
-  t.anisotropy = 8;
-  t.needsUpdate = true;
-  return t;
-}
-
-export function mix(a: number[], b: number[], t: number): number[] {
-  const k = Math.max(0, Math.min(1, t));
-  return a.map((v, i) => v + (b[i]! - v) * k);
-}
-
 /** `poly` (round the origin) cut by the line `n · v = d`, keeping the side toward the origin. */
 function clip(poly: THREE.Vector2[], n: THREE.Vector2, d: number): THREE.Vector2[] {
   const out: THREE.Vector2[] = [];
@@ -534,7 +436,7 @@ export function cobblePatch(
     maxZ = Math.max(maxZ, z + 0.9);
   }
   const rect: [number, number, number, number] = [minX, minZ, maxX - minX, maxZ - minZ];
-  const moss = paintedOnce(['moss', outline], () => patchTexture(field, rect, 128));
+  const moss = paintedOnce({ kind: 'moss', outline, rect, perMetre: 128 });
   const patchGeo = new THREE.PlaneGeometry(rect[2], rect[3]);
   patchGeo.rotateX(-Math.PI / 2);
   const patch = new THREE.Mesh(
@@ -705,6 +607,145 @@ function holeTexture(): THREE.DataTexture {
 /** The layer the bake's shadow catcher is drawn on, and nothing else. */
 const BAKE_LAYER = 7;
 
+/** Whether the depth pass draws `mesh` as nothing but its triangles, as `joinCasters` does. */
+function plainCaster(mesh: THREE.Mesh): boolean {
+  if (mesh.constructor !== THREE.Mesh || Array.isArray(mesh.material)) return false;
+  const m = mesh.material as THREE.Material & {
+    wireframe?: boolean;
+    displacementMap?: THREE.Texture | null;
+    displacementScale?: number;
+  };
+  const geo = mesh.geometry;
+  return (
+    m.visible &&
+    !m.wireframe &&
+    !(m.alphaTest > 0) &&
+    !m.alphaToCoverage &&
+    !(m.displacementMap && m.displacementScale !== 0) &&
+    !m.clippingPlanes?.length &&
+    !mesh.customDepthMaterial &&
+    mesh.onBeforeShadow === THREE.Object3D.prototype.onBeforeShadow &&
+    !Object.keys(geo.morphAttributes).length &&
+    !!geo.attributes.position &&
+    geo.drawRange.start === 0 &&
+    geo.drawRange.count === Infinity
+  );
+}
+
+/** How big the squares are that the bake's joined casters are cut into, in metres. */
+const CASTER_CELL = 6;
+
+/**
+ * Everything that casts a shadow under `scene`, joined for the bake: each plain mesh's triangles
+ * moved into the world and put into one mesh for each side its shadow is drawn from and square
+ * of the ground it stands over, so each of the bake's many shadow maps takes a draw call for
+ * each square it sees rather than one for every part (over a thousand on Chevron Street,
+ * sixty-four maps over, seconds of the page standing still), and what is out of a map's sight is
+ * left out of it as before. What the depth pass draws otherwise (cut out by a texture, displaced,
+ * with a hook or a depth material of its own) is left to cast its own. Returns the joined meshes,
+ * which are not yet in the scene, and the meshes they stand in for, whose own shadows are to be
+ * turned off while they do.
+ */
+function joinCasters(
+  scene: THREE.Object3D,
+  camera: THREE.Camera,
+  vsm: boolean,
+): { joined: THREE.Mesh[]; taken: THREE.Mesh[] } {
+  scene.updateMatrixWorld(true);
+  const flip = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE.FrontSide };
+  const sides = new Map<THREE.Side, THREE.Mesh[]>();
+  const taken: THREE.Mesh[] = [];
+  scene.traverseVisible((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.castShadow || !mesh.layers.test(camera.layers)) return;
+    if (!plainCaster(mesh)) return;
+    const m = mesh.material as THREE.Material;
+    // The side the depth pass draws, as three.js picks it.
+    const side = m.shadowSide ?? (vsm || m.side === THREE.DoubleSide ? m.side : flip[m.side]);
+    let list = sides.get(side);
+    if (!list) sides.set(side, (list = []));
+    list.push(mesh);
+    taken.push(mesh);
+  });
+  const joined: THREE.Mesh[] = [];
+  const v = new THREE.Vector3();
+  for (const [side, meshes] of sides) {
+    let points = 0;
+    let corners = 0;
+    for (const { geometry: g } of meshes) {
+      points += g.attributes.position!.count;
+      corners += g.index ? g.index.count : g.attributes.position!.count;
+    }
+    // Every point in the world, and every triangle's corners, in one list.
+    const position = new Float32Array(points * 3);
+    const all = new Uint32Array(corners);
+    let p = 0;
+    let c = 0;
+    for (const mesh of meshes) {
+      const g = mesh.geometry;
+      const pos = g.attributes.position!;
+      const first = p;
+      for (let i = 0; i < pos.count; i++, p++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+        position[p * 3] = v.x;
+        position[p * 3 + 1] = v.y;
+        position[p * 3 + 2] = v.z;
+      }
+      const n = g.index ? g.index.count : pos.count;
+      // A mirrored mesh's triangles turn the other way round once in the world: turned back.
+      const mirrored = mesh.matrixWorld.determinant() < 0;
+      for (let i = 0; i < n; i++) {
+        const k = mirrored ? i - (i % 3) + [0, 2, 1][i % 3]! : i;
+        all[c++] = first + (g.index ? g.index.getX(k) : k);
+      }
+    }
+    // Each triangle to the square its middle stands over.
+    const triangles = corners / 3;
+    const cellOf = new Int32Array(triangles);
+    const cells = new Map<number, { count: number; corners?: Float32Array; box: THREE.Box3 }>();
+    for (let t = 0; t < triangles; t++) {
+      let x = 0;
+      let z = 0;
+      for (let k = 0; k < 3; k++) {
+        const i = all[t * 3 + k]! * 3;
+        x += position[i]!;
+        z += position[i + 2]!;
+      }
+      const key =
+        (Math.floor(x / 3 / CASTER_CELL) + 4096) * 8192 + Math.floor(z / 3 / CASTER_CELL) + 4096;
+      cellOf[t] = key;
+      const cell = cells.get(key);
+      if (cell) cell.count++;
+      else cells.set(key, { count: 1, box: new THREE.Box3() });
+    }
+    for (const cell of cells.values()) {
+      cell.corners = new Float32Array(cell.count * 9);
+      cell.count = 0;
+    }
+    for (let t = 0; t < triangles; t++) {
+      const cell = cells.get(cellOf[t]!)!;
+      for (let k = 0; k < 3; k++) {
+        v.fromArray(position, all[t * 3 + k]! * 3);
+        v.toArray(cell.corners!, cell.count);
+        cell.count += 3;
+        cell.box.expandByPoint(v);
+      }
+    }
+    const material = new THREE.MeshBasicMaterial({ side, shadowSide: side, colorWrite: false });
+    for (const cell of cells.values()) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(cell.corners!, 3));
+      geometry.boundingSphere = cell.box.getBoundingSphere(new THREE.Sphere());
+      const caster = new THREE.Mesh(geometry, material);
+      caster.castShadow = true;
+      caster.layers.mask = camera.layers.mask;
+      caster.matrixAutoUpdate = false;
+      joined.push(caster);
+    }
+  }
+  return { joined, taken };
+}
+
 /**
  * Bakes the ground's soft shadows from whatever under `scene` casts one: the key light's, from
  * many directions round `key` (the light is big, so its shadow blurs out from what casts it), and
@@ -799,6 +840,13 @@ export function bakeGroundShadows(
   casterCam.position.set(0, 1000, 0);
   casterCam.lookAt(0, 2000, 0);
   casterCam.updateMatrixWorld();
+  const { joined, taken } = joinCasters(
+    scene,
+    casterCam,
+    renderer.shadowMap.type === THREE.VSMShadowMap,
+  );
+  for (const m of taken) m.castShadow = false;
+  for (const m of joined) scene.add(m);
   const scratch = new THREE.WebGLRenderTarget(1, 1);
   const before = {
     target: renderer.getRenderTarget(),
@@ -859,6 +907,12 @@ export function bakeGroundShadows(
   scratch.dispose();
   scene.background = background;
   for (const l of others) l.castShadow = true;
+  for (const m of taken) m.castShadow = true;
+  for (const m of joined) {
+    scene.remove(m);
+    m.geometry.dispose();
+    (m.material as THREE.Material).dispose();
+  }
   scene.remove(catcher, light, light.target);
   catcher.geometry.dispose();
   (catcher.material as THREE.Material).dispose();

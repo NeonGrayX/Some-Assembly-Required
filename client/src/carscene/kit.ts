@@ -4,6 +4,10 @@ import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { profiler } from '../profiler.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 import { storePainting, storedPainting } from './paintCache.ts';
+import { fbm, hash } from './noise.ts';
+import { paint, paintingSize, stretched } from './paint.ts';
+import type { PaintJob, Painting } from './paint.ts';
+import { paintAway } from './paintPool.ts';
 
 /**
  * The small toolkit the car scene is modelled with: smooth rounded blocks, extruded outlines and
@@ -12,48 +16,7 @@ import { storePainting, storedPainting } from './paintCache.ts';
  * copies is smooth studio paint, not the game's chunky boards and grass.
  */
 
-/** A value in [0, 1) for a lattice point, the same every time. */
-export function hash(ix: number, iy: number, seed: number): number {
-  let h = Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(seed, 982451653);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-// Most lattice points are in the first repeat already: those skip the division.
-const wrap = (i: number, p: number) => (i >= 0 && i < p ? i : ((i % p) + p) % p);
-const smooth = (t: number) => t * t * (3 - 2 * t);
-
-/** Smooth noise repeating every `p` cells. */
-export function noise(x: number, y: number, p: number, seed: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = smooth(x - ix);
-  const fy = smooth(y - iy);
-  // Named one by one, not unpacked from an array: there are millions of calls to a texture.
-  const x0 = wrap(ix, p);
-  const x1 = wrap(ix + 1, p);
-  const y0 = wrap(iy, p);
-  const y1 = wrap(iy + 1, p);
-  const a = hash(x0, y0, seed);
-  const b = hash(x1, y0, seed);
-  const c = hash(x0, y1, seed);
-  const d = hash(x1, y1, seed);
-  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
-}
-
-/** Layered noise in [0, 1], `cells` across the tile at its coarsest, tiling. */
-export function fbm(u: number, v: number, cells: number, seed: number, octaves = 4): number {
-  let sum = 0;
-  let amp = 0.5;
-  let total = 0;
-  for (let o = 0; o < octaves; o++) {
-    const k = cells * 2 ** o;
-    sum += amp * noise(u * k, v * k, k, seed + o * 17);
-    total += amp;
-    amp *= 0.5;
-  }
-  return sum / total;
-}
+export { fbm, hash, noise } from './noise.ts';
 
 /** A tile `size` pixels square, its brightness at (`u`, `v`) given by `at`, as an sRGB texture. */
 export function greyTexture(size: number, at: (u: number, v: number) => number): THREE.DataTexture {
@@ -207,22 +170,69 @@ function mottleTexture(kind: Mottle): THREE.DataTexture {
 
 const painted = new Map<string, THREE.DataTexture>();
 
+/** How much coarser the rough copy is that stands in while a texture is painted in a worker. */
+const ROUGH = 8;
+
+/** A painting as a texture, sampled as the ground's big textures all are. */
+function paintedTexture({ data, width, height }: Painting): THREE.DataTexture {
+  const t = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 8;
+  t.needsUpdate = true;
+  return t;
+}
+
 /**
- * The texture `paint` makes, painted once for each `key` (anything JSON can write out) and
- * shared after: the ground's and the road's are millions of pixels, seconds of work each, and
- * every round on a map lays the same ground out again. Kept in the browser too, for the next
- * visit (see `paintCache.ts`).
+ * The texture `job` paints (see `paint.ts`), painted once for each job and shared after: the
+ * ground's and the road's are millions of pixels, seconds of work each, and every round on a map
+ * lays the same ground out again. Kept in the browser too, for the next visit (see
+ * `paintCache.ts`). Painted in a worker where there are workers, so the page does not stand still
+ * meanwhile: until it is done the texture is a rough copy, an eighth as fine and painted at once,
+ * and the finished pixels are laid into it when they come.
  */
-export function paintedOnce(key: unknown, paint: () => THREE.DataTexture): THREE.DataTexture {
-  const k = JSON.stringify(key);
+export function paintedOnce(job: PaintJob): THREE.DataTexture {
+  const k = JSON.stringify(job);
   const at = performance.now();
   let t = painted.get(k);
-  let from: 'painted' | 'stored' | 'shared' = 'shared';
+  let from: 'painted' | 'stored' | 'shared' | 'rough' = 'shared';
   if (!t) {
     const stored = storedPainting(k);
-    from = stored ? 'stored' : 'painted';
-    t = stored ?? paint();
-    if (!stored) storePainting(k, t);
+    const away = stored ? null : paintAway(job);
+    if (stored) {
+      from = 'stored';
+      t = stored;
+    } else if (away) {
+      from = 'rough';
+      const [width, height] = paintingSize(job);
+      const rough = paintedTexture(stretched(paint(job, job.perMetre / ROUGH), width, height));
+      t = rough;
+      const lay = (p: Painting) => {
+        rough.image = p;
+        rough.needsUpdate = true;
+        storePainting(k, rough);
+      };
+      away.then(
+        (p) => {
+          lay(p);
+          profiler.note({
+            kind: 'texture',
+            at,
+            ms: performance.now() - at,
+            key: k,
+            from: 'worker',
+          });
+        },
+        // The worker gave out: painted here after all.
+        () => lay(paint(job)),
+      );
+    } else {
+      from = 'painted';
+      t = paintedTexture(paint(job));
+      storePainting(k, t);
+    }
   }
   painted.set(k, t);
   profiler.note({ kind: 'texture', at, ms: performance.now() - at, key: k, from });
