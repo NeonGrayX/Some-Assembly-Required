@@ -173,6 +173,11 @@ interface SceneVehicle {
 export const CHEVRON_ORIGIN = { x: 0, z: 0 };
 /** Half the map's side. */
 export const CHEVRON_HALF = 16;
+/** Where the hedges down the yards' sides start, and the lot's side fences end, z. */
+const YARDS = 7.95;
+const LOT_FENCE = -3.4;
+/** How many bins the street has in all, its own and the houses' too: most of them in pairs. */
+const BINS = 11;
 /** How high the walls nobody sees round the map's edge stand. */
 const EDGE_HIGH = 9;
 
@@ -482,14 +487,37 @@ export function chevronTry(seed: number): LevelDef {
   const [teal, yellow, cream] = [0x2c6670, 0xf0bd1c, 0xd9d4c7];
   standHouseBin(level, roomRect(S.rooms[0]!), S.rooms[0]![4], teal);
   standHouseBin(level, roomRect(S.rooms[1]!), S.rooms[1]![4], cream);
-  // And more besides the street's, out on the lot and the yards and in the houses, in the
-  // street's teal and the bus's yellow; none in the hoarding's gateway, where a rival team's lot
-  // meets this one, nor in the road.
+  // And a few pairs more besides the street's, a teal and a yellow side by side as the street
+  // stands its own: against a house, a hedge, the lot's fences or its hoarding, or at the kerb,
+  // their backs to the road; none in the hoarding's gateway, where a rival team's lot meets this
+  // one, nor in the road.
+  const road = chevronRoad();
   const gate = RIVAL_WALL.gate / 2 + 1;
   standTrashBins(level, {
     outdoor: { model: 'streetBin', colours: [teal, yellow] },
     indoor: { model: 'streetBin', colours: [teal, cream] },
-    keep: [rect(-gate, -H, gate, -H + 3), chevronRoad()],
+    // Nor where the crossing (in the street's middle) meets the pavements, by its lights.
+    keep: [rect(-gate, -H, gate, -H + 3), road, rect(-3, road.z0 - 2, 3, road.z1 + 2)],
+    pairs: true,
+    backs: [
+      road,
+      // The hedges round the houses' yards, in their planters.
+      rect(-H, H - 0.7, H, H),
+      rect(-H, YARDS, -H + 0.7, H),
+      rect(H - 0.7, YARDS, H, H),
+      // The hoarding along the lot's south edge, and its fences either side.
+      rect(-H, -H, H, -H + 0.26),
+      rect(-H, -H, -H + 0.26, LOT_FENCE),
+      rect(H - 0.26, -H, H, LOT_FENCE),
+    ],
+    // On the pavements, and whatever else is paved a step up.
+    standOn: (b) =>
+      b.model === 'collider' &&
+      !b.tiltX &&
+      b.pos.y - b.size.y / 2 < 0.01 &&
+      b.pos.y + b.size.y / 2 <= 0.2,
+    count: BINS,
+    rng: g.rng,
   });
   // All drawn with the scene (see `SceneryDef`).
   for (const b of level.boxes) if (isTrashBin(b)) b.scenery = true;
