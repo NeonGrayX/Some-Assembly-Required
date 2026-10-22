@@ -206,7 +206,11 @@ export class Operating {
   pose(p: Player, at: THREE.Vector3, now: number): OpPose | null {
     const w = p.work;
     let op = this.ops.get(p.id) ?? null;
-    const act = w?.act;
+    // Waiting by the machine for what they set it making: the move that set it going plays out,
+    // and then they stand by it, facing it.
+    const playing = !!op && !op.done && !!op.move && op.machineId === w?.machineId;
+    if (w?.act === 'wait' && !playing) return this.standBy(w.machineId);
+    const act = w?.act === 'wait' ? op!.act : w?.act;
     const moving = !!w && w.machineId !== null && !!act && act !== 'fix' && act !== 'work';
     if (w && moving) {
       const look = this.looks().get(w.machineId!);
@@ -240,7 +244,7 @@ export class Operating {
       // not yet what they are to take.
       const carry = BRINGS.includes(op.act) && !p.tool && !p.holding ? this.carried(op) : null;
       if (op.prop) op.prop.object.visible = !!carry;
-      const taking = op.act === 'take' || op.act === 'print';
+      const taking = op.act === 'take';
       return {
         at: null,
         heading: null,
@@ -257,6 +261,23 @@ export class Operating {
       return null;
     }
     return this.frame(op, op.move.frame(t), t, at, now);
+  }
+
+  /** Standing by machine `machineId` while it makes what they wait for: facing it, hands down. */
+  private standBy(machineId: number | null): OpPose | null {
+    const look = machineId === null ? undefined : this.looks().get(machineId);
+    if (!look) return null;
+    const q = look.group.getWorldQuaternion(new THREE.Quaternion());
+    const heading = new THREE.Euler().setFromQuaternion(q, 'YXZ').y;
+    return {
+      at: null,
+      heading,
+      hands: null,
+      look: null,
+      carry: null,
+      hideTool: false,
+      hideHeld: false,
+    };
   }
 
   /** Begins following a player's act at a machine (on their way to it, until they arrive). */
@@ -304,7 +325,7 @@ export class Operating {
   /** They are there: the move begins. */
   private arrive(op: Op, now: number): void {
     const { look } = op;
-    const taken = op.act === 'take' || op.act === 'print' ? look.keptModel(op.slot) : null;
+    const taken = op.act === 'take' ? look.keptModel(op.slot) : null;
     const stage = stageOf(
       look,
       op.act,
@@ -416,7 +437,7 @@ export class Operating {
       look: world(f.look),
       carry: null,
       hideTool: true,
-      hideHeld: op.act === 'take' || op.act === 'print',
+      hideHeld: op.act === 'take',
     };
   }
 
@@ -485,7 +506,7 @@ export function stageOf(
   part: THREE.Object3D | null,
 ): Stage {
   const def = look.def;
-  const station = actStation(def.kind, act, slot) ?? 0;
+  const station = actStation(def.kind, act) ?? 0;
   const size = part ? new THREE.Box3().setFromObject(part).getSize(new THREE.Vector3()) : null;
   return {
     kind: def.kind,

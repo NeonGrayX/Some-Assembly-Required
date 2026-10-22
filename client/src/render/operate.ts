@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ACT_TIMES } from '@sar/shared';
+import { ACT_TIMES, MAKE_SECONDS } from '@sar/shared';
 import type { MachineAct, MachineKind } from '@sar/shared';
 
 /*
@@ -144,7 +144,7 @@ export const HANDLED = {
   },
   return: { from: 0.25, push: [0, 0.35], away: [0.45, 0.75], length: 0.9 },
   lay: { from: new THREE.Vector3(0, 0.05, 0.04), down: [0, 0.25] },
-  print: { length: 1.5 },
+  print: { length: MAKE_SECONDS.print },
 } as const;
 
 /** How big a hand is (radius): it rests this far off what it holds. */
@@ -323,13 +323,16 @@ function beforeButton(s: Stage): THREE.Vector3 {
   return new V(b.x - 0.22, 0, Math.max(b.z, s.size.z / 2 - 0.1) + 0.42);
 }
 
-/** Pressing the start button: the moulding machine moulding a part, the dispenser's key. */
-function pressStart(s: Stage): Move {
-  const { seconds: length, lead } = ACT_TIMES.start;
+/**
+ * Pressing the start button: the moulding machine moulding a part, the dispenser's key (or the
+ * printer's, for `print`).
+ */
+function pressStart(s: Stage, act: 'start' | 'print' = 'start'): Move {
+  const { seconds: length, lead } = ACT_TIMES[act];
   const b = s.controls.button;
   const there = beforeButton(s);
   return {
-    act: 'start',
+    act,
     length,
     contact: lead,
     grab: -1,
@@ -866,43 +869,17 @@ function layPart(s: Stage): Move {
 }
 
 /**
- * Printing: the start button pressed, the print watched, then the part taken off the bed in
- * both hands once it is done.
+ * Printing: the start button pressed, then the part on the bed watched (they wait by it till the
+ * print is done, then take it off: see `takeOut`).
  */
 function printPart(s: Stage): Move {
-  const { seconds: length, lead } = ACT_TIMES.print;
+  const move = pressStart(s, 'print');
   const bed = s.controls.bed ?? new V(0, 0.8, 0);
-  const b = s.controls.button;
-  const atButton = beforeButton(s);
-  const atBed = new V(bed.x, 0, s.size.z / 2 + 0.3);
-  // The print takes as long as the printer shows it (see `printJob`).
-  const from = lead + HANDLED.print.length;
   return {
-    act: 'print',
-    length,
-    contact: lead,
-    grab: from + 0.45,
-    drop: -1,
-    prop: null,
+    ...move,
     frame: (t) => {
-      const stand = path(t, [
-        [0, s.station],
-        [0.3, atButton],
-        [lead + 0.5, atButton],
-        [from + 0.25, atBed],
-        [from + 0.6, atBed],
-        [length, s.station],
-      ]);
-      const f = bare(stand);
-      if (t < from) {
-        f.hands[1] = press(t, lead, b, rest(1, stand, s.height));
-        f.look = t < lead + 0.3 ? b : bed;
-        return f;
-      }
-      const took = takeFrom(s, t, from, bed, stand);
-      f.hands = took.hands;
-      f.taken = took.taken;
-      f.look = took.look;
+      const f = move.frame(t);
+      if (t >= ACT_TIMES.print.lead + 0.3) f.look = bed;
       return f;
     },
   };

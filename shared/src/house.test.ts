@@ -24,6 +24,8 @@ const run = (sim: Sim, ticks: number) => {
 };
 
 function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
+  // Ending whatever they were at, as the game's teleports do.
+  p.work = null;
   p.body.setTranslation({ x: standAt.x, y: standAt.y + 0.86, z: standAt.z }, true);
   run(sim, 3);
   const eye = sim.eye(p);
@@ -309,8 +311,10 @@ describe('the brick works', () => {
     const p = sim.addPlayer();
     run(sim, 30);
     lookAt(sim, p, press.stand, press.target);
-    // The part is made, and waits in the machine's tray; the tidying is done as it is taken.
+    // The part is made, and waits in the machine's tray (its maker sent off meanwhile); the
+    // tidying is done as it is taken.
     sim.act(p.id, { kind: 'grab' });
+    lookAt(sim, p, press.stand, press.target);
     awaitMachine(sim, press.m);
     expect(press.m.out[0]).not.toBeNull();
     const lying = () =>

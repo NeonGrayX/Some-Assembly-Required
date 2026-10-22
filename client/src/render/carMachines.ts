@@ -772,30 +772,36 @@ export class CarMachineView extends MachineLook {
 
   /**
    * Prints: the green button is pressed, and the gantry runs forward over the bed and back, its
-   * head sweeping across it to and fro under its UV lamp, glowing bright, the progress bar filling.
+   * head sweeping across it to and fro under its UV lamp, glowing bright, the progress bar
+   * filling; the print is on the part once the head has swept over it the first time.
    */
   private printJob(): Omit<Job, 'start'> {
     const { gantry, bed } = PRINTER;
     const across = (bed.x1 - bed.x0) / 2 - 0.12;
+    // Its own times (u) run over 1.5 s, stretched to the print's.
+    const k = HANDLED.print.length / 1.5;
+    this.inked(false);
     return {
-      length: HANDLED.print.length + 0.1,
+      length: 1.6 * k,
       lane: 'print',
       group: this.jobGroup(),
       step: (t) => {
-        this.started(t, 1.5);
-        this.progress(t, 0.1, 1.4);
-        const run = span(t, 0.2, 1.3);
-        const z = gantry.reach * ease(run) * (1 - ease(span(t, 1.3, 1.55)));
+        const u = t / k;
+        this.started(t, 1.5 * k);
+        this.progress(u, 0.1, 1.4);
+        if (u >= 0.55) this.inked(true);
+        const run = span(u, 0.2, 1.3);
+        const z = gantry.reach * ease(run) * (1 - ease(span(u, 1.3, 1.55)));
         const x =
-          t < 0.3
-            ? gantry.park + (-across - gantry.park) * ease(span(t, 0, 0.3))
-            : t < 1.3
-              ? -across * Math.cos((t - 0.3) * Math.PI * 4)
-              : gantry.park + (-across - gantry.park) * (1 - ease(span(t, 1.3, 1.55)));
+          u < 0.3
+            ? gantry.park + (-across - gantry.park) * ease(span(u, 0, 0.3))
+            : u < 1.3
+              ? -across * Math.cos((u - 0.3) * Math.PI * 4)
+              : gantry.park + (-across - gantry.park) * (1 - ease(span(u, 1.3, 1.55)));
         this.pose.gantry = { z, x };
-        this.pose.uv = Math.max(this.pose.uv, 1.5 * (span(t, 0.25, 0.35) - span(t, 1.25, 1.35)));
+        this.pose.uv = Math.max(this.pose.uv, 1.5 * (span(u, 0.25, 0.35) - span(u, 1.25, 1.35)));
       },
-      end: () => {},
+      end: () => this.inked(true),
     };
   }
 

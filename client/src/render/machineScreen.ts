@@ -66,12 +66,11 @@ export function screenStatus(
         ? { text: `${named(m.colour)} ${m.shots}/${BUCKET_SHOTS}`, colour: m.colour }
         : { text: 'No pellets' },
     ];
-    const parts = m.out.filter((x) => x !== null).length;
-    if (parts) lines.push({ text: full ? 'Tray full' : `Tray ${parts}/${m.out.length}` });
+    if (full) lines.push({ text: 'Part in the tray' });
     const ready = !!m.mould && !!m.colour && m.shots > 0 && !full;
     return {
       tone: ready ? 'ready' : 'wait',
-      title: ready ? 'READY' : full ? 'TAKE PARTS' : !m.mould ? 'LOAD MOULD' : 'ADD PELLETS',
+      title: ready ? 'READY' : full ? 'TAKE PART' : !m.mould ? 'LOAD MOULD' : 'ADD PELLETS',
       lines,
       progress: null,
     };

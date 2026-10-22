@@ -810,8 +810,7 @@ export function buildBrickPress(): THREE.Group {
       0.06,
       0.008,
     );
-  for (let i = 0; i < 3; i++)
-    anchor(g, `out${i}`, mx + (i - 1) * bay.step, bay.y0 + 0.008, (back + face) / 2);
+  anchor(g, 'out0', mx, bay.y0 + 0.008, (back + face) / 2);
   // A clear guard over the bay's mouth, hung from its top: it swings in as a part is taken.
   const guard = new THREE.Group();
   guard.name = 'bayFlap';
@@ -1044,7 +1043,7 @@ export const PRESS = (() => {
   return {
     bed,
     mx,
-    bay: { w: 3 * 0.16, step: 0.16, y0: 0.252, y1: 0.5, depth: 0.29 },
+    bay: { w: 3 * 0.16, y0: 0.252, y1: 0.5, depth: 0.29 },
     face: hd - 0.04,
     axis,
     /** The moving platen's middle and the fixed one's. */

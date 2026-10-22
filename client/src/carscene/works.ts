@@ -223,7 +223,9 @@ export class BrickWorksPlay {
 
   private step(): void {
     // The walker moves the player (see `update`); the game only carries what they hold along.
+    // Nor do they walk up to a machine to work it, or stand by it for what it makes, here.
     this.me.pendingInputs = [];
+    this.me.work = null;
     this.sim.step();
     for (const e of this.sim.events)
       if (e.machineId !== undefined) this.views.get(e.machineId)?.play(e, this.clock);
@@ -232,8 +234,8 @@ export class BrickWorksPlay {
 
   /**
    * Starts it as the picture had it, the game doing the work: a red bucket filled on the silo's
-   * grate, the press loaded with a mould and red pellets and two bricks moulded in its bay, and
-   * a white part on the printer's bed.
+   * grate, the press loaded with a mould and red pellets and a brick moulded in its bay, and a
+   * white part on the printer's bed.
    */
   private seed(): void {
     const use = (m: MachineState, action: Action) => {
@@ -246,7 +248,6 @@ export class BrickWorksPlay {
     use(this.machine('silo'), { kind: 'fill', colour: 'red' });
     const press = this.machine('press');
     Object.assign(press, { mould: '2x4', colour: 'red', shots: BUCKET_SHOTS });
-    use(press, { kind: 'grab' });
     use(press, { kind: 'grab' });
     this.machine('printer').part = { type: '2x4', colour: 'white' };
   }

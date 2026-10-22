@@ -147,7 +147,7 @@ describe('the brick works', () => {
       ['dispenser', { kind: 'toolUp', mould: 'slope2x2', slot: 0 }],
       ['press', { kind: 'mouldIn', mould: '2x4' }],
       ['press', { kind: 'pour', colour: 'red' }],
-      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 1 }],
+      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 0 }],
     ];
     for (const [kind, e] of work) {
       const def = DEFS.find((m) => m.kind === kind)!;
@@ -197,7 +197,7 @@ describe('the brick works', () => {
     const work: [MachineKind, Parameters<MachineView['play']>[0]][] = [
       ['silo', { kind: 'fill', colour: 'yellow', slot: 0 }],
       ['dispenser', { kind: 'dispense', mould: 'slope2x2', slot: 0 }],
-      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 1 }],
+      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 0 }],
     ];
     for (const [kind, e] of work) {
       const def = atOrigin(kind);
@@ -245,10 +245,10 @@ describe('the brick works', () => {
     const place = outputSlots('press', def.size)[0]!;
     const part = { kind: 'part', type: '1x1', colour: 'blue' } as const;
     const moulded = { kind: 'moulded', mould: part.type, colour: part.colour, slot: 0 } as const;
-    const loaded = { ...state(def, true), out: [null, null, null] };
+    const loaded = { ...state(def, true), out: [null] };
     const making = { ...loaded, making: { made: part, slot: 0, at: 0 } };
     const poured = { ...making, colour: 'yellow' as const };
-    const done = { ...poured, making: null, out: [part, null, null] };
+    const done = { ...poured, making: null, out: [part] };
     const bare = new MachineView(def);
     bare.update(loaded, {});
     const empty = drawnIn(bare, place);
@@ -276,19 +276,6 @@ describe('the brick works', () => {
     view.update(done, {});
     expect(drawnIn(view, place)).toBe(drawn);
     expect(pose(view)).toEqual(pose(once));
-    // Cut short by the next part's work (the machine's state a moment behind its events), it
-    // is not shown in its place until the machine says it is there, and then once.
-    const cut = new MachineView(def);
-    cut.update(making, {});
-    cut.play(moulded, 0);
-    cut.tick(1);
-    cut.play({ ...moulded, slot: 1 }, 1);
-    for (const t of [1, 2, 3]) {
-      cut.tick(t);
-      expect(drawnIn(cut, place), `${t} s in`).toBe(empty);
-    }
-    cut.update({ ...done, making: { made: part, slot: 1, at: 0 } }, {});
-    expect(drawnIn(cut, place)).toBe(drawn);
   });
 
   it('moves smoothly while a mould goes in as it moulds a part, either way round', () => {
@@ -297,7 +284,7 @@ describe('the brick works', () => {
     const mouldIn = { kind: 'mouldIn', mould: '2x2' } as const;
     const making = {
       ...state(def, true),
-      out: [null, null, null],
+      out: [null],
       making: { made: { kind: 'part', type: '1x1', colour: 'blue' }, slot: 0, at: 0 } as const,
     };
     /** Where the machine's own parts are, bar what is in it and what its work draws. */
@@ -337,7 +324,7 @@ describe('the brick works', () => {
     view.update(
       {
         ...state(def, true),
-        out: [null, null, null],
+        out: [null],
         making: { made: { kind: 'part', type: '1x1', colour: 'blue' }, slot: 0, at: 0 },
       },
       {},
@@ -380,16 +367,13 @@ describe('the brick works', () => {
       return [green, amber, red].filter((c) => glowing.has(c));
     };
     const full = state(def, true);
-    const loaded = { ...full, out: [null, null, null] };
+    const loaded = { ...full, out: [null] };
     expect(lit(loaded)).toEqual([green]);
-    expect(lit({ ...full, out: full.out.map((x, i) => (i === 1 ? null : x)) })).toEqual([green]);
-    // With its tray full it can make nothing until a part is taken out, nor with the last free
-    // place in it kept for the part being moulded.
+    // With a part in its tray it can make nothing until the part is taken out, nor with its
+    // tray kept for the part being moulded.
     expect(lit(full)).toEqual([amber]);
     const part = { kind: 'part', type: '1x1', colour: 'blue' } as const;
-    const lastOne = { ...full, out: full.out.map((x, i) => (i === 1 ? null : x)) };
-    expect(lit({ ...lastOne, making: { made: part, slot: 1, at: 0 } })).toEqual([amber]);
-    expect(lit({ ...loaded, making: { made: part, slot: 1, at: 0 } })).toEqual([green]);
+    expect(lit({ ...loaded, making: { made: part, slot: 0, at: 0 } })).toEqual([amber]);
     expect(lit({ ...loaded, colour: null, shots: 0 })).toEqual([amber]);
     expect(lit(state(def, false))).toEqual([red]);
     expect(lit({ ...loaded, jammed: true })).toEqual([red]);

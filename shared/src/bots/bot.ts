@@ -299,8 +299,18 @@ export class Bot {
     this.acts.push({ a, yaw, pitch });
   }
 
+  /**
+   * Waits while it works a machine: it stays at it till its hands are done (and it has taken
+   * what it waits there for), moving off or doing anything else meanwhile to no avail.
+   */
+  private *free(): Job {
+    for (let k = 0; k < 30 * 60 && this.me()?.work?.machineId != null; k++) yield;
+    return true;
+  }
+
   /** Turns to look this way, and waits until it does (and a moment longer, to hold still). */
   private *face(yaw: number, pitch: number): Job {
+    yield* this.free();
     this.ctl.yaw = yaw;
     this.ctl.pitch = pitch;
     for (let k = 0; k < 40; k++) {
@@ -1133,6 +1143,7 @@ export class Bot {
    * whether it got there.
    */
   private *walk(goals: number[], done?: () => boolean, seconds = 45): Job {
+    yield* this.free();
     const nav = this.squad.nav;
     let start = nav.locate(this.feet());
     if (start === null || !nav.reachable(start)) {
@@ -1506,6 +1517,7 @@ export class Bot {
   private *use(t: Target, actions: Action | Action[], near?: number): Job {
     const list = Array.isArray(actions) ? actions : [actions];
     if (this.avoided(t.key)) return false;
+    yield* this.free();
     const point = t.point();
     if (!point) return false;
     const tried = new Set<number>();
@@ -1603,6 +1615,7 @@ export class Bot {
   // ---------------------------------------------------------------- jobs: small ones
 
   private *putAway(): Job {
+    yield* this.free();
     this.act({ kind: 'drop' });
     yield;
     yield;
@@ -1666,6 +1679,7 @@ export class Bot {
 
   /** Puts down whatever is in hand, away from the build so nobody steps on it there. */
   private *letGo(): Job {
+    yield* this.free();
     const p = this.me()!;
     const sim = this.squad.game.sim;
     const held = p.holding ? sim.assemblies.get(p.holding.assemblyId) : undefined;
@@ -2333,6 +2347,9 @@ export class Bot {
       this.squad.collecting.set(this.id, { machine: id, slot: job.slot });
       try {
         for (let k = 0; k < 5 * 60 && m.making === job; k++) yield;
+        // Standing by it for it, it takes it out itself once made and its hands are done.
+        yield* this.free();
+        if (this.has(wanted)) return true;
         const made = m.out[job.slot];
         // Taken by someone else before it could.
         if (!made || !sameMade(made, wanted)) return false;
@@ -2471,6 +2488,8 @@ export class Bot {
     yield* this.use(this.machineTarget(id), { kind: 'grab' });
     if (!printer.part) return false;
     yield* this.use(this.machineTarget(id), { kind: 'print', job });
+    // It takes the part off the bed once it is printed.
+    for (let k = 0; k < 10 * 60 && printer.part && !this.holdingBrick(); k++) yield;
     return !!this.holdingBrick();
   }
 

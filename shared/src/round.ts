@@ -17,7 +17,11 @@ import { DT, TICK_RATE } from './sim/time.ts';
 
 /** Seconds a build has to rest on the inspector pad before the verdict shows. */
 export const SCAN_SECONDS = 4;
-export const DEFAULT_ROUND_SECONDS = 10 * 60;
+/**
+ * How long a round lasts unless the host picks otherwise: long enough to work the brick works
+ * move by move (every part, bucket and mould is fetched by hand, standing by the machine).
+ */
+export const DEFAULT_ROUND_SECONDS = 15 * 60;
 /**
  * Seconds everyone stands still at the start of a round while the role reveal is up, so that
  * people get to read who they are before the bots are off and running.

@@ -9,8 +9,9 @@ import type { MachineKind } from '../content/house.ts';
  * pouring it in (`pour`), sliding its safety door open and pushing a mould in between its
  * platens (`mould`), pushing a mould back in through the dispenser's hatch (`return`), taking
  * what waits in a place in an output area or on the printer's bed (`take`), laying a part on
- * the printer's bed (`lay`), starting a print and taking the printed part off the bed
- * (`print`), clearing a jam with the wrench (`fix`), or anything else (`work`).
+ * the printer's bed (`lay`), starting a print (`print`), clearing a jam with the wrench
+ * (`fix`), or anything else (`work`). Having set a machine making something (`start`, `fill`,
+ * `print`), they stand by it till it is done (`wait`) and then take it (`take`).
  */
 export const MACHINE_ACTS = [
   'work',
@@ -23,6 +24,7 @@ export const MACHINE_ACTS = [
   'lay',
   'print',
   'fix',
+  'wait',
 ] as const;
 export type MachineAct = (typeof MACHINE_ACTS)[number];
 
@@ -41,8 +43,9 @@ export const ACT_TIMES: Record<MachineAct, { seconds: number; lead: number }> = 
   return: { seconds: 1.3, lead: 0.45 },
   take: { seconds: 1.0, lead: 0.3 },
   lay: { seconds: 1.3, lead: 0.5 },
-  print: { seconds: 2.9, lead: 0.45 },
+  print: { seconds: 1.2, lead: 0.45 },
   fix: { seconds: 1.1, lead: 0 },
+  wait: { seconds: 0, lead: 0 },
 };
 
 /**
@@ -53,18 +56,17 @@ export const ACT_STAND = 0.55;
 
 /**
  * Where along the front of a machine of this kind (x in its own frame, its front +z) a player
- * stands to do `act` (at the place `slot` of its output area, for `take`): before its start
- * button, its hopper, its mould, its hatch, the grate, the bay or the printer's bed. Null
- * where they stand before where they clicked it (clearing a jam, and anything else).
+ * stands to do `act`: before its start button, its hopper, its mould, its hatch, the grate, the
+ * bay or the printer's bed. Null where they stand before where they clicked it (clearing a jam,
+ * and anything else).
  */
-export function actStation(kind: MachineKind, act: MachineAct, slot: number): number | null {
-  if (act === 'fix' || act === 'work') return null;
+export function actStation(kind: MachineKind, act: MachineAct): number | null {
+  if (act === 'fix' || act === 'work' || act === 'wait') return null;
   if (kind === 'press') {
     // The control panel at its right end, the hopper over the barrel, the mould and the bay
     // under it at its left.
     if (act === 'start') return 0.95;
     if (act === 'pour') return 0.55;
-    if (act === 'take') return -0.5 + 0.16 * (Math.max(0, slot) - 1) * 0.5;
     return -0.5;
   }
   // The dispenser's column, with its keypad over its hatch, at its right.

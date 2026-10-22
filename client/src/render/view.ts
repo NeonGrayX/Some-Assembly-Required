@@ -994,7 +994,8 @@ export class View {
         pat = g.worldToLocal(this.dog.headTop(new THREE.Vector3()));
       }
       let work: THREE.Vector3 | null = null;
-      if (p.work?.there && !op?.hands) {
+      // (Standing by a machine for what it makes, their hands are still.)
+      if (p.work?.there && !op?.hands && p.work.act !== 'wait') {
         g.updateMatrixWorld(true);
         const { x, y, z } = p.work.hand;
         work = g.worldToLocal(new THREE.Vector3(x, y, z));
