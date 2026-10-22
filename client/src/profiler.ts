@@ -115,7 +115,17 @@ interface Memory {
 export type PerfEvent =
   | { kind: 'loading'; at: number; ms: number; step: string }
   | { kind: 'shaders'; at: number; ms: number; programs: number; cut: boolean }
-  | { kind: 'texture'; at: number; ms: number; key: string; from: 'painted' | 'stored' | 'shared' }
+  | {
+      kind: 'texture';
+      at: number;
+      ms: number;
+      key: string;
+      /**
+       * Painted on the main thread, read back from storage, shared from an earlier layout, roughed
+       * in while a worker paints it, or (`ms` from the ask to the pixels laid in) painted in one.
+       */
+      from: 'painted' | 'stored' | 'shared' | 'rough' | 'worker';
+    }
   | { kind: 'stored'; at: number; ms: number; textures: number };
 
 /** How many events are kept: far more than a visit makes, so none drop off in practice. */

@@ -1,16 +1,13 @@
 import * as THREE from 'three';
 import { BUS } from './bus.ts';
 import { CAR } from './car.ts';
-import { groundMaterial, mix, polygonField, tuft } from './ground.ts';
-import type { Field } from './ground.ts';
+import { groundMaterial, tuft } from './ground.ts';
 import {
   bentPath,
   cbox,
-  fbm,
   glow,
   hash,
   mat,
-  noise,
   paintedOnce,
   put,
   putFlatSlab,
@@ -24,6 +21,8 @@ import {
   tube,
 } from './kit.ts';
 import { COVER_RADIUS, GRATE, coverIron, grateIron } from './castiron.ts';
+import { STOP } from './paint.ts';
+import type { Rect } from './paint.ts';
 import { SPORT } from './sportscar.ts';
 import { Surface, madeOf } from '../render/styles.ts';
 import {
@@ -149,8 +148,6 @@ const PAVE = 0.146;
 /** The street furniture's paint, its worn edges, and its other colours. */
 const TEAL = 0x2c6670;
 
-/** How far each lane's stop line is from the crossing's middle: a metre and more short of it. */
-const STOP = 2.8;
 const paint = () =>
   mat(TEAL, {
     mottle: 'paint',
@@ -190,174 +187,9 @@ const TO_ROAD = { north: Math.PI / 2, south: -Math.PI / 2 };
 // ---------------------------------------------------------------------------------------------
 // The ground: asphalt, kerbs and pavements.
 
-/** The road's asphalt and paint, over `rect` (x0, z0, w, d), its ends broken off raggedly. */
-function asphalt(
-  plan: StreetPlan,
-  field: Field,
-  rect: [number, number, number, number],
-  perMetre: number,
-) {
-  const [x0, z0, w, d] = rect;
-  const W = Math.round(w * perMetre);
-  const H = Math.round(d * perMetre);
-  const data = new Uint8Array(W * H * 4);
-  const darkA = [0x3a, 0x40, 0x47];
-  const midA = [0x52, 0x59, 0x61];
-  const lightA = [0x6c, 0x72, 0x7a];
-  const fleck = [0x9a, 0x9e, 0xa2];
-  const crack = [0x16, 0x18, 0x1a];
-  const moss = [0x3a, 0x4c, 0x22];
-  const white = [0xe2, 0xdf, 0xd6];
-  const wet = [0x4a, 0x4e, 0x50];
-  const wash = [0x9a, 0x94, 0x8c];
-  const { north, south, middle, crossing, bays } = plan;
-  const band = (v: number, c: number, half: number) =>
-    Math.max(0, Math.min(1, (half - Math.abs(v - c)) * perMetre * 0.5 + 0.5));
-  for (let j = 0; j < H; j++)
-    for (let i = 0; i < W; i++) {
-      const x = x0 + ((i + 0.5) / W) * w;
-      const z = z0 + (1 - (j + 0.5) / H) * d;
-      const rough = (fbm(x * 0.1, z * 0.35, 8, 143, 4) - 0.5) * 0.9;
-      const streak = (noise(x * 0.25, z * 14, 1000, 145) - 0.5) * 0.6;
-      const f = field(x, z) + rough + streak * 0.6;
-      const k = (j * W + i) * 4;
-      if (f > 0.7) {
-        data[k + 3] = 0;
-        continue;
-      }
-      let c: number[];
-      let a = 1;
-      if (f > 0) {
-        // Its broken ends brushed out over the floor, as the other roads' are.
-        const broken = noise(x * 3, z * 14, 1000, 147);
-        if (f < 0.25) {
-          c = wet.map((v) => v * (0.85 + 0.3 * broken));
-          a = 0.85 * Math.min(1, (0.25 - f) / 0.06 + broken * 0.5);
-        } else {
-          const t = (f - 0.25) / 0.45;
-          a = Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15) * 0.6;
-          c = mix(wet, wash, Math.min(1, t * 3)).map((v) => v * (0.85 + 0.3 * broken));
-        }
-      } else {
-        const m = fbm(x * 0.1, z * 0.1, 8, 151, 4);
-        c = m < 0.5 ? mix(darkA, midA, m / 0.5) : mix(midA, lightA, (m - 0.5) / 0.5);
-        const grit = noise(x * 60, z * 60, 100000, 153);
-        c = mix(c, fleck, Math.max(0, grit - 0.8) * 3);
-        c = mix(c, darkA, Math.max(0, 0.18 - grit) * 3);
-        // Darker down the middle of each lane, where the traffic runs.
-        for (const lane of [(north + middle) / 2, (south + middle) / 2])
-          c = mix(c, darkA, 0.25 * Math.max(0, 1 - Math.abs(z - lane) / 0.9));
-        // The paint: a solid line inside each kerb, the middle dashed and solid near the
-        // crossing, a stop line before it in each lane (traffic keeps right, so +x in the north
-        // lane and -x in the south), and the crossing's bars.
-        const near = Math.abs(x - crossing);
-        let line = Math.max(band(z, north - 0.35, 0.06), band(z, south + 0.35, 0.06));
-        const dash = ((x % 3) + 3) % 3 < 1.6 || near < 6 ? 1 : 0;
-        line = Math.max(line, band(z, middle, 0.06) * dash * (near > 1.7 ? 1 : 0));
-        if (z > middle && z < north - 0.35) line = Math.max(line, band(x, crossing - STOP, 0.15));
-        if (z < middle && z > south + 0.35) line = Math.max(line, band(x, crossing + STOP, 0.15));
-        if (near < 1.5 && z < north - 0.5 && z > south + 0.5) {
-          const across = (z - (south + 0.5)) / 0.5;
-          const bar = Math.floor(across) % 2 === 0 ? 1 : 0;
-          const soft = Math.min(1, (1.5 - near) * perMetre * 0.5);
-          line = Math.max(
-            line,
-            bar * soft * Math.min(1, Math.min(across % 1, 1 - (across % 1)) * 40),
-          );
-        }
-        // The parking bays, marked out in dashes all round.
-        for (const [bx0, bz0, bx1, bz1] of bays) {
-          if (x < bx0 - 0.1 || x > bx1 + 0.1 || z < bz0 - 0.1 || z > bz1 + 0.1) continue;
-          const alongX = (x - bx0) % 0.9 < 0.55 ? 1 : 0;
-          const alongZ = (z - bz0) % 0.65 < 0.4 ? 1 : 0;
-          line = Math.max(
-            line,
-            Math.max(band(z, bz0, 0.05), band(z, bz1, 0.05)) * alongX,
-            Math.max(band(x, bx0, 0.05), band(x, bx1, 0.05)) * alongZ,
-          );
-        }
-        const wear = fbm(x * 0.4, z * 0.4, 8, 157, 4);
-        const chips = noise(x * 25, z * 25, 100000, 159);
-        line *= Math.min(1, Math.max(0, (wear - 0.22) * 4)) * (chips > 0.18 ? 1 : 0.35);
-        line *= Math.min(1, Math.max(0, -f / 0.35));
-        c = mix(c, white, line * 0.92);
-        // Cracks, a few running with moss.
-        const along = fbm(x * 0.12, z * 0.3, 8, 161, 4);
-        const net = fbm(x * 0.3, z * 0.3, 8, 163, 3);
-        const crackAt = Math.max(
-          Math.max(0, 1 - Math.abs(along - 0.5) / 0.007) * (net > 0.5 ? 1 : 0),
-          Math.max(0, 1 - Math.abs(net - 0.5) / 0.005) * (along > 0.6 ? 1 : 0),
-        );
-        const mossy = fbm(x * 0.2, z * 0.2, 8, 165, 2) > 0.6;
-        c = mix(c, mossy ? moss : crack, crackAt * 0.9);
-        // Grime gathered along the kerbs.
-        const gutter = Math.max(0, 1 - Math.min(north - z, z - south) / 0.3);
-        c = mix(c, [0x30, 0x34, 0x36], gutter * 0.35);
-      }
-      data[k] = c[0]!;
-      data[k + 1] = c[1]!;
-      data[k + 2] = c[2]!;
-      data[k + 3] = Math.round(Math.min(1, a) * 255);
-    }
-  return texture(data, W, H);
-}
-
-/**
- * Pavement slabs over a `w × d` strip: square concrete slabs half a metre across, laid in
- * staggered rows, each its own shade, with dark joints, moss in some, and pale worn edges.
- */
-function paving(w: number, d: number, perMetre: number, seed: number) {
-  const W = Math.round(w * perMetre);
-  const H = Math.round(d * perMetre);
-  const data = new Uint8Array(W * H * 4);
-  const size = 0.5;
-  const base = [0xa9, 0xa6, 0xa0];
-  const joint = [0x4c, 0x4d, 0x4b];
-  const moss = [0x4a, 0x5e, 0x2a];
-  for (let j = 0; j < H; j++)
-    for (let i = 0; i < W; i++) {
-      const x = (i + 0.5) / perMetre;
-      const z = (j + 0.5) / perMetre;
-      const row = Math.floor(z / size);
-      const sx = x + (row % 2) * size * 0.5;
-      const col = Math.floor(sx / size);
-      const [u, v] = [sx / size - col, z / size - row];
-      const edge = Math.min(u, 1 - u, v, 1 - v) * size;
-      const tone = 0.86 + hash(col, row, seed) * 0.2;
-      const mottle = 0.9 + 0.2 * fbm(x * 0.6, z * 0.6, 8, seed + 3, 4);
-      const speck = noise(x * 70, z * 70, 100000, seed + 5);
-      let c = base.map((b) => b * tone * mottle * (0.94 + 0.12 * speck));
-      // A worn lighter rim round each slab, and the joint between.
-      c = mix(c, [0xc4, 0xc1, 0xba], Math.max(0, 1 - edge / 0.02) * 0.4);
-      const inJoint = Math.max(0, Math.min(1, (0.008 - edge) / 0.004 + 0.5));
-      const mossy = fbm(x * 0.8, z * 0.8, 8, seed + 7, 3) > 0.58;
-      c = mix(c, mossy ? moss : joint, inJoint);
-      // Stains here and there.
-      const stain = Math.max(0, fbm(x * 0.3, z * 0.3, 8, seed + 9, 3) - 0.62) * 2.2;
-      c = c.map((v) => v * (1 - stain * 0.35));
-      const k = (j * W + i) * 4;
-      data[k] = c[0]!;
-      data[k + 1] = c[1]!;
-      data[k + 2] = c[2]!;
-      data[k + 3] = 255;
-    }
-  return texture(data, W, H);
-}
-
-function texture(data: Uint8Array, W: number, H: number): THREE.DataTexture {
-  const t = new THREE.DataTexture(data, W, H, THREE.RGBAFormat);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.magFilter = THREE.LinearFilter;
-  t.minFilter = THREE.LinearMipmapLinearFilter;
-  t.generateMipmaps = true;
-  t.anisotropy = 8;
-  t.needsUpdate = true;
-  return t;
-}
-
 /** The road's surface, out a little past the pavements' ends. */
 function road(root: THREE.Group, plan: StreetPlan): void {
-  const { x0, x1, north, south } = plan;
+  const { x0, x1, north, south, middle, crossing, bays } = plan;
   const outline: [number, number][] = [
     [x0 - 1.0, north + 0.3],
     [x1 + 1.0, north + 0.3],
@@ -366,19 +198,19 @@ function road(root: THREE.Group, plan: StreetPlan): void {
     [x0 - 0.8, south - 0.3],
     [x0 - 1.2, (north + south) / 2],
   ];
-  const field = polygonField(outline);
-  const rect: [number, number, number, number] = [
-    x0 - 2.2,
-    south - 0.4,
-    x1 - x0 + 4.4,
-    north - south + 0.8,
-  ];
+  const rect: Rect = [x0 - 2.2, south - 0.4, x1 - x0 + 4.4, north - south + 0.8];
   const geo = new THREE.PlaneGeometry(rect[2], rect[3]);
   geo.rotateX(-Math.PI / 2);
   const surface = new THREE.Mesh(
     geo,
     groundMaterial(0xffffff, {
-      map: paintedOnce(['asphalt', plan], () => asphalt(plan, field, rect, 100)),
+      map: paintedOnce({
+        kind: 'asphalt',
+        marks: { north, south, middle, crossing, bays },
+        outline,
+        rect,
+        perMetre: 100,
+      }),
       shine: 0.3,
       grain: 0.8,
     }),
@@ -416,9 +248,13 @@ function pavement(root: THREE.Group, plan: StreetPlan, side: Side): void {
   const slabs = new THREE.Mesh(
     top,
     groundMaterial(0xffffff, {
-      map: paintedOnce(['paving', len, deep, side], () =>
-        paving(len, deep - KERB.depth, 100, side === 'north' ? 201 : 211),
-      ),
+      map: paintedOnce({
+        kind: 'paving',
+        w: len,
+        d: deep - KERB.depth,
+        perMetre: 100,
+        seed: side === 'north' ? 201 : 211,
+      }),
       shine: 0.35,
       grain: 0.5,
     }),
