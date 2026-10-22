@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { TEST_LIGHTHOUSE as LIGHTHOUSE } from '../builds/testing.ts';
 import { BASEMENT_FLOOR, HOUSE } from '../content/house.ts';
 import { COOLDOWNS, MACHINE_BREAKS_AFTER, Round, WITNESS_RANGE } from '../round.ts';
-import { Sim, UNJAM_SECONDS } from './sim.ts';
+import { REPAIR_SECONDS, Sim, UNJAM_SECONDS, WORK_TICKS } from './sim.ts';
 import type { Player } from './sim.ts';
 import { loadedPress, machine, takeOut } from './testing.ts';
 import type { Vec3 } from '../math.ts';
@@ -164,6 +164,29 @@ describe('tampering', () => {
     // Out already: nothing more to cut.
     run(COOLDOWNS.tamper * 60 + 5);
     expect(round.sabotage(saboteur, 'tamper')).toBe(false);
+  });
+
+  it('walks whoever fixes the panel up to it, and keeps them at it till the lights are on', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    sim.breakPower();
+    const panel = sim.panel!;
+    const box = HOUSE.boxes.find((x) => x.model === 'panel')!;
+    lookAt(sim, p, { x: box.pos.x, y: BASEMENT_FLOOR, z: box.pos.z - 1.4 }, panel);
+    sim.act(p.id, { kind: 'grab' });
+    expect(sim.power.fixer).toBe(p.id);
+    expect(sim.fixing(p.id)).toBe(true);
+    expect(p.work).toMatchObject({ machineId: null, there: false });
+    const from = p.body.translation().z;
+    settle(sim, WORK_TICKS + 10);
+    expect(p.work?.there).toBe(true);
+    expect(p.body.translation().z).toBeGreaterThan(from + 0.2);
+    settle(sim, REPAIR_SECONDS * 60);
+    expect(sim.power.on).toBe(true);
+    expect(sim.fixing(p.id)).toBe(false);
+    settle(sim, 2);
+    expect(p.work).toBeNull();
   });
 
   it('has a machine break down by itself every three to five minutes, with no tell', () => {

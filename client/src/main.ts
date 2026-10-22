@@ -1564,6 +1564,7 @@ function frame(now: number): void {
       world: g.sim.world,
     },
     elapsed,
+    (id) => g.sim.fixing(id),
   );
   profiler.next('scene.props');
   view.syncPages(g.sim.pages, (page) => pageArt(page.printed));
@@ -1580,6 +1581,7 @@ function frame(now: number): void {
   listener = eye;
   playEvents(g.takeEvents(), eye);
   playVacuum(eye);
+  for (const at of view.ratchets) sfx.ratchet(1 / (1 + length(sub(at, listener)) / 4));
   updateVoice(g, eye, alpha);
   profiler.next('scene.effects');
   view.updateEffects(elapsed);
