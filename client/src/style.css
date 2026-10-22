@@ -2422,7 +2422,12 @@ body[data-screen]:not([data-screen='game']) > #perf {
   touch-action: none;
 }
 
-#perf .perf-bar.dragging {
+#perf.moving,
+#perf.moving * {
+  user-select: none;
+}
+
+#perf.moving .perf-bar {
   cursor: grabbing;
 }
 
@@ -2433,15 +2438,8 @@ body[data-screen]:not([data-screen='game']) > #perf {
   letter-spacing: 0.04em;
 }
 
-#perf .perf-columns {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  color: var(--perf-muted);
-}
-
-#perf .perf-bar button {
-  min-width: 20px;
+#perf .perf-close {
+  min-width: 22px;
   height: 20px;
   padding: 0 5px;
   border: 0;
@@ -2449,64 +2447,167 @@ body[data-screen]:not([data-screen='game']) > #perf {
   background: transparent;
   color: var(--perf-text);
   font: inherit;
+  font-size: 15px;
   cursor: pointer;
 }
 
-#perf .perf-columns button:first-of-type {
-  margin-left: 4px;
-}
-
-#perf .perf-bar button:hover {
+#perf .perf-close:hover {
   background: var(--perf-grid);
 }
 
-#perf .perf-columns button[aria-pressed='true'] {
-  background: var(--perf-grid);
-  color: var(--sar-hud-ink);
-  font-weight: bold;
+/* Resize handles along each edge and at each corner, just inside the card. */
+#perf .perf-edge {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
 }
 
-#perf .perf-close {
-  font-size: 15px;
+#perf .perf-edge-n,
+#perf .perf-edge-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+#perf .perf-edge-e,
+#perf .perf-edge-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+#perf .perf-edge-n {
+  top: -3px;
+}
+
+#perf .perf-edge-s {
+  bottom: -3px;
+}
+
+#perf .perf-edge-e {
+  right: -3px;
+}
+
+#perf .perf-edge-w {
+  left: -3px;
+}
+
+#perf :is(.perf-edge-ne, .perf-edge-nw, .perf-edge-se, .perf-edge-sw) {
+  width: 14px;
+  height: 14px;
+}
+
+#perf .perf-edge-ne {
+  top: -3px;
+  right: -3px;
+  cursor: nesw-resize;
+}
+
+#perf .perf-edge-sw {
+  bottom: -3px;
+  left: -3px;
+  cursor: nesw-resize;
+}
+
+#perf .perf-edge-nw {
+  top: -3px;
+  left: -3px;
+  cursor: nwse-resize;
+}
+
+#perf .perf-edge-se {
+  right: -3px;
+  bottom: -3px;
+  cursor: nwse-resize;
+}
+
+/* A hint of a grip in the bottom right corner. */
+#perf .perf-edge-se::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--perf-muted);
+  border-bottom: 2px solid var(--perf-muted);
+  opacity: 0.6;
 }
 
 #perf .perf-scroll {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 10px 12px;
+  scrollbar-gutter: stable;
+  padding: 10px 6px 10px 12px;
 }
 
 #perf .perf-cols,
 #perf .perf-col {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 8px;
 }
 
-/* The whole frame on the left, its breakdowns on the right. */
+/* Two columns once the card is wide enough: the whole frame and its breakdowns, to start with. */
 #perf .perf-cols.two {
-  grid-template-columns: auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
-  column-gap: 24px;
+  column-gap: 16px;
 }
 
-/* No room for two columns, as on a phone: one, and nothing to choose. */
-@media (max-width: 660px) {
-  #perf .perf-cols.two {
-    grid-template-columns: auto;
-  }
+/* While a graph is dragged, an empty column still has room to drop it in. */
+#perf .perf-cols.docking .perf-col {
+  min-height: 40px;
+  border-radius: 5px;
+  outline: 1px dashed var(--perf-grid);
+  outline-offset: 2px;
+}
 
-  #perf .perf-columns {
-    display: none;
-  }
+/* Each graph a small card of its own. */
+#perf .perf-tile {
+  padding: 6px 8px 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 5px;
+}
+
+#perf .perf-tile.lifted {
+  position: fixed;
+  z-index: 3;
+  background: var(--perf-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  outline: 1px solid var(--perf-grid);
+  pointer-events: none;
+}
+
+/* Where the dragged graph will go. */
+#perf .perf-slot {
+  border: 1px dashed var(--perf-muted);
+  border-radius: 5px;
+}
+
+#perf .perf-grip {
+  align-self: stretch;
+  width: 8px;
+  margin: -2px 0 -2px -2px;
+  background: radial-gradient(var(--perf-muted) 1px, transparent 1.5px) 0 0 / 4px 4px;
+  opacity: 0.5;
+  cursor: grab;
+  touch-action: none;
+}
+
+#perf summary:hover .perf-grip {
+  opacity: 1;
 }
 
 #perf summary {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  width: 280px;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   list-style: none;
   user-select: none;
@@ -2518,6 +2619,7 @@ body[data-screen]:not([data-screen='game']) > #perf {
 
 #perf .perf-name {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 6px;
   font-weight: bold;
@@ -2545,9 +2647,17 @@ body[data-screen]:not([data-screen='game']) > #perf {
   border-radius: 2px;
 }
 
+#perf .perf-name {
+  white-space: nowrap;
+}
+
+/* In a narrow column the readout gives way to the graph's name. */
 #perf .perf-readout {
+  min-width: 0;
+  overflow: hidden;
   color: var(--perf-text);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 #perf .perf-body {
@@ -2556,19 +2666,21 @@ body[data-screen]:not([data-screen='game']) > #perf {
 
 #perf canvas {
   display: block;
+  width: 100%;
   cursor: crosshair;
 }
 
 #perf .perf-time {
   display: flex;
   justify-content: space-between;
-  width: 250px;
+  /* Under the plot, clear of the axis labels on its right. */
+  width: calc(100% - 30px);
   color: var(--perf-muted);
   font-size: 10px;
 }
 
 #perf .perf-legend {
-  width: 280px;
+  width: 100%;
   margin-top: 4px;
   border-collapse: collapse;
   font-size: 10px;
@@ -2596,7 +2708,6 @@ body[data-screen]:not([data-screen='game']) > #perf {
 
 #perf .perf-note,
 #perf .perf-slowest {
-  width: 280px;
   margin: 6px 0 0;
   color: var(--perf-muted);
   font-size: 10px;
