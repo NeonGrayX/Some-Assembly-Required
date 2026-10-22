@@ -73,12 +73,17 @@ export const FILL_FROM = new THREE.Vector3(1.5, 2, -6);
 
 /**
  * Pales the floor all over `area` (a map's, `size` a side round `x`, `z`), the key's light
- * across it, and fades it into the backdrop past it.
+ * across it, and fades it into the backdrop past it: soon past it, or with a town round it
+ * (`town`), half faded `past` metres beyond the map's edge and more sharply.
  */
-export function floorOver(area: { x: number; z: number; size: number }): void {
+export function floorOver(
+  area: { x: number; z: number; size: number },
+  town?: { past: number; sharpness: number },
+): void {
   const { x, z, size } = area;
   FLOOR.centre.value.set(x, z);
-  FLOOR.range.value.set(size * 0.6, 1.6);
+  if (town) FLOOR.range.value.set(size / 2 + town.past, town.sharpness);
+  else FLOOR.range.value.set(size * 0.6, 1.6);
   FLOOR.pool.value.set(0.78, 0.62, -size, -size * 0.25);
   FLOOR.poolDark.value = 0.48;
 }

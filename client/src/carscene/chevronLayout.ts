@@ -99,6 +99,8 @@ const STREET: StreetPlan = {
     { kind: 'bollard', x: -3.25, side: 'south', back: 0.42 },
   ],
   bays: [...BAYS.long, ...BAYS.short],
+  // Carried on past the map's ends by the town's (see `city.ts`).
+  open: true,
 };
 
 const BIG_HOUSE: Place = { x: -9.5, z: -11.6, heading: 0 };

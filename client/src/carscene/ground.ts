@@ -120,10 +120,12 @@ float gFbm( vec2 p ) {
 #endif
 #ifdef FLOOR
   uniform vec3 floorNear;
-  uniform vec2 floorCentre;
-  uniform vec2 floorRange;
   uniform vec4 floorPool;
   uniform float floorPoolDark;
+#endif
+#if defined( FLOOR ) || defined( HAZE )
+  uniform vec2 floorCentre;
+  uniform vec2 floorRange;
 #endif
 varying vec3 vWorld;
 varying vec3 vNormal;
@@ -141,6 +143,8 @@ void main() {
   #endif
   #ifdef FLOOR
     albedo = floorNear * mix( floorPoolDark, 1.0, smoothstep( floorPool.z, floorPool.w, dot( vWorld.xz, floorPool.xy ) ) );
+  #endif
+  #if defined( FLOOR ) || defined( HAZE )
     float fade = 1.0 - 1.0 / ( 1.0 + pow( distance( vWorld.xz, floorCentre ) / floorRange.x, floorRange.y ) );
   #endif
   vec2 b = vec2( ( vWorld.x - bakeRect.x ) / bakeRect.z, ( bakeRect.y - vWorld.z ) / bakeRect.w );
@@ -172,7 +176,7 @@ void main() {
     colour += shine * ( keyColour * spec * 2.6 + sweep( reflect( -v, n ).y ) * fres * level * ( 1.0 - sky * skyDark ) );
   }
   gl_FragColor = vec4( colour, alpha );
-  #ifdef FLOOR
+  #if defined( FLOOR ) || defined( HAZE )
     gl_FragColor.rgb = mix( gl_FragColor.rgb, sweep( normalize( vWorld - cameraPosition ).y ), fade );
   #endif
   #include <tonemapping_fragment>
@@ -194,6 +198,8 @@ export function groundMaterial(
     map?: THREE.Texture;
     vertexColors?: boolean;
     floor?: boolean;
+    /** Faded into the backdrop with distance as the floor is (for what stands out past a map). */
+    haze?: boolean;
     shine?: number;
     grain?: number;
   } = {},
@@ -201,6 +207,7 @@ export function groundMaterial(
   const defines: Record<string, string> = {};
   if (o.map) defines.USE_MAP = '';
   if (o.floor) defines.FLOOR = '';
+  if (o.haze) defines.HAZE = '';
   if (!GROUND_LIGHT.tKey.value) GROUND_LIGHT.tKey.value = GROUND_LIGHT.tSky.value = blank;
   const m = new THREE.ShaderMaterial({
     uniforms: {
@@ -535,7 +542,11 @@ export interface GroundCover {
 }
 
 /** `cover` laid on the ground: under the road, the pavements and the cobbles, the paths over it. */
-export function coverGround(cover: GroundCover): THREE.Group {
+export function coverGround(
+  cover: GroundCover,
+  o: { perMetre?: number; slabs?: number; haze?: boolean } = {},
+): THREE.Group {
+  const { perMetre = 64, slabs = 100, haze } = o;
   const root = new THREE.Group();
   root.name = 'cover';
   // Drawn before the rest of the ground's painted layers (the road's at 0.5, the cobbles' at 1),
@@ -545,17 +556,26 @@ export function coverGround(cover: GroundCover): THREE.Group {
   const lay = (rect: Rect, map: THREE.Texture, shine: number, grain: number, at = under) => {
     const geo = new THREE.PlaneGeometry(rect[2], rect[3]);
     geo.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(geo, groundMaterial(0xffffff, { map, shine, grain }));
+    // Seen from afar (faded into the haze), a duller sheen and no grit, which would glitter.
+    const m = new THREE.Mesh(
+      geo,
+      groundMaterial(0xffffff, {
+        map,
+        shine: haze ? shine * 0.4 : shine,
+        grain: haze ? 0 : grain,
+        haze,
+      }),
+    );
     m.position.set(rect[0] + rect[2] / 2, at.y, rect[1] + rect[3] / 2);
     m.renderOrder = at.order;
     root.add(m);
   };
   const { gravel } = cover;
-  lay(gravel.rect, paintedOnce({ kind: 'gravel', ...gravel, perMetre: 64 }), 0.1, 0.9);
+  lay(gravel.rect, paintedOnce({ kind: 'gravel', ...gravel, perMetre }), 0.1, 0.9);
   for (const l of cover.lawns)
-    lay(l.rect, paintedOnce({ kind: 'lawn', ...l, perMetre: 64 }), 0.05, 0.5);
+    lay(l.rect, paintedOnce({ kind: 'lawn', ...l, perMetre }), 0.05, 0.5);
   for (const [i, p] of cover.paths.entries()) {
-    const job = { kind: 'paving', w: p[2], d: p[3], perMetre: 100, seed: 221 + 2 * i } as const;
+    const job = { kind: 'paving', w: p[2], d: p[3], perMetre: slabs, seed: 221 + 2 * i } as const;
     lay(p, paintedOnce(job), 0.35, 0.5, over);
   }
   return root;

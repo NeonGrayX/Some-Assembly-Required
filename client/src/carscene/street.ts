@@ -9,6 +9,7 @@ import {
   hash,
   mat,
   paintedOnce,
+  pbox,
   put,
   putFlatSlab,
   putSlab,
@@ -91,6 +92,20 @@ export interface StreetPlan {
   furniture: StreetPiece[];
   /** Parking bays marked out in the road: x0, z0, x1, z1. */
   bays: [number, number, number, number][];
+  /**
+   * A street with no crossing: no zebra, traffic lights, signs or tactile paving (`crossing` is
+   * then left out of the road's paint, wherever it is).
+   */
+  plain?: boolean;
+  /** Where side streets come in: a gap in the pavement on `side`, from x0 to x1. */
+  openings?: { side: Side; x0: number; x1: number }[];
+  /** How many pixels a metre its road and slabs are painted at, if not 100. */
+  detail?: number;
+  /**
+   * Its road cut off square at x0 and x1, to meet another's there, rather than broken off
+   * raggedly past them (the asphalt is painted by where it lies, so two meet without a seam).
+   */
+  open?: boolean;
 }
 
 /** The street as the car scene's picture has it, before the cars. */
@@ -145,6 +160,9 @@ export const STREET: StreetPlan = {
 const KERB = { height: 0.15, depth: 0.22 };
 const PAVE = 0.146;
 
+/** Where a plain street's crossing is put for its road's paint: far off, so none is painted. */
+const NO_CROSSING = 1e6;
+
 /** The street furniture's paint, its worn edges, and its other colours. */
 const TEAL = 0x2c6670;
 
@@ -187,18 +205,29 @@ const TO_ROAD = { north: Math.PI / 2, south: -Math.PI / 2 };
 // ---------------------------------------------------------------------------------------------
 // The ground: asphalt, kerbs and pavements.
 
+/** Whether `plan`'s street is seen only from afar, painted too coarse for fine detail. */
+const far = (plan: StreetPlan) => (plan.detail ?? 100) < 40;
+
 /** The road's surface, out a little past the pavements' ends. */
 function road(root: THREE.Group, plan: StreetPlan): void {
   const { x0, x1, north, south, middle, crossing, bays } = plan;
-  const outline: [number, number][] = [
-    [x0 - 1.0, north + 0.3],
-    [x1 + 1.0, north + 0.3],
-    [x1 + 1.3, (north + south) / 2],
-    [x1 + 0.9, south - 0.3],
-    [x0 - 0.8, south - 0.3],
-    [x0 - 1.2, (north + south) / 2],
-  ];
-  const rect: Rect = [x0 - 2.2, south - 0.4, x1 - x0 + 4.4, north - south + 0.8];
+  const outline: [number, number][] = plan.open
+    ? [
+        [x0 - 9, north + 0.3],
+        [x1 + 9, north + 0.3],
+        [x1 + 9, south - 0.3],
+        [x0 - 9, south - 0.3],
+      ]
+    : [
+        [x0 - 1.0, north + 0.3],
+        [x1 + 1.0, north + 0.3],
+        [x1 + 1.3, (north + south) / 2],
+        [x1 + 0.9, south - 0.3],
+        [x0 - 0.8, south - 0.3],
+        [x0 - 1.2, (north + south) / 2],
+      ];
+  const end = plan.open ? 0 : 2.2;
+  const rect: Rect = [x0 - end, south - 0.4, x1 - x0 + 2 * end, north - south + 0.8];
   const geo = new THREE.PlaneGeometry(rect[2], rect[3]);
   geo.rotateX(-Math.PI / 2);
   const surface = new THREE.Mesh(
@@ -206,13 +235,14 @@ function road(root: THREE.Group, plan: StreetPlan): void {
     groundMaterial(0xffffff, {
       map: paintedOnce({
         kind: 'asphalt',
-        marks: { north, south, middle, crossing, bays },
+        marks: { north, south, middle, crossing: plan.plain ? NO_CROSSING : crossing, bays },
         outline,
         rect,
-        perMetre: 100,
+        perMetre: plan.detail ?? 100,
       }),
-      shine: 0.3,
-      grain: 0.8,
+      // Less of a sheen and no grit on a street seen only from afar, where they glitter.
+      shine: far(plan) ? 0.1 : 0.3,
+      grain: far(plan) ? 0 : 0.8,
     }),
   );
   surface.position.set(rect[0] + rect[2] / 2, 0.003, rect[1] + rect[3] / 2);
@@ -225,13 +255,31 @@ function road(root: THREE.Group, plan: StreetPlan): void {
  * blocks, each with a strip of cyan light set into its face.
  */
 function pavement(root: THREE.Group, plan: StreetPlan, side: Side): void {
-  const { x0, x1, pavement: deep } = plan;
+  // In runs between the side streets coming in on this side.
+  const gaps = (plan.openings ?? []).filter((o) => o.side === side).sort((a, b) => a.x0 - b.x0);
+  let from = plan.x0;
+  for (const g of gaps) {
+    if (g.x0 > from) pavementRun(root, plan, side, from, g.x0);
+    from = Math.max(from, g.x1);
+  }
+  if (plan.x1 > from) pavementRun(root, plan, side, from, plan.x1);
+}
+
+/** The pavement on `side` from `x0` to `x1`. */
+function pavementRun(
+  root: THREE.Group,
+  plan: StreetPlan,
+  side: Side,
+  x0: number,
+  x1: number,
+): void {
+  const { pavement: deep } = plan;
   const s = side === 'north' ? 1 : -1;
   const face = side === 'north' ? plan.north : plan.south;
   const back = face + s * deep;
   const len = x1 - x0;
   const midZ = (face + back) / 2;
-  cbox(
+  (plan.detail === undefined ? cbox : pbox)(
     root,
     concrete(),
     (x0 + x1) / 2,
@@ -241,7 +289,6 @@ function pavement(root: THREE.Group, plan: StreetPlan, side: Side): void {
     len - 0.008,
     PAVE - 0.004,
     deep - 0.1,
-    0.03,
   );
   const top = new THREE.PlaneGeometry(len - 0.04, deep - KERB.depth - 0.02);
   top.rotateX(-Math.PI / 2);
@@ -252,35 +299,35 @@ function pavement(root: THREE.Group, plan: StreetPlan, side: Side): void {
         kind: 'paving',
         w: len,
         d: deep - KERB.depth,
-        perMetre: 100,
-        seed: side === 'north' ? 201 : 211,
+        perMetre: plan.detail ?? 100,
+        // A run after a side street's opening painted afresh, not as a copy of the first.
+        seed: (side === 'north' ? 201 : 211) + (x0 === plan.x0 ? 0 : Math.round(x0 * 10)),
       }),
-      shine: 0.35,
-      grain: 0.5,
+      shine: far(plan) ? 0.12 : 0.35,
+      grain: far(plan) ? 0 : 0.5,
     }),
   );
   slabs.position.set((x0 + x1) / 2, PAVE, face + s * (KERB.depth + (deep - KERB.depth) / 2));
   root.add(slabs);
-  // The kerb, in blocks a metre or so long.
+  // The kerb, in blocks a metre or so long: rounded off, unless painted coarser for being seen
+  // from afar, where plain boxes do, and (coarser still) one long one.
   const rand = rng(side === 'north' ? 31 : 37);
   const line = glow(CAR.blue, 1.3);
+  const fine = plan.detail === undefined;
+  const whole = far(plan);
   for (let x = x0; x < x1 - 0.05;) {
-    let l = Math.min(0.9 + rand() * 0.25, x1 - x);
+    let l = whole ? x1 - x : Math.min(0.9 + rand() * 0.25, x1 - x);
     // No sliver of a stone at the end: the last takes what is left.
     if (x1 - x - l < 0.25) l = x1 - x;
     const zc = face + s * (KERB.depth / 2);
-    cbox(
-      root,
-      kerbStone(),
-      x + l / 2,
-      KERB.height / 2,
-      zc,
-      l - 0.012,
-      KERB.height,
-      KERB.depth,
-      0.02,
-    );
-    cbox(root, line, x + l / 2, 0.075, face - s * 0.002, l - 0.14, 0.014, 0.006, 0.003);
+    const [xc, lz] = [x + l / 2, face - s * 0.002];
+    if (fine) {
+      cbox(root, kerbStone(), xc, KERB.height / 2, zc, l - 0.012, KERB.height, KERB.depth, 0.02);
+      cbox(root, line, xc, 0.075, lz, l - 0.14, 0.014, 0.006, 0.003);
+    } else {
+      pbox(root, kerbStone(), xc, KERB.height / 2, zc, l - 0.012, KERB.height, KERB.depth);
+      pbox(root, line, xc, 0.075, lz, l - 0.14, 0.014, 0.006);
+    }
     x += l;
   }
 }
@@ -433,6 +480,44 @@ function streetLamp(parent: THREE.Object3D): void {
   for (const z of [-0.155, 0.155]) cbox(g, lit.mats[1], 1.55, 5.18, z, 0.9, 0.012, 0.008, 0.003);
   const cap = new THREE.SphereGeometry(0.05, 16, 8);
   put(g, cap, polished(), 0, 5.06, 0);
+}
+
+/**
+ * Where a lamp of `plan`'s stands, `l`: its foot on the pavement by the kerb, its arm (+x) out
+ * over the road.
+ */
+export function lampSpot(plan: StreetPlan, l: { x: number; side: Side }): THREE.Object3D {
+  const g = new THREE.Object3D();
+  g.position.set(l.x, PAVE, l.side === 'north' ? plan.north + 0.45 : plan.south - 0.45);
+  g.rotation.y = TO_ROAD[l.side];
+  return g;
+}
+
+/**
+ * The street lamp for a street seen only from afar (see `StreetPlan.detail`): its shape in a
+ * tenth of the triangles, always lit.
+ */
+export function plainLamp(parent: THREE.Object3D): void {
+  const g = new THREE.Group();
+  parent.add(g);
+  pbox(g, charcoal(), 0, 0.21, 0, 0.42, 0.42, 0.42);
+  put(g, new THREE.CylinderGeometry(0.065, 0.1, 4.2, 8, 1, true), paint(), 0, 0.42 + 2.1);
+  const ring = new THREE.TorusGeometry(0.1, 0.014, 3, 10);
+  ring.rotateX(Math.PI / 2);
+  put(g, ring, glow(CAR.blue, 2), 0, 0.85);
+  const arm = bentPath(
+    [
+      new THREE.Vector3(0, 4.45, 0),
+      new THREE.Vector3(0, 5.05, 0),
+      new THREE.Vector3(0.5, 5.2, 0),
+      new THREE.Vector3(1.75, 5.2, 0),
+    ],
+    0.35,
+  );
+  put(g, new THREE.TubeGeometry(arm, 10, 0.05, 5), paint());
+  pbox(g, charcoal(), 1.55, 5.19, 0, 1.1, 0.14, 0.32);
+  pbox(g, glow(0xeaf8ff, 2.8), 1.55, 5.11, 0, 0.82, 0.02, 0.2);
+  for (const z of [-0.165, 0.165]) pbox(g, glow(CAR.blue, 2.2), 1.55, 5.18, z, 0.9, 0.012, 0.01);
 }
 
 /** A face of `rows` lines of 5-wide pixels, painted `on` where marked, as a texture. */
@@ -1323,26 +1408,31 @@ export function buildStreet(plan: StreetPlan = STREET): THREE.Group {
   road(root, plan);
   pavement(root, plan, 'north');
   pavement(root, plan, 'south');
-  tactile(root, plan, 'north');
-  tactile(root, plan, 'south');
+  if (!plan.plain) {
+    tactile(root, plan, 'north');
+    tactile(root, plan, 'south');
+  }
   for (const m of plan.manholes) manhole(root, m.x, m.z, m.lifts);
   for (const d of plan.drains) drain(root, plan, d.x, d.side);
 
   // The lamps, staggered along both pavements, their arms out over the road.
-  for (const l of plan.lamps) streetLamp(at(root, l.x, kerb(l.side, 0.45), TO_ROAD[l.side]));
+  const lamp = plan.detail === undefined ? streetLamp : plainLamp;
+  for (const l of plan.lamps) lamp(at(root, l.x, kerb(l.side, 0.45), TO_ROAD[l.side]));
 
-  // The crossing's lights, one each side at its lane's stop line, short of the crossing, facing
-  // the traffic coming at it, its walk signal facing the far pavement.
-  const lamps = crossingLamps();
-  trafficLight(at(root, cx - STOP + 0.4, north + 0.42, Math.PI), lamps);
-  trafficLight(at(root, cx + STOP - 0.4, south - 0.42, 0), lamps);
-  const crossing = addGadget(root, new Crossing(lamps));
-  powered(root, (k) => (crossing.power = k));
+  if (!plan.plain) {
+    // The crossing's lights, one each side at its lane's stop line, short of the crossing,
+    // facing the traffic coming at it, its walk signal facing the far pavement.
+    const lamps = crossingLamps();
+    trafficLight(at(root, cx - STOP + 0.4, north + 0.42, Math.PI), lamps);
+    trafficLight(at(root, cx + STOP - 0.4, south - 0.42, 0), lamps);
+    const crossing = addGadget(root, new Crossing(lamps));
+    powered(root, (k) => (crossing.power = k));
 
-  // The crossing's signs, one each side on its own mast at the crossing's edge, hung a little
-  // out over the road.
-  crossingMast(at(root, cx + 1.9, north + 0.42, TO_ROAD.north), 1.2);
-  crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), 1.2);
+    // The crossing's signs, one each side on its own mast at the crossing's edge, hung a little
+    // out over the road.
+    crossingMast(at(root, cx + 1.9, north + 0.42, TO_ROAD.north), 1.2);
+    crossingMast(at(root, cx - 1.9, south - 0.42, TO_ROAD.south), 1.2);
+  }
 
   // Railings along the kerb.
   for (const r of plan.railings) railing(at(root, r.x, kerb(r.side, 0.3), 0), r.length);

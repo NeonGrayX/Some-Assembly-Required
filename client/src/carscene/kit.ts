@@ -436,6 +436,25 @@ export function cbox(
   return rbox(parent, material, x, y, z, sx, sy, sz, Math.min(r, 0.03), rot);
 }
 
+/**
+ * A plain box `sx × sy × sz` centred at (`x`, `y`, `z`), its edges sharp: for what is only seen
+ * from afar, where a rounded one's hundred-odd triangles would be wasted.
+ */
+export function pbox(
+  parent: THREE.Object3D,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  sx: number,
+  sy: number,
+  sz: number,
+  rot: [number, number, number] = [0, 0, 0],
+): THREE.Mesh {
+  const geo = new THREE.BoxGeometry(sx, sy, sz);
+  return put(parent, mottled(geo, material), material, x, y, z, ...rot);
+}
+
 /** A rounded-off outline `w × h` centred on the origin, its corners `r` round. */
 export function roundRect(w: number, h: number, r: number): THREE.Shape {
   const s = new THREE.Shape();
