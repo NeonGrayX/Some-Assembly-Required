@@ -84,7 +84,14 @@ export function localConnection(
     : setInterval(() => {
         const now = performance.now();
         const started = now;
-        acc = catchUp(Math.min(acc + (now - last) / 1000, DT * 5), () => room.update());
+        // More than a few ticks behind (the tab in the background, say), the rest is let go.
+        const behind = acc + (now - last) / 1000;
+        room.letGo(Math.floor(Math.max(0, behind - DT * 5) / DT));
+        acc = catchUp(
+          Math.min(behind, DT * 5),
+          () => room.update(),
+          (ticks) => room.letGo(ticks),
+        );
         last = now;
         soloServerMs += performance.now() - started;
       }, 1000 * DT);

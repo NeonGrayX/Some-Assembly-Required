@@ -785,6 +785,17 @@ export class Room {
 
   // ---------------------------------------------------------------- simulation
 
+  /**
+   * `ticks` whoever runs the room let go rather than ran (see `catchUp`). The players played on
+   * through them, and their inputs for them still come: each is owed the inputs it may have
+   * applied in them, or a backlog would be worked off no faster than it builds up, and every
+   * move be applied late from then on (rounds later, as a rubber band on a game in this tab).
+   */
+  letGo(ticks: number): void {
+    for (const c of this.clients.values())
+      c.inputCredits = Math.min(MAX_INPUT_BACKLOG, c.inputCredits + ticks * INPUT_CREDIT_PER_TICK);
+  }
+
   update(): void {
     this.tick++;
     // Bots decide first and send their inputs like anyone, to be applied below.
