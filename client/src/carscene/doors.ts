@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { does } from '../hints.ts';
 import type { Hint } from '../hints.ts';
-import type { Aim } from './works.ts';
 
 /**
  * The vehicles' doors, bonnets and boots, each cut out of its body and hung on a hinge: a door at
@@ -28,6 +27,13 @@ export interface Swing {
 const SWING_TIME = 0.6;
 /** How far from the camera's line past the player's head a door can be clicked, in metres. */
 const REACH = 2.6;
+
+/** Where the player is and which way the camera looks: what aiming needs. */
+export interface Aim {
+  camera: THREE.Camera;
+  /** The player's head: things between it and the camera are not aimed at. */
+  head: THREE.Vector3;
+}
 
 /** `shape`'s outline as points, without the one closing it. */
 export function outlinePoints(shape: THREE.Shape): THREE.Vector2[] {

@@ -169,16 +169,6 @@ export function placed(outline: [number, number][], at: Place): [number, number]
 }
 
 /**
- * A view that takes in the off-roader, the sports car, the bus, both houses and the street: the
- * free view's start.
- */
-export const SHOWCASE_VIEW = {
-  position: new THREE.Vector3(20.0, 15.0, 4.0),
-  target: new THREE.Vector3(-5.0, 1.0, -13.0),
-  fov: 46,
-};
-
-/**
  * Where the studio's key light comes from: high behind the car and on the picture's right, so the
  * bonnet and the side facing the camera are lit, the nose is not, and the car's shadow falls out
  * ahead of its nose, to the picture's left.

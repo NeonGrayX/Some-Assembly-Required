@@ -1,15 +1,11 @@
 import * as THREE from 'three';
-import { does } from '../hints.ts';
-import type { Hint } from '../hints.ts';
-import type { Aim } from './works.ts';
 
 /**
- * What can be used on the car test map besides the vehicles' doors and the brick works: the
+ * What can be used on Chevron Street besides the vehicles' doors and the brick works: the
  * houses' cupboards, fridges and wardrobes, their taps, hobs, lamps and screens, the letterboxes,
  * the street's crossing and bins, the site's power cabinet and portaloo, and the rest. Each is a
- * `Gadget` hung on its model where it is built (see `addGadget`); a click on it while the
- * crosshair is on it, within reach and in sight, uses it, and it moves as it does (a door
- * swinging, a lamp coming on, the crossing's lights changing).
+ * `Gadget` hung on its model where it is built (see `addGadget`); used, it moves as it does (a
+ * door swinging, a lamp coming on, the crossing's lights changing).
  *
  * A part that moves or changes as it is used is named `MOVING`: kept out of the baking, so it can
  * move, and walked against as a collider of its own that goes with it (an open cupboard's door
@@ -62,9 +58,6 @@ export const hearing: { play: (noise: Noise, at: THREE.Vector3) => void } = {
 export function sound(noise: Noise, o: THREE.Object3D): void {
   hearing.play(noise, o.getWorldPosition(new THREE.Vector3()));
 }
-
-/** How far from the camera's line past the player's head a gadget can be used, in metres. */
-const REACH = 2.6;
 
 export interface Gadget {
   /** The parts aimed at to use it, each aimed at within its bounds. */
@@ -308,93 +301,4 @@ export function waterMaterial(): THREE.MeshStandardMaterial {
     opacity: 0.55,
     depthWrite: false,
   });
-}
-
-/** How far along a ray it goes clear of the map (Infinity if all the way): what hides a gadget. */
-export type Sight = (from: THREE.Vector3, dir: THREE.Vector3, far: number) => number;
-
-/** The map's gadgets, working, and the one the crosshair is on. */
-export class Gadgets {
-  /** The gadget the crosshair is on: what a click uses. */
-  aimed: Gadget | null = null;
-  /** Each handle's bounds in its own axes, a little grown so that thin ones can be aimed at. */
-  private readonly aims: { gadget: Gadget; node: THREE.Object3D; box: THREE.Box3 }[] = [];
-  private readonly ray = new THREE.Ray();
-  private readonly toLocal = new THREE.Matrix4();
-  private readonly hit = new THREE.Vector3();
-
-  /** Built before the scene is baked: the handles' bounds come from their meshes. */
-  constructor(
-    readonly list: Gadget[],
-    private readonly sight: Sight = () => Infinity,
-  ) {
-    for (const gadget of list)
-      for (const node of gadget.handles) {
-        node.updateWorldMatrix(true, true);
-        const toNode = node.matrixWorld.clone().invert();
-        const box = new THREE.Box3();
-        const m = new THREE.Matrix4();
-        node.traverse((o) => {
-          const mesh = o as THREE.Mesh;
-          if (!mesh.isMesh || !mesh.visible) return;
-          if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-          m.multiplyMatrices(toNode, mesh.matrixWorld);
-          box.union(mesh.geometry.boundingBox!.clone().applyMatrix4(m));
-        });
-        if (box.isEmpty()) continue;
-        // At least a few centimetres every way, a button as much as a door.
-        const size = box.getSize(new THREE.Vector3());
-        const grow = new THREE.Vector3(
-          Math.max(0.01, (0.08 - size.x) / 2),
-          Math.max(0.01, (0.08 - size.y) / 2),
-          Math.max(0.01, (0.08 - size.z) / 2),
-        );
-        box.expandByVector(grow);
-        this.aims.push({ gadget, node, box });
-      }
-  }
-
-  /** Each gadget `dt` seconds on, the player at `who`, and aims where the camera looks. */
-  update(dt: number, aim: Aim | null, who: THREE.Vector3 | null = null): void {
-    for (const g of this.list) g.update(dt, who);
-    this.aimed = aim ? this.aimFrom(aim) : null;
-  }
-
-  /**
-   * The gadget on the camera's line from just before the player's head, within reach, nearest
-   * first, and nothing of the map before it.
-   */
-  private aimFrom({ camera, head }: Aim): Gadget | null {
-    const dir = camera.getWorldDirection(new THREE.Vector3());
-    const skip = Math.max(0, head.clone().sub(camera.position).dot(dir) - 0.4);
-    const from = camera.position.clone().addScaledVector(dir, skip);
-    let best: Gadget | null = null;
-    let near = REACH;
-    for (const a of this.aims) {
-      this.toLocal.copy(a.node.matrixWorld).invert();
-      this.ray.origin.copy(from).applyMatrix4(this.toLocal);
-      this.ray.direction.copy(dir).transformDirection(this.toLocal);
-      if (!this.ray.intersectBox(a.box, this.hit)) continue;
-      // Back in the world's measure (the handle's axes may be scaled).
-      const d = this.hit.applyMatrix4(a.node.matrixWorld).distanceTo(from);
-      if (d < near && a.gadget.hint() !== null) [best, near] = [a.gadget, d];
-    }
-    // Its surface lies inside its bounds: anything nearer than where the line goes into them
-    // is in front of it (a wall, another thing).
-    if (best && this.sight(from, dir, near) < near - 0.03) return null;
-    return best;
-  }
-
-  /** A click: uses the gadget aimed at. Whether there was one. */
-  click(): boolean {
-    if (!this.aimed) return false;
-    this.aimed.use();
-    return true;
-  }
-
-  /** What a click would do. */
-  hint(): Hint {
-    const says = this.aimed?.hint();
-    return says ? [does('use', says)] : [];
-  }
 }

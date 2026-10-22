@@ -618,7 +618,7 @@ export function sceneSolid(p: SolidPart): SceneSolid {
 /**
  * What hangs from `root` as it is met (see `SceneMesh`), in `frame`'s space (the world if
  * null), but for what `skip` says to leave out (and all that hangs from it), and what is walked
- * through (see `passable`): as the car scene's walker meets it (see `MeshWalker`). `whole`, it
+ * through (see `passable`): as a player meets it. `whole`, it
  * is met as the one hull round all of it if that hull is no more than `GAP` out of it anywhere
  * (a door, say: a slab, but for its panels' relief).
  */
