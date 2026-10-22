@@ -591,6 +591,7 @@ export class ClientGame {
               hand: { x: work[0], y: work[1], z: work[2] },
               since: 0,
               delays: false,
+              awaits: null,
               there: true,
               walk: 0,
               ticks: 0,

@@ -56,8 +56,6 @@ const ACTS: Record<MachineKind, [MachineAct, number][]> = {
     ['pour', -1],
     ['mould', -1],
     ['take', 0],
-    ['take', 1],
-    ['take', 2],
   ],
   silo: [
     ['fill', -1],
@@ -101,7 +99,7 @@ describe('operating the machines', () => {
                   look.update({ ...m, out: m.out.map((x, i) => (i === slot ? null : x)) }, {});
                   return look.keptModel(slot);
                 })()
-              : act === 'take' || act === 'print'
+              : act === 'take'
                 ? look.bedModel()
                 : null;
           const stage = stageOf(look, act, slot, part ?? taken);

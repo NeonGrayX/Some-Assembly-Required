@@ -62,6 +62,8 @@ function setup(seed = 7, level: LevelDef = HOUSE, build: TargetBuild = LIGHTHOUS
 }
 
 function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
+  // Ending whatever they were at, as the game's teleports do.
+  p.work = null;
   p.body.setTranslation({ x: standAt.x, y: standAt.y + 0.86, z: standAt.z }, true);
   for (let i = 0; i < 3; i++) sim.step();
   const eye = sim.eye(p);

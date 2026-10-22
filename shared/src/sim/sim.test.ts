@@ -29,6 +29,8 @@ const settle = (sim: Sim, ticks = 60) => {
 
 /** Teleports the player and points a first-person view at `target`. */
 function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
+  // Ending whatever they were at, as the game's teleports do.
+  p.work = null;
   p.body.setTranslation({ x: standAt.x, y: 0.86, z: standAt.z }, true);
   // Bring a held brick along, otherwise it is left behind and dropped.
   const held = p.holding && sim.assemblies.get(p.holding.assemblyId);

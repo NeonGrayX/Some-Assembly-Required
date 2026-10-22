@@ -79,14 +79,14 @@ const MACHINE_FRONT: Record<MachineKind, number> = {
 };
 
 describe("the car test map's brick works", { timeout: 60_000 }, () => {
-  it('starts as the picture had it: a red bucket filled, two bricks moulded, a part to print', () => {
+  it('starts as the picture had it: a red bucket filled, a brick moulded, a part to print', () => {
     const w = works();
     expect(w.machine('silo').out).toEqual([{ kind: 'bucket', colour: 'red' }]);
-    expect(w.machine('press').out.filter(Boolean)).toHaveLength(2);
+    expect(w.machine('press').out.filter(Boolean)).toHaveLength(1);
     expect(w.machine('printer').part).toEqual({ type: '2x4', colour: 'white' });
     w.look(w.before('silo'), w.on('silo', 0, 1.6, 0.75));
     expect(w.drawn('silo')).toHaveLength(1);
-    expect(w.drawn('press', 1)).toHaveLength(1);
+    expect(w.drawn('press', 0)).toHaveLength(1);
     expect(w.contents('printer')).toHaveLength(1);
   });
 
@@ -119,8 +119,8 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
   it('moulds a part with a mould from the vendor and pellets from the silo', () => {
     const w = works();
     const press = w.machine('press');
-    // Emptied first, to load it as a player would.
-    Object.assign(press, { mould: null, colour: null, shots: 0 });
+    // Emptied first, to load it as a player would, the brick in its tray taken.
+    Object.assign(press, { mould: null, colour: null, shots: 0, out: [null] });
     w.look(w.before('silo'), w.item('silo'));
     w.play.click(w.picker);
     w.look(w.before('press'), w.on('press', 0.9, 1.0, 0.55));
@@ -143,8 +143,8 @@ describe("the car test map's brick works", { timeout: 60_000 }, () => {
     expect(w.model('press').getObjectByName('mould')!.visible).toBe(true);
     w.play.click(w.picker);
     w.look(w.before('press'), w.on('press', 0.9, 1.0, 0.55), 3);
-    expect(press.out[2]).toEqual({ kind: 'part', type: '1x2', colour: 'red' });
-    expect(w.drawn('press', 2)).toHaveLength(1);
+    expect(press.out[0]).toEqual({ kind: 'part', type: '1x2', colour: 'red' });
+    expect(w.drawn('press', 0)).toHaveLength(1);
   });
 
   it('prints on the part on the printer’s bed through the picker, and hands it over', () => {

@@ -110,8 +110,8 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
     const def = { ...atOrigin('press'), pos: { x: 3, y: 0, z: -2 }, facing: Math.PI / 2 };
     const view = new CarMachineView(def);
     view.group.updateMatrixWorld(true);
-    const at = view.group.getObjectByName('out1')!.getWorldPosition(new THREE.Vector3());
-    const rest = outputSlots('press', def.size)[1]!.rest;
+    const at = view.group.getObjectByName('out0')!.getWorldPosition(new THREE.Vector3());
+    const rest = outputSlots('press', def.size)[0]!.rest;
     // A quarter turn takes its +z to +x.
     expect(at.x).toBeCloseTo(3 + rest.z, 6);
     expect(at.z).toBeCloseTo(-2 - rest.x, 6);
@@ -151,7 +151,7 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
       ['dispenser', { kind: 'toolDown' }, false],
       ['press', { kind: 'mouldIn', mould: '2x4' }, false],
       ['press', { kind: 'pour', colour: 'red' }, false],
-      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 1 }, true],
+      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 0 }, true],
       ['printer', { kind: 'printerIn' }, false],
       ['printer', { kind: 'print' }, true],
     ];
@@ -193,7 +193,7 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
     const work: [MachineKind, MachineEvent][] = [
       ['silo', { kind: 'fill', colour: 'yellow', slot: 0 }],
       ['dispenser', { kind: 'dispense', mould: 'slope2x2', slot: 0 }],
-      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 1 }],
+      ['press', { kind: 'moulded', mould: '2x2', colour: 'blue', slot: 0 }],
     ];
     const length = { silo: MAKE_SECONDS.bucket, dispenser: MAKE_SECONDS.mould, press: 2.4 };
     for (const [kind, e] of work) {
@@ -297,7 +297,7 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
       });
     };
     const full = state(def, true);
-    expect(lit({ ...full, out: [null, null, null] })).toEqual([0]);
+    expect(lit({ ...full, out: [null] })).toEqual([0]);
     expect(lit(full)).toEqual([1]);
     expect(lit(state(def, false))).toEqual([2]);
     expect(lit({ ...full, jammed: true })).toEqual([2]);

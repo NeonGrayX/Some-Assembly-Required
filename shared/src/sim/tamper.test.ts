@@ -18,6 +18,8 @@ const settle = (sim: Sim, ticks = 60) => {
 
 /** Teleports the player and points a first-person view at `target`. */
 function lookAt(sim: Sim, p: Player, standAt: Vec3, target: Vec3) {
+  // Ending whatever they were at, as the game's teleports do.
+  p.work = null;
   p.body.setTranslation({ x: standAt.x, y: standAt.y + 0.86, z: standAt.z }, true);
   for (let i = 0; i < 3; i++) sim.step();
   const eye = sim.eye(p);
@@ -69,13 +71,7 @@ describe('the brick works without power', () => {
     sim.act(p.id, { kind: 'grab' });
     expect(press.m.making).toBeNull();
     settle(sim, 200);
-    expect([...dispenser.m.out, ...silo.m.out, ...press.m.out]).toEqual([
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
+    expect([...dispenser.m.out, ...silo.m.out, ...press.m.out]).toEqual([null, null, null]);
 
     // The lights come back on, and the machines with them.
     sim.restorePower();

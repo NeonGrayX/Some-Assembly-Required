@@ -1031,12 +1031,12 @@ export function machineFront(m: MachineDef): Vec3 {
 
 /**
  * How many things a machine's output area holds, waiting there for someone to take them: the
- * silo's grate a bucket, the dispenser's hatch a mould, a moulding machine's tray three parts.
- * A machine with its output area full makes nothing more. The UV printer has none: the part on
+ * silo's grate a bucket, the dispenser's hatch a mould, a moulding machine's tray a part. A
+ * machine with its output area full makes nothing more. The UV printer has none: the part on
  * its bed is taken from there (see `MachineState.part`).
  */
 export const OUTPUT_ROOM: Record<MachineKind, number> = {
-  press: 3,
+  press: 1,
   silo: 1,
   dispenser: 1,
   printer: 0,
@@ -1044,8 +1044,8 @@ export const OUTPUT_ROOM: Record<MachineKind, number> = {
 
 /**
  * The bay in the front of a moulding machine's bed that the parts it makes drop into: its floor
- * and the underside of the bed over it, how deep it goes in from the bed's front, and how far
- * apart the parts in it lie, side by side.
+ * and the underside of the bed over it, how deep it goes in from the bed's front, and a third
+ * of how wide it is.
  */
 export const PRESS_BAY = { floor: 0.26, top: 0.5, depth: 0.23, step: 0.16 };
 
@@ -1070,8 +1070,8 @@ export interface OutputSlot {
 /**
  * The places in the output area of a machine of this kind and size, as its model draws them:
  * the grate under the silo's tap, the hatch in the dispenser's control column, and the bay in
- * the front of a moulding machine's bed, under its mould, with room for three parts side by
- * side. Each box runs from the back of the place out past the machine's front.
+ * the front of a moulding machine's bed, under its mould, for the one part it holds. Each box
+ * runs from the back of the place out past the machine's front.
  */
 export function outputSlots(kind: MachineKind, size: Vec3): OutputSlot[] {
   const hw = size.x / 2;
@@ -1111,8 +1111,8 @@ export function outputSlots(kind: MachineKind, size: Vec3): OutputSlot[] {
     return [slot(v3(x, 0.85, front - 0.13), 0.32, 0.82, 1.08, front - 0.26, mouth)];
   }
   if (kind === 'press') {
-    // Under the mould, at the clamp's end of the bed (see `PRESS_BAY`), all three seen through
-    // the bay's one opening.
+    // Under the mould, at the clamp's end of the bed (see `PRESS_BAY`), in the middle of the
+    // bay, seen through its opening.
     const mx = -hw + 0.9;
     const front = hd - 0.07;
     const mouth = {
@@ -1122,16 +1122,16 @@ export function outputSlots(kind: MachineKind, size: Vec3): OutputSlot[] {
       y0: PRESS_BAY.floor,
       y1: PRESS_BAY.top,
     };
-    return [-1, 0, 1].map((i) =>
+    return [
       slot(
-        v3(mx + i * PRESS_BAY.step, PRESS_BAY.floor, front - PRESS_BAY.depth / 2),
-        PRESS_BAY.step,
+        v3(mx, PRESS_BAY.floor, front - PRESS_BAY.depth / 2),
+        3 * PRESS_BAY.step,
         PRESS_BAY.floor,
         PRESS_BAY.top,
         front - PRESS_BAY.depth,
         mouth,
       ),
-    );
+    ];
   }
   return [];
 }

@@ -61,8 +61,10 @@ export function aimAt(sim: Sim, p: Player, target: Vec3): void {
 /**
  * For tests: once a machine has finished what it is making, has a player in reach of it take
  * what lies in a place in its output area (the one it was making something for, else the first
- * one with something in it, unless `slot` says), as a player does it: aiming at it and
- * clicking. Their view goes back to where it was. Returns whether there was anything there.
+ * one with something in it, unless `slot` says), as a player does it: by standing by it till
+ * it is made, if they had it make it (see `Work.awaits`), or else aiming at it and clicking.
+ * Their view goes back to where it was, and they are done at the machine. Returns whether
+ * there was anything there for them.
  */
 export function takeOut(
   sim: Sim,
@@ -70,11 +72,21 @@ export function takeOut(
   at: ReturnType<typeof machine>,
   slot = at.m.making?.slot ?? at.m.out.findIndex((x) => x !== null),
 ): boolean {
+  const w = p.work;
+  const waits = w?.machineId === at.m.def.id && w.awaits === slot;
+  finishWork(sim, p);
   awaitMachine(sim, at.m);
+  if (waits && slot >= 0 && !at.m.out[slot]) return true;
   if (slot < 0 || !at.m.out[slot]) return false;
   const { yaw, pitch, firstPerson } = p.input;
   aimAt(sim, p, at.outs[slot]!);
   sim.act(p.id, { kind: 'grab' });
   Object.assign(p.input, { yaw, pitch, firstPerson });
+  finishWork(sim, p);
   return true;
+}
+
+/** For tests: steps the sim until the player is done working a machine, if they are. */
+export function finishWork(sim: Sim, p: Player): void {
+  for (let k = 0; k < 30 * 60 && p.work; k++) sim.step();
 }

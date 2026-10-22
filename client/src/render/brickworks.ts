@@ -464,7 +464,7 @@ export type MachineEvent = Pick<SimEvent, 'kind' | 'mould' | 'colour' | 'slot'>;
  * that took it to get there (see `MachineLook.release`).
  */
 const KEEP_SECONDS = 4.5;
-/** How long a print takes, as the printer shows it. */
+/** How long a print takes, as the printer shows it (as long as the sim takes to print). */
 const PRINT_SECONDS = HANDLED.print.length;
 
 /** What was taken out of a place in a machine (or off the printer's bed), drawn there a while. */
@@ -511,6 +511,8 @@ export abstract class MachineLook {
   step = 0;
   /** Its display (see `MachineScreen`), once it has one. */
   private screen: MachineScreen | null = null;
+  /** The part on the printer's bed is being printed on, its print not on it yet (see `inked`). */
+  private inking = false;
 
   constructor(
     readonly def: MachineDef,
@@ -636,10 +638,27 @@ export abstract class MachineLook {
     return { top: 0.8, x: 0, z: 0, w: 0.5, d: 0.4, room: 0.12 };
   }
 
-  /** What lies on the printer's bed as drawn: what is on it, or was until the hands take it. */
+  /**
+   * What lies on the printer's bed as drawn: what is on it, or was until the hands take it; its
+   * print only once the print is done (see `inked`).
+   */
   protected onBed(m: MachineState): MachinePart | null {
-    if (m.part) return this.awaits('printerIn') ? null : m.part;
+    if (m.part) {
+      if (this.awaits('printerIn')) return null;
+      const blank = this.awaits('print') || this.inking;
+      return blank ? { type: m.part.type, colour: m.part.colour } : m.part;
+    }
     return this.kept.get(-1)?.part ?? null;
+  }
+
+  /**
+   * The printer's print (see `printJob`) is under way (`done` false), the part on its bed drawn
+   * without it; or it is on the part now (`done`), drawn with it.
+   */
+  protected inked(done: boolean): void {
+    if (this.inking === !done) return;
+    this.inking = !done;
+    if (this.last) this.rebuild();
   }
 
   /** Shows what was in place `slot` (-1: the printer's bed) being taken out of it. */
@@ -2055,12 +2074,14 @@ export class MachineView extends MachineLook {
 
   /**
    * A print: its button pressed (by hand, `handled`), the head runs along the gantry over the
-   * part on the bed and back, its lamp curing the ink as it goes.
+   * part on the bed and back, laying the print on it on its first pass and its lamp curing the
+   * ink as it goes.
    */
   private printJob({ head, uv }: PrinterParts, handled: boolean): Omit<Job, 'start'> {
     const park = head.position.x;
     const { x, w } = this.printerBed();
     const [a, b] = [x + w / 2 - 0.1, x - w / 2 + 0.1];
+    this.inked(false);
     return {
       length: PRINT_SECONDS,
       lane: 'print',
@@ -2069,6 +2090,7 @@ export class MachineView extends MachineLook {
         if (handled) this.pushButton(t);
         // Over to the bed, across it and back twice, and home.
         const pass = span(t, 0.25, PRINT_SECONDS - 0.25) * 4;
+        if (pass >= 1) this.inked(true);
         const k = Math.abs(((pass + 1) % 2) - 1);
         head.position.x =
           t < 0.25
@@ -2082,6 +2104,7 @@ export class MachineView extends MachineLook {
         head.position.x = park;
         uv.emissiveIntensity = 1;
         this.pushButton(1);
+        this.inked(true);
       },
     };
   }

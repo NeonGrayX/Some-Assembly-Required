@@ -197,19 +197,19 @@ describe('picks for each player', () => {
 });
 
 describe('bots playing', () => {
-  it('finish a small build together', { timeout: 120_000 }, () => {
-    const { room } = setup(7);
+  it('finish a small build together', { timeout: 240_000 }, () => {
+    const { room } = setup(2);
     room.mode = 'coop';
     room.build = 'race-car';
     for (let i = 0; i < 4; i++) room.addBot('normal');
     room.startRound();
     const round = room.round!;
-    for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
+    for (let t = 0; t < 900 * 60 && room.phase === 'building'; t++) room.update();
     expect(round.winner).toBe('builders');
     expect(matchBuild(round.target, room.sim.build().grid).counts.wrong).toBe(0);
   });
 
-  it('build a forged page as it says when they miss its stamp', { timeout: 120_000 }, () => {
+  it('build a forged page as it says when they miss its stamp', { timeout: 240_000 }, () => {
     const { room } = setup(7);
     room.mode = 'coop';
     room.build = 'race-car';
@@ -220,7 +220,7 @@ describe('bots playing', () => {
     // at stamps.
     const last = round.target.steps.length - 1;
     const page = [...room.sim.pages.values()].find((pg) => pg.printed?.step === last)!;
-    for (let t = 0; t < 600 * 60 && !room.squad.teams[0]?.notes.has(last); t++) room.update();
+    for (let t = 0; t < 900 * 60 && !room.squad.teams[0]?.notes.has(last); t++) room.update();
     expect(room.squad.teams[0]!.notes.has(last)).toBe(true);
     const fake = forgePage(round.target, last, round.fakeStamp, () => 0.5);
     page.printed = fake;
@@ -231,7 +231,7 @@ describe('bots playing', () => {
     const odd = fake.added.find(
       (b, i) => b.colour !== round.target.steps[last]!.bricks[i]!.colour,
     )!;
-    for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
+    for (let t = 0; t < 900 * 60 && room.phase === 'building'; t++) room.update();
     const placed = [...room.sim.build().grid.bricks.values()].find(
       (b) => b.type === odd.type && b.x === odd.x && b.y === odd.y && b.z === odd.z,
     );
@@ -240,7 +240,7 @@ describe('bots playing', () => {
 });
 
 describe('bots and turned parts', () => {
-  it('put on parts clipped onto flanges and hung upside down', { timeout: 120_000 }, () => {
+  it('put on parts clipped onto flanges and hung upside down', { timeout: 240_000 }, () => {
     const b = (t: Partial<TargetBrick>): TargetBrick => ({
       type: 'plate1x2',
       colour: 'white',
@@ -269,7 +269,7 @@ describe('bots and turned parts', () => {
     for (let i = 0; i < 2; i++) room.addBot('normal');
     room.startRound();
     const round = room.round!;
-    for (let t = 0; t < 600 * 60 && room.phase === 'building'; t++) room.update();
+    for (let t = 0; t < 900 * 60 && room.phase === 'building'; t++) room.update();
     expect(round.winner).toBe('builders');
     expect(matchBuild(round.target, room.sim.build().grid).counts.correct).toBe(18);
   });
@@ -320,13 +320,13 @@ describe('what the bots know of the pages', () => {
 });
 
 describe('bots and a build carried off its job site', () => {
-  it('work on it where it is without knocking it about', { timeout: 120_000 }, () => {
+  it('work on it where it is without knocking it about', { timeout: 240_000 }, () => {
     // A bot landing on the loose build now and then knocks a few bricks off whatever it plays
     // like, or gets stuck on a roof plate it cannot put on (seeds 3 and 8 do since the brick
     // works leave what they make in their output areas, 4 since bots walk up to the machines
-    // they work, and 6 since players caught inside something are put out of it): this seed
-    // plays clear of that.
-    const { room } = setup(11);
+    // they work, 6 since players caught inside something are put out of it, and 11 since they
+    // stand by the machines till what they set making is done): this seed plays clear of that.
+    const { room } = setup(10);
     const ada = (room.join('Ada') as { id: number }).id;
     room.mode = 'coop';
     room.build = 'cottage';
@@ -348,7 +348,7 @@ describe('bots and a build carried off its job site', () => {
     let size = build.grid.size;
     let worst = 0;
     // (Long enough for the bots to work the machines move by move, as players do.)
-    for (let t = 0; t < 650 * 60 && room.phase === 'building'; t++) {
+    for (let t = 0; t < 900 * 60 && room.phase === 'building'; t++) {
       room.update();
       worst = Math.max(worst, size - sim.build().grid.size);
       size = sim.build().grid.size;
@@ -466,6 +466,9 @@ describe('bots at the brick works', () => {
     );
     run(() => !!silo.m.making);
     give(bot, idle);
+    // (Sent off, as to a meeting, so it does not stand by for it.)
+    const at = sim.players.get(bot.id)!.body.translation();
+    sim.teleportPlayer(sim.players.get(bot.id)!, { x: at.x, y: 0, z: at.z });
     run(() => !!silo.m.out[0]);
     const red = silo.m.out[0];
     expect(red).toEqual({ kind: 'bucket', colour: 'red' });

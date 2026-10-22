@@ -201,17 +201,35 @@ const WORK_WALK_TICKS = seconds(1.5);
 /** How long they stay at a machine working it, once there (clearing a jam: till it is clear). */
 export const WORK_TICKS = seconds(1.1);
 /** The brick works' events that set a machine making something, once a player's hands start it. */
-const MAKES: SimEvent['kind'][] = ['fill', 'dispense', 'moulded'];
+const MAKES: SimEvent['kind'][] = ['fill', 'dispense', 'moulded', 'print'];
+/**
+ * How long a player waiting by a machine for what it makes them (see `Work.awaits`) waits on
+ * once it no longer shows making it: on a client, for the server to say they took it.
+ */
+const WAIT_TICKS = seconds(0.5);
+
+/**
+ * What a player may still do while they work a machine (see `Sim.act`): turn or flip what they
+ * hold, drop their page, take gear off.
+ */
+const HANDS_FREE: Action['kind'][] = ['rotate', 'flip', 'dropPage', 'unequip'];
+
+/** What a player presses while they work a machine, but for turning to look: none of it moves them. */
+function stayPut(i: PlayerInput): PlayerInput {
+  return { ...i, forward: 0, right: 0, jump: false, sprint: false };
+}
 
 /**
  * What a player does at a machine (see `MachineAct`), by what it did for them (`done`, the
- * brick works' event their click raised there, if any) and the place in its output area they
- * clicked (`slot`, -1 for none): the place they take from, for `take`.
+ * brick works' event their click raised there, if any), the place in its output area they
+ * clicked (`slot`, -1 for none): the place they take from, for `take`, and whether they took
+ * something into their hands (`took`: off the printer's bed).
  */
 function actOf(
   done: SimEvent | undefined,
   slot: number,
   kind: MachineKind | undefined,
+  took: boolean,
 ): { act: MachineAct; at: number } {
   switch (done?.kind) {
     case 'fill':
@@ -236,7 +254,7 @@ function actOf(
   }
   // A part taken out of a moulding machine's bay, or off the printer's bed unprinted.
   if (slot >= 0) return { act: 'take', at: slot };
-  return kind === 'printer' ? { act: 'take', at: -1 } : { act: 'work', at: -1 };
+  return kind === 'printer' && took ? { act: 'take', at: -1 } : { act: 'work', at: -1 };
 }
 
 // Knock-downs
@@ -321,14 +339,15 @@ export const BUCKET_SHOTS = 10;
  * How long (seconds) the brick works take to make a mould, a bucket of pellets or a part and
  * put it in the machine's output area: as long as the machine's animation runs (see
  * `MachineView` on the client, which plays them for exactly this long), so it is there to take
- * just as it comes to rest.
+ * just as it comes to rest. The UV printer prints on the part on its bed for `print`.
  */
-export const MAKE_SECONDS = { mould: 1.6, bucket: 1.8, part: 2.4 } as const;
+export const MAKE_SECONDS = { mould: 1.6, bucket: 1.8, part: 2.4, print: 2.4 } as const;
 /** `MAKE_SECONDS` in simulation steps. */
 export const MAKE_TICKS = {
   mould: seconds(MAKE_SECONDS.mould),
   bucket: seconds(MAKE_SECONDS.bucket),
   part: seconds(MAKE_SECONDS.part),
+  print: seconds(MAKE_SECONDS.print),
 };
 /**
  * How far past where the aim meets a machine it may still find a thing lying in the machine's
@@ -588,7 +607,8 @@ export interface Player {
   /**
    * Working a machine (or the broken electrical panel) they clicked, as patting the dog: walking
    * up to it to stand before where they clicked, then working it there with their hands a while
-   * (see `Work`), or with a wrench till it is fixed. Moving off ends it.
+   * (see `Work`), or with a wrench till it is fixed. At a machine they stay till they are done,
+   * whatever they press (see `movePlayer`); at the panel, moving off ends it.
    */
   work: Work | null;
   /** How many times they have set to work, so a client takes up each once (see `Work.n`). */
@@ -662,6 +682,12 @@ export interface Work {
   /** The tick they set to work, and whether the machine waits for their hands to start it. */
   since: number;
   delays: boolean;
+  /**
+   * The place in its output area (-1: the printer's bed) where what their hands set the machine
+   * making comes out, if they did: once done with their hands they stand by it (`wait`) till it
+   * is made, and then take it (see `collect`).
+   */
+  awaits: number | null;
   /** Got there (or as near as they could), and working. */
   there: boolean;
   /** Ticks left walking up to it, then working it once there. */
@@ -695,8 +721,8 @@ export type Tool = { kind: 'mould'; type: BrickTypeId } | { kind: 'bucket'; colo
 export type Made = Tool | { kind: 'part'; type: BrickTypeId; colour: ColourId };
 
 /**
- * What a machine is making: the thing, the place in its output area it goes in when done, and
- * the tick it is done (the server's).
+ * What a machine is making: the thing, the place in its output area it goes in when done (the
+ * UV printer: -1, printing on the part on its bed), and the tick it is done (the server's).
  */
 export interface Making {
   made: Made;
@@ -1949,7 +1975,8 @@ export class Sim {
     const start = p.collider.translation();
     let total = v3();
     for (let k = 0; k < inputs.length; k++) {
-      const i = inputs[k]!;
+      // Working a machine, they stay put (but for walking where they work it) till they are done.
+      const i = p.work?.machineId != null && p.down === 0 ? stayPut(inputs[k]!) : inputs[k]!;
       const limping = p.limp > 0;
       // A gear hunt's heavy build keeps whoever carries it without the back brace to a careful pace.
       const careful = i.careful || (load > 0 && this.heavyFor(p));
@@ -1961,7 +1988,8 @@ export class Sim {
       let move = add(scale(f, i.forward), scale(r, i.right));
       const len = length(move);
       if (len > 1) move = scale(move, 1 / len);
-      // Working a machine: walking up to it unless they move off themselves, which ends it.
+      // Working something: walking up to it unless they move off themselves (at the panel), which
+      // ends it, as falling over does.
       const w = p.work;
       if (w && (len > 0 || i.jump || p.down > 0 || p.ladder !== null)) p.work = null;
       else if (w && !w.there) {
@@ -1970,7 +1998,7 @@ export class Sim {
         if (off < WORK_CLOSE || --w.walk <= 0) this.arrive(w);
         else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
       } else if (w && --w.ticks <= 0 && this.fixerOf(w.machineId) !== p.id) {
-        p.work = null;
+        this.workDone(p, w);
       }
       // At a ladder's top, pushing on more or less toward what it reaches takes them straight
       // in off it, whichever way they look, between its rails.
@@ -2883,17 +2911,29 @@ export class Sim {
     // up, or they set about clearing its jam), or the broken panel they set about fixing: they
     // go up to it and work it.
     const hit = this.aim(p);
+    // Working a machine, their hands are busy with it: they may do no more than it (and turn
+    // or flip what they hold) till they are done.
+    const w = p.work;
+    const on = hit?.owner.kind === 'machine' || hit?.owner.kind === 'output' ? hit.owner : null;
+    if (w?.machineId != null && !HANDS_FREE.includes(action.kind) && on?.machineId !== w.machineId)
+      return;
     const [events, version] = [this.events.length, this.furnitureVersion];
     this.doAct(p, action);
     const did = this.events.length !== events || this.furnitureVersion !== version;
     if (did && (hit?.owner.kind === 'machine' || hit?.owner.kind === 'output')) {
       const { machineId } = hit.owner;
       const slot = hit.owner.kind === 'output' ? hit.owner.slot : -1;
-      const done = this.events.slice(events).find((e) => e.machineId === machineId);
-      const { act, at } = actOf(done, slot, this.machines.get(machineId)?.def.kind);
-      this.startWork(p, machineId, hit, act, at);
-      // What it makes is only begun once their hands set it going.
-      if (p.work && done && MAKES.includes(done.kind)) p.work.delays = true;
+      const raised = this.events.slice(events);
+      const done = raised.find((e) => e.machineId === machineId);
+      const took = raised.some((e) => e.kind === 'grab');
+      const { act, at } = actOf(done, slot, this.machines.get(machineId)?.def.kind, took);
+      // (Nothing the machine did for them, as putting a tool away in front of it: no work.)
+      if (act !== 'work') this.startWork(p, machineId, hit, act, at);
+      // What it makes is only begun once their hands set it going, and they wait for it there.
+      if (p.work && done && MAKES.includes(done.kind)) {
+        p.work.delays = true;
+        p.work.awaits = done.slot ?? -1;
+      }
     } else if (did && hit?.owner.kind === 'panel' && this.power.fixer === p.id)
       this.startWork(p, null, hit, 'fix');
   }
@@ -2908,6 +2948,39 @@ export class Sim {
     if (!w.delays || !m?.making) return;
     m.making.at += this.tick - w.since + seconds(ACT_TIMES[w.act].lead);
     this.furnitureVersion++;
+  }
+
+  /**
+   * They are done with their hands at the machine: they stand by it while it makes what they set
+   * it making (see `Work.awaits`), and once it is done take it (on the server, which says so:
+   * see `collect`); otherwise they are done.
+   */
+  private workDone(p: Player, w: Work): void {
+    const m = w.machineId === null || w.awaits === null ? null : this.machines.get(w.machineId);
+    if (!m || w.awaits === null) {
+      p.work = null;
+      return;
+    }
+    const making = m.making?.slot === w.awaits;
+    if (!making && w.act === 'wait') p.work = null;
+    else if (!making && !this.replica) this.collect(p, m, w.awaits);
+    else Object.assign(w, { act: 'wait', slot: w.awaits, ticks: WAIT_TICKS });
+  }
+
+  /**
+   * Hands what a machine just made for player `p` over to them, out of place `slot` of its
+   * output area (-1: the printed part off the printer's bed), and they take it out (`take`);
+   * if their hands are not free for it, it waits there for anyone, and they are done.
+   */
+  private collect(p: Player, m: MachineState, slot: number): void {
+    p.work = null;
+    if (p.handsOff) return;
+    if (slot < 0) this.handOver(p, m);
+    else this.takeOut(p, m.def.id, slot);
+    if (slot < 0 ? m.part !== null : m.out[slot] !== null) return;
+    const point = slot < 0 ? machinePose(m.def).centre : machineOutputs(m.def)[slot]!.rest;
+    const normal = rotate(yawQuat(m.def.facing), v3(0, 0, 1));
+    this.startWork(p, m.def.id, { point, normal }, 'take', slot);
   }
 
   /** Whether player `id` is fixing something: clearing a jammed machine, or the panel. */
@@ -2930,7 +3003,7 @@ export class Sim {
   private startWork(
     p: Player,
     machineId: number | null,
-    hit: AimHit,
+    hit: Pick<AimHit, 'point' | 'normal'>,
     act: MachineAct = 'work',
     slot = -1,
   ): void {
@@ -2941,7 +3014,7 @@ export class Sim {
     out = length(out) > 1e-6 ? scale(out, 1 / length(out)) : v3(0, 0, 1);
     let spot = add(v3(hit.point.x, at.y, hit.point.z), scale(out, WORK_STANDOFF));
     const def = machineId === null ? undefined : this.machines.get(machineId)?.def;
-    const x = def ? actStation(def.kind, act, slot) : null;
+    const x = def ? actStation(def.kind, act) : null;
     if (def && x !== null) {
       const station = rotate(yawQuat(def.facing), v3(x, 0, def.size.z / 2 + ACT_STAND));
       spot = v3(def.pos.x + station.x, at.y, def.pos.z + station.z);
@@ -2956,6 +3029,7 @@ export class Sim {
       hand: hit.point,
       since: this.tick,
       delays: false,
+      awaits: null,
       there: false,
       walk: WORK_WALK_TICKS,
       ticks,
@@ -3444,14 +3518,24 @@ export class Sim {
       const job = m.making;
       if (!job || this.tick < job.at) continue;
       m.making = null;
-      this.setOut(m, job.slot, job.made);
-      this.events.push({
-        kind: 'ready',
-        pos: machineOutputs(m.def)[job.slot]!.rest,
-        machineId: m.def.id,
-        slot: job.slot,
-        ...madeFields(job.made),
-      });
+      // The printer's print is on the part on its bed already: it is only done now.
+      if (job.slot < 0) this.furnitureVersion++;
+      else {
+        this.setOut(m, job.slot, job.made);
+        this.events.push({
+          kind: 'ready',
+          pos: machineOutputs(m.def)[job.slot]!.rest,
+          machineId: m.def.id,
+          slot: job.slot,
+          ...madeFields(job.made),
+        });
+      }
+      // Whoever waits by it for it takes it.
+      for (const p of this.players.values()) {
+        const w = p.work;
+        if (w?.act === 'wait' && w.machineId === m.def.id && w.awaits === job.slot)
+          this.collect(p, m, job.slot);
+      }
     }
   }
 
@@ -3620,28 +3704,41 @@ export class Sim {
 
   /**
    * At the UV printer, with empty hands: prints print job `job` on the part on its bed (only
-   * one for a part of its type) and hands it over; -1 hands it over as it is.
+   * one for a part of its type), which stays there till it is printed (see `collect`); -1 hands
+   * it over as it is.
    */
   private printPart(p: Player, job: number): void {
     if (!Number.isInteger(job) || job < -1 || job >= this.printJobs.length) return;
     if (p.holding || p.tool || this.vacuum.heldBy === p.id) return;
     const printer = this.aimedMachine(p, 'printer');
     const part = printer?.part;
-    if (!printer || !part) return;
-    const print = job >= 0 ? this.printJobs[job]! : null;
-    // Without power the part still comes out, but nothing is printed on it.
-    if (print && (print.type !== part.type || !this.machinesPowered)) return;
+    if (!printer || !part || printer.making) return;
+    if (job < 0) return this.handOver(p, printer);
+    const print = this.printJobs[job]!;
+    // Without power nothing is printed.
+    if (print.type !== part.type || !this.machinesPowered) return;
+    printer.part = { ...part, prints: print.prints };
+    printer.making = {
+      made: { kind: 'part', ...part },
+      slot: -1,
+      at: this.tick + MAKE_TICKS.print,
+    };
+    this.furnitureVersion++;
+    this.events.push({
+      kind: 'print',
+      pos: machinePose(printer.def).centre,
+      playerId: p.id,
+      machineId: printer.def.id,
+    });
+  }
+
+  /** Hands the part on the printer's bed over to player `p`, if their hands are free for it. */
+  private handOver(p: Player, printer: MachineState): void {
+    const part = printer.part;
+    if (!part || printer.making || p.holding || p.tool || this.vacuum.heldBy === p.id) return;
     printer.part = null;
     this.furnitureVersion++;
-    this.handPart(p, print ? { ...part, prints: print.prints } : part);
-    if (print) {
-      this.events.push({
-        kind: 'print',
-        pos: machinePose(printer.def).centre,
-        playerId: p.id,
-        machineId: printer.def.id,
-      });
-    }
+    this.handPart(p, part);
   }
 
   // ---------------------------------------------------------------- rubbish bins
@@ -4674,6 +4771,7 @@ export class Sim {
     p.limp = 0;
     p.slide = v3();
     p.slip = p.squeeze = null;
+    p.work = null;
   }
 
   private pull(p: Player): void {
