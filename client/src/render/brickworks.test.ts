@@ -433,8 +433,10 @@ describe('the brick works', () => {
       view.update({ ...full, out: [...full.out] }, svgs);
       view.update({ ...full, making: { made: made(kind, 0), slot: 0, at: 99 } }, svgs);
       expect(view.group.children.at(-1)!.children[0], kind).toBe(first);
-      // Taken, it goes.
+      // Taken, it stays where it lay till the hands that took it have it; then it goes.
       view.update({ ...full, out: full.out.map((x, i) => (i === 0 ? null : x)) }, svgs);
+      expect(drawnIn(view, places[0]!), kind).toBeGreaterThan(bare[0]!);
+      view.release(0);
       expect(view.group.children.at(-1)!.children[0], kind).not.toBe(first);
       expect(drawnIn(view, places[0]!), kind).toBe(bare[0]);
     }

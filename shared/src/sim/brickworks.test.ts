@@ -7,6 +7,8 @@ import { assemblyState, bricksOf } from '../net/protocol.ts';
 import { BUCKET_SHOTS, MAKE_TICKS, Sim, UNJAM_SECONDS, WORK_TICKS, cameraPosition } from './sim.ts';
 import type { Action, Player } from './sim.ts';
 import { aimAt, awaitMachine, loadedPress, machine, takeOut } from './testing.ts';
+import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
+import { seconds } from './time.ts';
 import { add, rotate, v3, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import type { BrickTypeId } from '../bricks.ts';
@@ -626,17 +628,21 @@ describe('the brick works', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
+    const q = sim.addPlayer();
+    settle(sim);
     const press = loadedPress(sim, '2x2', 'blue');
     lookAt(sim, p, press.stand, press.target);
     act(sim, p, { kind: 'grab' });
     awaitMachine(sim, press.m);
-    act(sim, p, { kind: 'grab' });
+    // Someone else fills a bucket at the silo and takes it, while the press makes another part.
     const silo = machine(sim, 'silo');
-    lookAt(sim, p, silo.stand, silo.target);
+    lookAt(sim, q, silo.stand, silo.target);
     const before = sim.furnitureVersion;
-    act(sim, p, { kind: 'fill', colour: 'teal' });
+    act(sim, q, { kind: 'fill', colour: 'teal' });
     expect(sim.furnitureVersion).toBeGreaterThan(before);
-    takeOut(sim, p, silo);
+    takeOut(sim, q, silo);
+    lookAt(sim, p, press.stand, press.target);
+    act(sim, p, { kind: 'grab' });
     const told = sim.furnitureState();
 
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
@@ -649,7 +655,7 @@ describe('the brick works', () => {
       making: { made: part, slot: 1 },
     });
     // A player the client hears of only later still shows what they carry.
-    const late = replica.addPlayer({ id: p.id, replicated: true });
+    const late = replica.addPlayer({ id: q.id, replicated: true });
     expect(late.tool).toEqual({ kind: 'bucket', colour: 'teal' });
     // Its aim finds the part waiting in the tray, and nothing where the tray is empty.
     const me = replica.addPlayer();
@@ -694,7 +700,7 @@ describe('the brick works', () => {
 });
 
 describe('working a machine', () => {
-  it('walks the player up to where they clicked it, works it a while, and lets them go', () => {
+  it('walks the player up to their station for what they do, works it a while, and lets them go', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
@@ -707,17 +713,23 @@ describe('working a machine', () => {
     act(sim, p, { kind: 'grab' });
     expect(press.m.mould).toBe('2x4');
     const work = p.work!;
-    expect(work).toMatchObject({ machineId: press.m.def.id, there: false });
+    expect(work).toMatchObject({ machineId: press.m.def.id, act: 'mould', there: false });
+    // Before the mould's place, out from the machine's front.
+    const station = add(
+      press.m.def.pos,
+      rotate(turn, v3(actStation('press', 'mould', -1)!, 0, press.m.def.size.z / 2 + ACT_STAND)),
+    );
+    expect(Math.hypot(work.spot.x - station.x, work.spot.z - station.z)).toBeLessThan(1e-6);
     const off = () => {
       const at = p.body.translation();
       return Math.hypot(at.x - work.spot.x, at.z - work.spot.z);
     };
     const from = off();
     expect(from).toBeGreaterThan(0.5);
-    settle(sim, 60);
+    settle(sim, 90);
     expect(p.work?.there).toBe(true);
     expect(off()).toBeLessThan(0.15);
-    settle(sim, WORK_TICKS);
+    settle(sim, seconds(ACT_TIMES.mould.seconds));
     expect(p.work).toBeNull();
 
     // Moving off stops it at once.
@@ -729,6 +741,30 @@ describe('working a machine', () => {
     sim.step();
     expect(p.work).toBeNull();
     p.input.forward = 0;
+  });
+
+  it('begins what it makes only once their hands have set it going', () => {
+    const sim = new Sim(RAPIER, HOUSE);
+    const p = sim.addPlayer();
+    settle(sim);
+    const silo = machine(sim, 'silo');
+    const turn = yawQuat(silo.m.def.facing);
+    lookAt(sim, p, add(silo.stand, rotate(turn, v3(0.6, 0, 0.6))), silo.target);
+    act(sim, p, { kind: 'fill', colour: 'red' });
+    expect(p.work).toMatchObject({ act: 'fill', there: false });
+    const ordered = sim.tick;
+    while (!p.work?.there) sim.step();
+    const walked = sim.tick - ordered;
+    expect(walked).toBeGreaterThan(5);
+    // Done as long after they set the bucket under the tap as it takes to fill.
+    const done = ordered + walked + seconds(ACT_TIMES.fill.lead) + MAKE_TICKS.bucket;
+    expect(Math.abs(silo.m.making!.at - done)).toBeLessThanOrEqual(1);
+    awaitMachine(sim, silo.m);
+    expect(Math.abs(sim.tick - done)).toBeLessThanOrEqual(1);
+    // Taking it out is an act of its own, from its place.
+    takeOut(sim, p, silo);
+    expect(p.work).toMatchObject({ act: 'take', slot: 0 });
+    expect(p.tool).toEqual({ kind: 'bucket', colour: 'red' });
   });
 
   it('keeps them at a jammed machine till its jam is cleared', () => {

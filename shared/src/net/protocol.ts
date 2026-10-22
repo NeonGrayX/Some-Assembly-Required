@@ -28,7 +28,7 @@ import type {
  * whatever moves.
  */
 
-export const PROTOCOL_VERSION = 33;
+export const PROTOCOL_VERSION = 34;
 /** Server ticks between snapshots (60 Hz simulation, 20 Hz snapshots). */
 export const SNAPSHOT_EVERY = 3;
 export const ROUND_LENGTHS = [5 * 60, 8 * 60, 10 * 60, 15 * 60];
@@ -405,8 +405,13 @@ export type PlayerT = [
    * otherwise `NO_SQUEEZE`.
    */
   squeeze: number,
-  /** Working a machine, there: where their hands go (see `Work`); otherwise 0. */
-  work: [x: number, y: number, z: number] | 0,
+  /**
+   * Working a machine, there: where they clicked it, what they do there (an index into
+   * `MACHINE_ACTS`), the place in its output area they take from, the machine (-1: the
+   * electrical panel) and which time this is that they set to work (see `Work`); otherwise 0.
+   */
+  work:
+    [x: number, y: number, z: number, act: number, slot: number, machineId: number, n: number] | 0,
   /**
    * How the part in hand goes on: 1 while it is flipped to go on by its other hole (see
    * `Holding.flip`), plus 2 while it is turned 45° on (see `Holding.eighth`).

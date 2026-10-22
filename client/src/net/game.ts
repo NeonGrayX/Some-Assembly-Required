@@ -2,6 +2,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
 import {
   DT,
+  MACHINE_ACTS,
   NO_SQUEEZE,
   PLAYER_FEET,
   PROTOCOL_VERSION,
@@ -580,8 +581,21 @@ export class ClientGame {
         p.grounded = airborne !== 1;
         p.squeeze = squeeze === NO_SQUEEZE ? null : { x: Math.sin(squeeze), z: Math.cos(squeeze) };
         // Working a machine, there: all that is posed of it.
-        const hand = work ? { x: work[0], y: work[1], z: work[2] } : null;
-        p.work = hand && { n: 0, machineId: 0, spot: pos, hand, there: true, walk: 0, ticks: 0 };
+        p.work = work
+          ? {
+              n: work[6],
+              machineId: work[5] < 0 ? null : work[5],
+              act: MACHINE_ACTS[work[3]] ?? 'work',
+              slot: work[4],
+              spot: pos,
+              hand: { x: work[0], y: work[1], z: work[2] },
+              since: 0,
+              delays: false,
+              there: true,
+              walk: 0,
+              ticks: 0,
+            }
+          : null;
       }
       const holding = held
         ? {

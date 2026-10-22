@@ -42,7 +42,14 @@ import type {
   Tool,
 } from '@sar/shared';
 import { gameNow, random } from '../clock.ts';
-import { GET_UP_SECONDS, Ragdoll, animateAvatar, gripPoints, makeAvatar } from './avatar.ts';
+import {
+  GET_UP_SECONDS,
+  Ragdoll,
+  animateAvatar,
+  gripPoints,
+  makeAvatar,
+  reachPose,
+} from './avatar.ts';
 import type { Avatar } from './avatar.ts';
 import { Facing, walkHeading } from './facing.ts';
 import { baseplateMarker, brickGeometry, drawnHex, setColourBlind } from './bricks.ts';
@@ -62,6 +69,8 @@ import type { Furniture } from './furniture.ts';
 import { MachineView, makeHeldTool } from './brickworks.ts';
 import type { MachineLook } from './brickworks.ts';
 import { CarMachineView } from './carMachines.ts';
+import { Operating } from './operating.ts';
+import type { Released } from './operating.ts';
 import { buildLevelScene } from './scene.ts';
 import type { InspectorScreen, LevelScene } from './scene.ts';
 import { mergeStatic } from './merge.ts';
@@ -270,6 +279,8 @@ export class View {
   private bellMeshes: THREE.Object3D[] = [];
   /** The brick works' machines, by id, showing what is in them. */
   private machineViews = new Map<number, MachineLook>();
+  /** Players operating the machines move by move (see `Operating`). */
+  private readonly operating = new Operating(() => this.machineViews);
   /** Whether brick colours are drawn as one grey (a gear hunt without the goggles). */
   colourBlind = false;
   private readonly effects = new THREE.Group();
@@ -349,6 +360,8 @@ export class View {
       facing: Facing;
       /** Turns of a bolt their wrench has made, as of the last one heard (see `ratchets`). */
       turns: number;
+      /** The part in their hands that a move hides till it is over (see `Operating`). */
+      hidden: number | null;
     }
   >();
   /** Where a wrench turned a bolt this frame (world space), to be heard (see `syncPlayers`). */
@@ -844,10 +857,12 @@ export class View {
     fixing: (id: number) => boolean = () => false,
   ): void {
     this.ratchets.length = 0;
+    const now = gameNow() / 1000;
     for (const [id, v] of this.avatars) {
       if (!players.has(id)) {
         this.dropAvatar(v);
         this.avatars.delete(id);
+        this.operating.forget(id);
       }
     }
     for (const p of players.values()) {
@@ -879,6 +894,7 @@ export class View {
           slope: { sink: 0, ahead: 0, right: 0 },
           facing: new Facing(p.input.yaw),
           turns: 0,
+          hidden: null,
         };
         this.avatars.set(p.id, v);
       }
@@ -899,6 +915,9 @@ export class View {
       const t = this.poseOf(p.body).pos;
       const g = v.avatar.group;
       g.position.set(t.x, t.y, t.z);
+      // Operating a machine move by move: the body steps where the move has it.
+      const op = v.ragdoll ? null : this.operating.pose(p, g.position.clone(), now);
+      if (op?.at) g.position.copy(op.at);
       // Facing: the way they walk, turning there in a short swing. Your own builder goes by your
       // keys, so walking into a wall still turns them to it; someone else's by how they move.
       // Holding something out in front (the sim has it where they look), patting the dog and in
@@ -916,15 +935,18 @@ export class View {
       // Squeezing through a gap, side-on to it, as car-test.html's mechanic does.
       const sq = p.squeeze;
       const hand = p.work?.hand;
-      const heading = sq
-        ? Math.atan2(-sq.x, -sq.z) + Math.PI / 2
-        : hand
-          ? Math.atan2(-(hand.x - t.x), -(hand.z - t.z))
-          : aimed
-            ? p.input.yaw
-            : mine
-              ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
-              : went;
+      const heading =
+        op?.heading != null
+          ? op.heading
+          : sq
+            ? Math.atan2(-sq.x, -sq.z) + Math.PI / 2
+            : hand
+              ? Math.atan2(-(hand.x - t.x), -(hand.z - t.z))
+              : aimed
+                ? p.input.yaw
+                : mine
+                  ? walkHeading(p.input.yaw, p.input.forward, p.input.right)
+                  : went;
       g.rotation.y = v.ragdoll ? v.facing.heading : v.facing.turn(heading, dt);
       // Standing on sloping ground, lowered onto it (see `onSlope`).
       const standing = p.grounded && p.ladder === null && p.down === 0;
@@ -945,9 +967,23 @@ export class View {
           v.avatar.last = null;
         } else if (p.down <= getUpTicks) v.ragdoll.standUp();
       }
-      const held = p.holding ? this.assemblyViews.get(p.holding.assemblyId) : undefined;
+      // What they carry: but what a move takes is the move's to draw till it is over, and what
+      // they bring up to a machine is drawn by it (see `Operating`).
+      const shown = op?.hideHeld ? undefined : p.holding;
+      const held = shown ? this.assemblyViews.get(shown.assemblyId) : undefined;
+      if (op?.hideHeld && p.holding) {
+        const hidden = this.assemblyViews.get(p.holding.assemblyId);
+        if (hidden) hidden.group.visible = false;
+        v.hidden = p.holding.assemblyId;
+      } else if (v.hidden !== null) {
+        const hidden = this.assemblyViews.get(v.hidden);
+        if (hidden) hidden.group.visible = true;
+        v.hidden = null;
+      }
       const carried = v.tool;
-      const tool = this.carriedTool(v, p.tool);
+      const tool = this.carriedTool(v, op?.hideTool ? null : p.tool);
+      this.operating.carry(p.id, g);
+      const brought = op?.carry ?? null;
       const vacuum =
         this.vacuumBy === p.id
           ? this.vacuum.carry(g, this.vacuumHead, p.id === localId && firstPerson)
@@ -958,24 +994,43 @@ export class View {
         pat = g.worldToLocal(this.dog.headTop(new THREE.Vector3()));
       }
       let work: THREE.Vector3 | null = null;
-      if (p.work?.there) {
+      if (p.work?.there && !op?.hands) {
         g.updateMatrixWorld(true);
         const { x, y, z } = p.work.hand;
         work = g.worldToLocal(new THREE.Vector3(x, y, z));
+      }
+      // The move's hands and look, in the avatar's own space, and the body brought down and
+      // leaning in as far as they need to reach.
+      let operate = null;
+      if (op?.hands) {
+        g.updateMatrixWorld(true);
+        const local = (w: THREE.Vector3 | null) => (w ? g.worldToLocal(w.clone()) : null);
+        const hands: [THREE.Vector3 | null, THREE.Vector3 | null] = [
+          local(op.hands[0]),
+          local(op.hands[1]),
+        ];
+        operate = { hands, ...reachPose(hands), look: local(op.look) };
       }
       animateAvatar(
         v.avatar,
         {
           limping: p.limp > 0,
-          carrying: p.holding !== null || p.treat || vacuum !== null || tool !== null,
+          carrying:
+            !operate &&
+            (held !== undefined || p.treat || vacuum !== null || tool !== null || !!brought),
           careful: p.input.careful,
-          grip: held
-            ? gripPoints(v.avatar, held.group, !held.loose)
-            : tool
-              ? gripPoints(v.avatar, tool, false)
-              : vacuum,
+          grip: operate
+            ? null
+            : held
+              ? gripPoints(v.avatar, held.group, !held.loose)
+              : tool
+                ? gripPoints(v.avatar, tool, false)
+                : brought
+                  ? gripPoints(v.avatar, brought, false)
+                  : vacuum,
           pat,
           work,
+          operate,
           wrench: fixing(p.id),
           climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
           airborne: !p.grounded && p.ladder === null && p.down === 0,
@@ -1094,12 +1149,27 @@ export class View {
       }
       view.tick(now);
     }
+    this.operating.tick(now);
   }
 
   /** Shows a machine doing what a player just had it do (a brick works event). */
   machineAt(e: SimEvent): void {
     if (e.machineId === undefined) return;
     this.machineViews.get(e.machineId)?.play(e, gameNow() / 1000);
+  }
+
+  /**
+   * Holds a brick works event a player's hands are to bring about until they get there and do
+   * (see `Operating`), rather than showing it now; returns whether it was held. It comes back
+   * from `heldEvents` when its time comes.
+   */
+  holdEvent(e: SimEvent): boolean {
+    return this.operating.hold(e, gameNow() / 1000);
+  }
+
+  /** The held events whose time came since last asked (see `Operating.takeReleased`). */
+  heldEvents(): Released[] {
+    return this.operating.takeReleased();
   }
 
   private dropAvatar(v: {

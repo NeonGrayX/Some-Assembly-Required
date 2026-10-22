@@ -32,6 +32,8 @@ import {
 } from './brickworks.ts';
 import type { Job, MachineEvent } from './brickworks.ts';
 import { brickMaterial } from './bricks.ts';
+import { HANDLED, HOPPER_STEP_SIZE } from './operate.ts';
+import type { MachineControls } from './operate.ts';
 
 /**
  * The brick works' machines drawn with the car scene's models (see `carscene/machines.ts`), on
@@ -135,9 +137,9 @@ interface Glow {
   rest: number;
 }
 
-/** A start button pressed and released, `t` seconds after it was: how far in it is. */
+/** A start button pressed and released, all the way in `t` = 0 (when the finger is on it). */
 function pushed(t: number): number {
-  return span(t, 0, PRESS_TIME * 0.3) - span(t, PRESS_TIME * 0.6, PRESS_TIME);
+  return span(t, -PRESS_TIME * 0.35, 0) - span(t, PRESS_TIME * 0.2, PRESS_TIME * 0.6);
 }
 
 export class CarMachineView extends MachineLook {
@@ -157,6 +159,9 @@ export class CarMachineView extends MachineLook {
   private waits = false;
   /** Whether a part is being laid on the printer's bed: drawn by its job, not as it lies. */
   private laying = false;
+  /** Pellets going into the hopper, drawn by the pour as they rise; and what was in it before. */
+  private pouring = false;
+  private beforePour: { colour: ColourId | null; shots: number } = { colour: null, shots: 0 };
   /** Where the start button stands at rest, along its face's outward line. */
   private readonly buttonRest: number;
   /** When it was last moved on to (see `tick`), in seconds: when what its state says happens. */
@@ -251,9 +256,72 @@ export class CarMachineView extends MachineLook {
   protected contents(m: MachineState, svgs: Record<string, string>, powered: boolean): void {
     const kind = this.def.kind;
     if (kind === 'press') this.pressContents(m, powered);
-    if (kind === 'printer' && m.part && !this.laying)
-      this.dynamic.add(bedPart(m.part, svgs, this.bedRoom()));
+    const part = kind === 'printer' ? this.onBed(m) : null;
+    if (part && !this.laying) this.dynamic.add(bedPart(part, svgs, this.bedRoom()));
     this.apply();
+  }
+
+  controls(): MachineControls {
+    const V = THREE.Vector3;
+    if (this.def.kind === 'press') {
+      const { mx, axis, door, hopper } = PRESS;
+      const home = new V(mx, axis.y, axis.z);
+      const width = platenGap();
+      return {
+        // The middle one of the three on the housing's panel (see `buildBrickPress`).
+        button: new V(this.def.size.x / 2 - 0.3, PRESS.bed.y1 + 0.38, this.buttonFace()),
+        screen: {
+          at: new V(this.def.size.x / 2 - 0.3, PRESS.bed.y1 + 0.58, this.def.size.z / 2 - 0.081),
+          w: 0.34,
+          h: 0.12,
+        },
+        hopper: { at: new V(hopper.x, hopper.y + 0.49, axis.z), r: 0.17 },
+        mould: {
+          home,
+          out: home.clone().add(new V(0, MOULD_OUT.y, MOULD_OUT.z)),
+          width,
+          quat: new THREE.Quaternion().setFromAxisAngle(new V(1, 0, 0), Math.PI / 2),
+          scale: width / 0.4,
+        },
+        door: {
+          handle: new V(door.x0 + 0.08, (door.y0 + door.y1) / 2, door.z + 0.055),
+          slide: door.slide,
+        },
+      };
+    }
+    if (this.def.kind === 'silo') {
+      const { tap, screen, stack } = SILO;
+      return {
+        button: new V(0.07 + 0.05, tap.y, this.buttonFace()),
+        screen: { at: new V(screen.x, screen.y, tap.z + 0.003), w: screen.w, h: 0.08 },
+        stack: new V(stack.x, 0.002 + 2 * STACK_STEP, stack.z),
+      };
+    }
+    if (this.def.kind === 'dispenser') {
+      const { hatch, front } = VENDOR;
+      const h = this.def.size.y;
+      return {
+        button: new V(hatch.x + 0.07, h - 0.63 - 3 * 0.055, this.buttonFace()),
+        screen: { at: new V(hatch.x, h - 0.42, front + 0.024), w: 0.28, h: 0.2 },
+      };
+    }
+    const { bed, cab, tower } = PRINTER;
+    const rx = this.def.size.x / 2 - tower.w / 2 - 0.02;
+    return {
+      button: new V(rx, cab.y1 + tower.h * 0.2, this.buttonFace()),
+      screen: {
+        at: new V(rx, cab.y1 + tower.h * 0.6 + 0.01, tower.z + tower.d / 2 + 0.009),
+        w: 0.13,
+        h: 0.07,
+      },
+      bed: new V(bed.part.x, bed.y + 0.006, bed.part.z),
+    };
+  }
+
+  /** How far out the start button's face stands (z, in the machine's frame). */
+  private buttonFace(): number {
+    // The cap stands 2 cm out of where the button rests.
+    return this.buttonRest + (this.def.kind === 'dispenser' ? 0.01 : 0.016);
   }
 
   protected override waiting(m: MachineState, busy: Set<number | undefined>): void {
@@ -270,31 +338,43 @@ export class CarMachineView extends MachineLook {
     const half = !ready && !m.jammed && (!!m.mould || (!!m.colour && m.shots > 0));
     // Without power the stack light is dark; jammed, it shows red.
     this.lampsLit = powered ? [ready, half, !ready && !half] : [false, false, false];
+    // A mould the hands are yet to put in is not in yet.
     const mould = this.part('mould');
-    if (mould) mould.visible = !!m.mould;
-    if (m.colour && m.shots > 0) this.dynamic.add(hopperPellets(m.colour, m.shots));
+    if (mould) mould.visible = !!m.mould && !this.awaits('mouldIn');
+    // The pellets as they were before a bucket the hands are yet to pour in, and drawn by the
+    // pour itself while it goes in.
+    const pellets = this.awaits('pour') ? this.beforePour : m;
+    if (pellets.colour && pellets.shots > 0 && !this.pouring)
+      this.dynamic.add(hopperPellets(pellets.colour, pellets.shots));
+  }
+
+  protected override changed(was: MachineState | null, m: MachineState): void {
+    // What was in the hopper before a bucket of pellets went in (see `pourJob`).
+    const poured = m.colour !== null && m.shots === BUCKET_SHOTS;
+    if (was && poured && (was.colour !== m.colour || was.shots !== m.shots))
+      this.beforePour = { colour: was.colour, shots: was.shots };
   }
 
   /** Something taken out of its output area shows it go (see `takenJob`). */
-  protected override changed(was: MachineState | null, m: MachineState): void {
-    if (!was) return;
-    const taken = was.out.some((x, i) => x !== null && m.out[i] === null);
-    if (taken) this.start(this.takenJob(), this.now);
+  protected override taken(slot: number): void {
+    if (slot >= 0) this.start(this.takenJob(), this.now);
   }
 
   // -- What it does --
 
-  protected jobFor(e: MachineEvent, slot: number): Omit<Job, 'start'> | null {
+  protected jobFor(e: MachineEvent, slot: number, handled: boolean): Omit<Job, 'start'> | null {
     const kind = this.def.kind;
-    if (kind === 'silo' && e.kind === 'fill' && e.colour) return this.fillJob(e.colour, slot);
+    if (kind === 'silo' && e.kind === 'fill' && e.colour)
+      return this.fillJob(e.colour, slot, handled);
     if (kind === 'dispenser' && e.kind === 'dispense' && e.mould)
       return this.dispenseJob(e.mould, slot);
-    if (kind === 'dispenser' && e.kind === 'toolDown') return this.returnJob(e.mould ?? '2x4');
-    if (kind === 'press' && e.kind === 'mouldIn') return this.mouldInJob();
-    if (kind === 'press' && e.kind === 'pour' && e.colour) return this.pourJob(e.colour);
+    if (kind === 'dispenser' && e.kind === 'toolDown')
+      return this.returnJob(e.mould ?? '2x4', handled);
+    if (kind === 'press' && e.kind === 'mouldIn') return this.mouldInJob(handled);
+    if (kind === 'press' && e.kind === 'pour' && e.colour) return this.pourJob(e.colour, handled);
     if (kind === 'press' && e.kind === 'moulded' && e.mould && e.colour)
       return this.mouldJob(e.mould, e.colour, slot);
-    if (kind === 'printer' && e.kind === 'printerIn') return this.layJob();
+    if (kind === 'printer' && e.kind === 'printerIn') return this.layJob(handled);
     if (kind === 'printer' && e.kind === 'print') return this.printJob();
     return null;
   }
@@ -340,9 +420,10 @@ export class CarMachineView extends MachineLook {
   /**
    * Fills a bucket: the button is pressed, an empty one comes off the stack onto the grate, the
    * valve turns on and the auger turns as the pellets pour in until it is full, and the valve
-   * turns off, leaving it full on the grate for someone to take.
+   * turns off, leaving it full on the grate for someone to take. Done by hand (`handled`), the
+   * bucket is already on the grate and the button is pressed to start it (see `HANDLED.fill`).
    */
-  private fillJob(colour: ColourId, slot: number): Omit<Job, 'start'> {
+  private fillJob(colour: ColourId, slot: number, handled: boolean): Omit<Job, 'start'> {
     const group = this.jobGroup();
     const pail = bucket(null);
     group.add(pail);
@@ -359,11 +440,12 @@ export class CarMachineView extends MachineLook {
       slot,
       group,
       step: (t) => {
-        this.started(t, length);
+        this.started(t - (handled ? HANDLED.fill.press : 0), length);
         const p = this.pose;
         // Lifted off the stack and over to before the grate, then slid in under the spout.
         const over = ease(span(t, 0.08, 0.36));
-        if (over < 1) {
+        if (handled) pail.position.copy(grate);
+        else if (over < 1) {
           pail.position.lerpVectors(stack, before, over);
           pail.position.y += Math.sin(over * Math.PI) * 0.15;
         } else pail.position.lerpVectors(before, grate, ease(span(t, 0.36, 0.5)));
@@ -447,22 +529,30 @@ export class CarMachineView extends MachineLook {
    * Takes a mould back: the flap swings out, the mould is pushed in through the hatch and the
    * flap falls back, and the mould slides away into the cabinet out of sight.
    */
-  private returnJob(type: BrickTypeId): Omit<Job, 'start'> {
+  private returnJob(type: BrickTypeId, handled: boolean): Omit<Job, 'start'> {
     const group = this.jobGroup();
     const mould = mouldBlock(type);
     mould.scale.setScalar(HATCH_MOULD_SCALE);
     group.add(mould);
     const hatch = this.restAt(0);
-    const from = hatch.clone().add(new THREE.Vector3(0, 0.03, 0.4));
+    // Pushed in from where the hands bring it (see `HANDLED.return`), or by itself.
+    const H = handled
+      ? HANDLED.return
+      : ({ from: 0.4, push: [0.1, 0.45], away: [0.55, 0.85], length: 1 } as const);
+    const from = hatch.clone().add(new THREE.Vector3(0, 0.03, H.from));
     const away = hatch.clone().add(new THREE.Vector3(0, 0, -0.1));
     return {
-      length: 1,
+      length: H.length,
       group,
       step: (t) => {
-        this.pose.flap = Math.max(this.pose.flap, ease(span(t, 0, 0.2)) - ease(span(t, 0.45, 0.7)));
-        if (t < 0.5) mould.position.lerpVectors(from, hatch, ease(span(t, 0.1, 0.45)));
-        else mould.position.lerpVectors(hatch, away, ease(span(t, 0.55, 0.85)));
-        mould.visible = t < 0.85;
+        const flap =
+          ease(span(t, H.push[0] - 0.1, H.push[0] + 0.1)) -
+          ease(span(t, H.away[0] - 0.1, H.away[0] + 0.15));
+        this.pose.flap = Math.max(this.pose.flap, flap);
+        if (t < H.away[0])
+          mould.position.lerpVectors(from, hatch, ease(span(t, H.push[0], H.push[1])));
+        else mould.position.lerpVectors(hatch, away, ease(span(t, H.away[0], H.away[1])));
+        mould.visible = t < H.away[1];
       },
       end: () => {},
     };
@@ -474,7 +564,32 @@ export class CarMachineView extends MachineLook {
    * Puts a mould in: the safety door slides aside, the clamp opens, the mould slides in between
    * the platens and the clamp shuts on it, and the door shuts.
    */
-  private mouldInJob(): Omit<Job, 'start'> {
+  private mouldInJob(handled: boolean): Omit<Job, 'start'> {
+    if (handled) {
+      // The door slid open by its handle, the mould pushed in so far from where the hands hold
+      // it before the opening, and drawn home by the clamp (see `HANDLED.mould`).
+      const H = HANDLED.mould;
+      return {
+        length: H.length,
+        group: this.jobGroup(),
+        step: (t) => {
+          const p = this.pose;
+          p.door = Math.max(p.door, ease(span(t, ...H.open)) - ease(span(t, ...H.close)));
+          p.clamp = Math.max(p.clamp, span(t, ...H.clamp) - span(t, ...H.shut));
+          const o =
+            t < H.push[1]
+              ? 1 - (1 - H.pushed) * ease(span(t, ...H.push))
+              : H.pushed * (1 - ease(span(t, ...H.seat)));
+          p.mouldOut = Math.max(p.mouldOut, o);
+          const mould = this.part('mould');
+          if (mould) mould.visible = t >= H.push[0];
+        },
+        end: () => {
+          const mould = this.part('mould');
+          if (mould) mould.visible = !!this.last?.m.mould;
+        },
+      };
+    }
     return {
       length: 1.5,
       group: this.jobGroup(),
@@ -488,29 +603,69 @@ export class CarMachineView extends MachineLook {
     };
   }
 
-  /** Pours pellets in: the hopper's lid swings up, a bucket tips over it and empties in. */
-  private pourJob(colour: ColourId): Omit<Job, 'start'> {
+  /**
+   * Pours pellets in: the hopper's lid swings up and the pellets rise in it as they go in,
+   * poured from a bucket held over it by hand (`handled`, see `HANDLED.pour`), or from one that
+   * tips over it by itself.
+   */
+  private pourJob(colour: ColourId, handled: boolean): Omit<Job, 'start'> {
     const { x: hx, y: hy } = PRESS.hopper;
     const z = PRESS.axis.z;
     const rim = hy + 0.5;
     const group = this.jobGroup();
-    const pail = bucket(colour);
-    group.add(pail);
-    const lip = new THREE.Vector3(hx + 0.05, rim + 0.14, z);
-    const stream = pelletStream(group, colour, lip, hy + 0.3);
+    const H: Record<'lid' | 'rise' | 'close', readonly [number, number]> & { length: number } =
+      handled
+        ? HANDLED.pour
+        : { lid: [0, 0.25], rise: [0.4, 1.05], close: [1.15, 1.45], length: 1.5 };
+    // What was in it before; drawn by this job from now on as the pellets rise.
+    const was = this.beforePour.colour === colour ? this.beforePour.shots / BUCKET_SHOTS : 0;
+    this.pouring = true;
+    if (this.last) this.rebuild();
+    const pellets = new THREE.Group();
+    group.add(pellets);
+    let drawn = -1;
+    let pail: THREE.Object3D | null = null;
+    let stream: ((t: number | null) => void) | null = null;
+    if (!handled) {
+      pail = bucket(colour);
+      group.add(pail);
+      const lip = new THREE.Vector3(hx + 0.05, rim + 0.14, z);
+      stream = pelletStream(group, colour, lip, hy + 0.3);
+    }
+    const disposePellets = () =>
+      pellets.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.userData.own) o.geometry.dispose();
+      });
     return {
-      length: 1.5,
+      length: H.length,
       group,
       step: (t) => {
-        this.pose.lid = Math.max(this.pose.lid, ease(span(t, 0, 0.25)) - ease(span(t, 1.15, 1.45)));
-        // From beside the hopper, tipped toward it, then put down out of the way.
-        const tip = ease(span(t, 0.15, 0.45)) - ease(span(t, 1.05, 1.35));
-        pail.position.set(hx + 0.32 - 0.08 * tip, rim + 0.1 + 0.08 * tip, z);
-        pail.rotation.z = 1.9 * tip;
-        pail.scale.setScalar(Math.max(0.001, 1 - span(t, 1.2, 1.4)));
-        stream(t >= 0.4 && t < 1.05 ? t : null);
+        this.pose.lid = Math.max(
+          this.pose.lid,
+          ease(span(t, ...H.lid)) - ease(span(t, ...H.close)),
+        );
+        // The level, in a dozen steps (each drawn anew).
+        const level = Math.round(12 * (was + (1 - was) * ease(span(t, ...H.rise)))) / 12;
+        if (level !== drawn) {
+          drawn = level;
+          disposePellets();
+          pellets.clear();
+          if (level > 0) pellets.add(hopperPellets(colour, level * BUCKET_SHOTS));
+        }
+        if (pail) {
+          // From beside the hopper, tipped toward it, then put down out of the way.
+          const tip = ease(span(t, 0.15, 0.45)) - ease(span(t, 1.05, 1.35));
+          pail.position.set(hx + 0.32 - 0.08 * tip, rim + 0.1 + 0.08 * tip, z);
+          pail.rotation.z = 1.9 * tip;
+          pail.scale.setScalar(Math.max(0.001, 1 - span(t, 1.2, 1.4)));
+          stream?.(t >= 0.4 && t < 1.05 ? t : null);
+        }
       },
-      end: () => {},
+      end: () => {
+        disposePellets();
+        this.pouring = false;
+        if (this.last) this.rebuild();
+      },
     };
   }
 
@@ -569,14 +724,16 @@ export class CarMachineView extends MachineLook {
   // -- The UV printer --
 
   /** Lays a part on the bed: it comes down onto it, and the gantry runs over it to find it. */
-  private layJob(): Omit<Job, 'start'> {
+  private layJob(handled: boolean): Omit<Job, 'start'> {
     const group = this.jobGroup();
     this.laying = true;
     const { bed, gantry } = PRINTER;
     const lay = new THREE.Group();
     group.add(lay);
     const on = new THREE.Vector3(bed.part.x, bed.y + 0.006, bed.part.z);
-    const from = on.clone().add(new THREE.Vector3(0, 0.22, 0.35));
+    // Set down from where the hands bring it (see `HANDLED.lay`), or from out before the bed.
+    const from = on.clone().add(handled ? HANDLED.lay.from : new THREE.Vector3(0, 0.22, 0.35));
+    const down: readonly [number, number] = handled ? HANDLED.lay.down : [0, 0.45];
     if (this.last) this.rebuild();
     return {
       length: 1.2,
@@ -586,9 +743,9 @@ export class CarMachineView extends MachineLook {
         const part = this.last?.m.part;
         if (part && !lay.children.length)
           lay.add(bedPart(part, this.last!.svgs, { ...this.bedRoom(), top: 0, x: 0, z: 0 }));
-        const down = ease(span(t, 0, 0.45));
-        lay.position.lerpVectors(from, on, down);
-        lay.position.y += Math.sin(down * Math.PI) * 0.05;
+        const k = ease(span(t, ...down));
+        lay.position.lerpVectors(from, on, k);
+        if (!handled) lay.position.y += Math.sin(k * Math.PI) * 0.05;
         const scan = Math.sin(span(t, 0.5, 1.2) * Math.PI);
         this.pose.gantry = { z: gantry.reach * 0.7 * scan, x: gantry.park };
         this.pose.uv = Math.max(this.pose.uv, -0.6 * scan);
@@ -601,7 +758,7 @@ export class CarMachineView extends MachineLook {
   }
 
   /** Where a part lies on the printer's bed, and how much room it has there. */
-  private bedRoom() {
+  protected override bedRoom() {
     const { bed } = PRINTER;
     return {
       top: bed.y + 0.006,
@@ -621,7 +778,7 @@ export class CarMachineView extends MachineLook {
     const { gantry, bed } = PRINTER;
     const across = (bed.x1 - bed.x0) / 2 - 0.12;
     return {
-      length: 1.6,
+      length: HANDLED.print.length + 0.1,
       lane: 'print',
       group: this.jobGroup(),
       step: (t) => {
@@ -687,11 +844,13 @@ export class CarMachineView extends MachineLook {
     const half = name('mouldA');
     if (half) half.position.x = opened;
     const mould = name('mould');
-    if (mould) mould.position.set(0, 0.12 * p.mouldOut, 0.5 * p.mouldOut);
+    if (mould) mould.position.set(0, MOULD_OUT.y * p.mouldOut, MOULD_OUT.z * p.mouldOut);
     const safety = name('safetyDoor');
     if (safety) safety.position.x = door.slide * ease(clamp01(p.door));
     const lid = name('lid');
     if (lid) lid.rotation.x = -LID_OPEN * clamp01(p.lid);
+    const step = name('hopperStep');
+    if (step) step.position.z = HOPPER_STEP_SIZE.run * ease(this.step);
     const guard = name('bayFlap');
     if (guard) guard.rotation.x = -GUARD_OPEN * clamp01(p.guard);
     // The silo.
@@ -747,6 +906,15 @@ export class CarMachineView extends MachineLook {
       lamp.material = on ? glow(colour, 2.4) : DIM_LAMPS[i]!;
     });
   }
+}
+
+/** How far up and out the press's mould is held to slide it in (see `Pose.mouldOut`). */
+const MOULD_OUT = { y: 0.12, z: 0.5 };
+
+/** How wide the press's mould is across, between its platens. */
+function platenGap(): number {
+  const { platens } = PRESS;
+  return platens[1] - 0.06 - (platens[0] + 0.05);
 }
 
 /** How far apart the silo's empty buckets stack. */
