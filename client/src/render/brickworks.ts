@@ -505,6 +505,11 @@ export abstract class MachineLook {
    * where it lay till the hands that took it get there (see `release`), and till when at most.
    */
   private readonly kept = new Map<number, Kept & { until: number }>();
+  /**
+   * What was in it when last drawn: a copy, as the replica changes its machine's state in place
+   * (see `Sim.replicaFurniture`), to tell what has gone from it since.
+   */
+  private seen: MachineState | null = null;
   /** When it was last moved on to (seconds; see `tick`). */
   protected clock = 0;
   /** How far the step under a moulding machine's hopper is slid out (0..1), for whoever is on it. */
@@ -765,7 +770,8 @@ export abstract class MachineLook {
     const settled = this.settle((j) => m.making?.slot !== j.slot);
     if (key === this.key && svgs === this.last?.svgs && !settled) return;
     this.key = key;
-    const was = this.last?.m ?? null;
+    const was = this.seen;
+    this.seen = { ...m, out: [...m.out] };
     this.last = { m, svgs, powered };
     // What was taken is drawn where it lay a while yet, for the hands that took it.
     if (was) {

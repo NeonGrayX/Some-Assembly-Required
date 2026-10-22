@@ -426,6 +426,24 @@ describe('the brick works', () => {
     }
   });
 
+  it('keeps what was taken where it lay when told so in the state it was told before', () => {
+    // The replica changes its machines' states in place: what was in one is gone from the very
+    // state it was in.
+    for (const kind of ['press', 'printer'] as const) {
+      const def = atOrigin(kind);
+      const view = new MachineView(def);
+      const m = state(def, true);
+      view.update(m, {});
+      const slot = kind === 'printer' ? -1 : 0;
+      if (slot < 0) m.part = null;
+      else m.out[slot] = null;
+      view.update(m, {});
+      expect(view.keptModel(slot), kind).not.toBeNull();
+      view.release(slot);
+      expect(view.keptModel(slot), kind).toBeNull();
+    }
+  });
+
   it('sizes the tools for two hands', () => {
     const mould = localBounds(makeHeldTool({ kind: 'mould', type: '2x4' }));
     expect(mould.getSize(new THREE.Vector3()).x).toBeCloseTo(0.3, 2);
