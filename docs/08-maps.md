@@ -296,7 +296,7 @@ Doubled, the two islands face each other across the gate's line, each with its o
 
 ### The place
 
-The street of `car-test.html`, closed at both ends for the build: the small house (the inspector's office), the big house with its balcony, the school bus at the bus stop, the two cars, and the job site on the lot across from the small house with the brick works round it. It is drawn with the car scene's own models, not the game's (`LevelDef.scenery`), in their own studio light, lit by the game's sun and sky.
+The car scene's street, closed at both ends for the build: the small house (the inspector's office), the big house with its balcony, the school bus at the bus stop, the two cars, and the job site on the lot across from the small house with the brick works round it. It is drawn with the car scene's own models, not the game's (`LevelDef.scenery`), in their own studio light, lit by the game's sun and sky.
 
 ### How it is made
 

@@ -9,13 +9,13 @@ import { cbox, glow, mat, rbox } from '../carscene/kit.ts';
 import type { MatOptions } from '../carscene/kit.ts';
 import { SPORT } from '../carscene/sportscar.ts';
 
-// A player is the toy mechanic of car-test.html, in the cars' style, the same for everyone: a
+// A player is the car scene's toy mechanic, in the cars' style, the same for everyone: a
 // teal jacket piped in the cars' cyan light, charcoal trousers and gloves, red lacquered
 // trainers on white soles, a yellow tool pouch on the back of the belt, a red cap, and a dark
 // visor whose strip across the eyes glows in the player's colour, like the cars' lamps. The body
 // is a torso, a head and four limbs, so the walk cycle, the grip and the ragdoll see the parts.
 //
-// The mechanic is drawn 1.8 m tall to the top of its cap (see `carscene/player.ts`), and here at
+// The mechanic is drawn 1.8 m tall to the top of its cap, and here at
 // `FIGURE` of that, to stand in the player's collision capsule. Positions are relative to the
 // centre of that capsule. The character controller keeps it a skin width (0.02) off the floor,
 // so the legs reach `FEET` below the centre, a little into the floor: a foot only just touching
@@ -28,7 +28,7 @@ import { SPORT } from '../carscene/sportscar.ts';
 const FIGURE = 0.92;
 /** How far below the capsule's centre the soles are. */
 const FEET = 0.885;
-/** Where `y` metres up the mechanic (as `carscene/player.ts` draws it) is, from the centre. */
+/** Where `y` metres up the 1.8 m mechanic is, from the centre. */
 const up = (y: number) => y * FIGURE - FEET;
 const TORSO = { r: 0.14 * FIGURE, len: 0.26 * FIGURE, y: up(1.2) };
 const HEAD = { r: 0.135 * FIGURE, y: up(1.67) };
@@ -159,8 +159,8 @@ const plain = (colour: number, roughness = 0.6) => own(colour, { mottle: 'plasti
 const lit = (colour: number, k = 2) => glow(colour, k).clone();
 
 /**
- * A rounded box (crisp-edged if `crisp`) on `parent`, sized and placed as the mechanic has it
- * (see `carscene/player.ts`), at the figure's size, named `name`.
+ * A rounded box (crisp-edged if `crisp`) on `parent`, sized and placed as the mechanic has it,
+ * at the figure's size, named `name`.
  */
 function part(
   parent: THREE.Object3D,
@@ -455,7 +455,7 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
 }
 
 /**
- * The walk and the run are car-test.html's mechanic's (see `carscene/player.ts`). The cycle goes
+ * The walk and the run are the car scene's mechanic's. The cycle goes
  * round about once every 1.4 m at a walk, further at a run (radians a metre at `pace` m/s).
  * The swing is all there from `FULL_PACE` (m/s) on: the legs swing `swing` radians at the hip,
  * `run` more from `RUN_PACE` on, the knee of the leg swinging through folds `knee` radians, the

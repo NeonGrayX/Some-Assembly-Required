@@ -28,23 +28,11 @@ import { intangible } from './meshWalk.ts';
 import type { CarScene } from './scene.ts';
 
 /**
- * What the following camera keeps out of on the car test map, worked out from the scene as it is
- * built: the cars and the machines to their bounds, the cones round their feet, the houses' walls (with their doorways open), floors, furniture and ceilings, the big
- * house's stair and upper floor, and the bus's sides round its cabin: what is solid right through,
- * which the camera is not to sit inside. The player walks against the models themselves (see
- * `MeshWalker`), and the camera keeps clear of their triangles too (see `followCamera`); this
- * coarse copy keeps it out of a car rather than finding its way in under its mirrors. And the
- * houses' sliding doors.
+ * What is solid on the car scene's street, worked out from the scene as it is built (see
+ * `carSolids`): the cars and the machines to their bounds, the cones round their feet, the houses'
+ * walls (with their doorways open), floors, furniture and ceilings, the big house's stair and upper
+ * floor, and the bus's sides round its cabin.
  */
-
-/**
- * Where the player starts: on the near pavement past the railings' end, the street open before
- * them and the big house across it, the bus clear of the camera behind.
- */
-export const START = { x: 3.0, z: -12.3, heading: 0.2 };
-
-/** How near (m) the player comes to a door before it slides open. */
-export const DOOR_OPEN = { near: 1.7 };
 
 /** `o`'s bounds in `frame`'s own axes, exact however `frame` is turned about the upright. */
 export function boxIn(
@@ -270,46 +258,7 @@ function propPart(mesh: THREE.Mesh): PropPart {
   return { box: new THREE.Box3().setFromObject(mesh), triangles };
 }
 
-/**
- * Whether `p` is inside `part`: the line straight up from it and the line straight down from it
- * each go through its surface an odd number of times. (A sheet over or under `p` is crossed by
- * only one of them.)
- */
-export function insidePart(part: PropPart, p: THREE.Vector3): boolean {
-  if (!part.box.containsPoint(p)) return false;
-  const t = part.triangles;
-  let [up, down] = [0, 0];
-  for (let i = 0; i + 8 < t.length; i += 9) {
-    const [ax, az, bx, bz, cx, cz] = [t[i]!, t[i + 2]!, t[i + 3]!, t[i + 5]!, t[i + 6]!, t[i + 8]!];
-    // Where (p.x, p.z) is in the triangle seen from above, as weights on its corners.
-    const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
-    if (Math.abs(det) < 1e-12) continue;
-    const wa = ((bz - cz) * (p.x - cx) + (cx - bx) * (p.z - cz)) / det;
-    const wb = ((cz - az) * (p.x - cx) + (ax - cx) * (p.z - cz)) / det;
-    const wc = 1 - wa - wb;
-    if (wa < 0 || wb < 0 || wc < 0) continue;
-    const y = wa * t[i + 1]! + wb * t[i + 4]! + wc * t[i + 7]!;
-    if (y > p.y) up++;
-    else down++;
-  }
-  return up % 2 === 1 && down % 2 === 1;
-}
-
-export interface CarWalk {
-  /**
-   * Boxes the camera keeps out of: everything solid (the modelled things to their bounds) and
-   * the houses' ceilings.
-   */
-  camera: THREE.Group;
-  /** The parts of the street's furniture and the site's fittings, for the camera to keep out of. */
-  props: PropPart[];
-  /** The houses' doors, each sliding along its own x (see `slideDoors`). */
-  doors: THREE.Object3D[];
-  /** Inside each house, a box in its own axes: the camera stays in it while the player is. */
-  rooms: { frame: THREE.Object3D; box: THREE.Box3 }[];
-}
-
-/** What is solid on the map, as `carWalk` and the game's map take it (see `carSolids`). */
+/** What is solid on the map, as the game's map takes it (see `carSolids`). */
 export interface CarSolids {
   /** What a player walks against and stands on. */
   solids: Solids;
@@ -324,8 +273,8 @@ export interface CarSolids {
 }
 
 /**
- * Everything solid on the map, worked out from the scene as it is built: the blocks of
- * `carWalk`'s coarse copy, and the props' parts.
+ * Everything solid on the map, worked out from the scene as it is built: its blocks, and the
+ * props' parts.
  */
 export function carSolids(scene: CarScene): CarSolids {
   scene.root.updateMatrixWorld(true);
@@ -440,78 +389,4 @@ export function carSolids(scene: CarScene): CarSolids {
   };
   for (const prop of [...scene.street.children, ...fittings]) if (prop.name === 'prop') take(prop);
   return { solids, shells, ceilings, door, props };
-}
-
-export function carWalk(scene: CarScene): CarWalk {
-  const { solids, shells, ceilings, door, props } = carSolids(scene);
-  // The camera's copy: a box for each block (the floor it keeps above on its own).
-  const camera = new THREE.Group();
-  const stuff = new THREE.MeshBasicMaterial();
-  for (const b of [...solids.blocks, ...shells.blocks, ...ceilings.blocks, ...door.blocks]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(b.hx * 2, b.y1 - b.y0, b.hz * 2), stuff);
-    m.position.set(b.x, (b.y0 + b.y1) / 2, b.z);
-    m.rotation.y = Math.atan2(b.sin, b.cos);
-    camera.add(m);
-  }
-  for (const r of solids.rounds) {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(r.r, r.r, r.y1 - r.y0, 8), stuff);
-    m.position.set(r.x, (r.y0 + r.y1) / 2, r.z);
-    camera.add(m);
-  }
-  camera.updateMatrixWorld(true);
-
-  const doors: THREE.Object3D[] = [];
-  scene.root.traverse((o) => {
-    if (o.name === 'door') doors.push(o);
-  });
-  // The rooms: inside its walls, from its floor to its ceiling, in each house's own axes; and
-  // inside the bus.
-  const { rear } = BUS_BODY;
-  const { floor, inner, tail, front, ceiling } = BUS_CABIN;
-  const cabin = {
-    frame: scene.bus.root as THREE.Object3D,
-    box: new THREE.Box3(
-      new THREE.Vector3(rear + tail, floor, -inner),
-      new THREE.Vector3(front, ceiling, inner),
-    ),
-  };
-  const rooms = [
-    { frame: scene.house as THREE.Object3D, body: HOUSE_BODY },
-    { frame: scene.bigHouse, body: BIG_HOUSE_BODY },
-  ].map(({ frame, body }) => {
-    const [ix, iz] = [body.depth - body.wall, body.half - body.wall];
-    return {
-      frame,
-      box: new THREE.Box3(
-        new THREE.Vector3(-ix, body.plinth, -iz),
-        new THREE.Vector3(ix, body.eave, iz),
-      ),
-    };
-  });
-  return { camera, props, doors, rooms: [...rooms, cabin] };
-}
-
-const doorAt = new THREE.Vector3();
-
-/**
- * Slides each door toward open (`userData.slide` along its own x, into its wall) while `who`
- * stands near it, and shut again after, `dt` seconds on; shut at once if `who` is null.
- */
-export function slideDoors(doors: THREE.Object3D[], who: THREE.Vector3 | null, dt: number): void {
-  for (const d of doors) {
-    const u = d.userData as { slide: number; home?: number; open?: number };
-    const home = (u.home ??= d.position.x);
-    let open = u.open ?? 0;
-    if (!who) open = 0;
-    else {
-      doorAt.set(home, d.position.y, d.position.z);
-      d.parent!.localToWorld(doorAt);
-      const near =
-        Math.hypot(doorAt.x - who.x, doorAt.z - who.z) < DOOR_OPEN.near &&
-        Math.abs(doorAt.y - (who.y + 1)) < 1.5;
-      open += ((near ? 1 : 0) - open) * Math.min(1, dt * 6);
-    }
-    u.open = open;
-    d.position.x = home + open * u.slide;
-  }
 }

@@ -35,7 +35,7 @@ import { SPORT } from './sportscar.ts';
  * Every piece is built at its own origin on the floor, its front toward +z, its back (where it
  * meets a wall) at z = 0 unless it stands free; the houses place and turn them.
  *
- * What can be used is (see `Gadgets`): the cupboards', the fridge's, the oven's and the
+ * What can be used is (see `Gadget`): the cupboards', the fridge's, the oven's and the
  * wardrobe's doors open on what is kept inside, the tap runs, the hob heats, the screens and
  * the lamps switch off and on.
  */
