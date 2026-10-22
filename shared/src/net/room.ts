@@ -4,6 +4,7 @@ import type { InspectionReport } from '../builds/report.ts';
 import type { TargetBuild } from '../builds/types.ts';
 import { HOUSE, boardSlots, levelSites } from '../content/house.ts';
 import { rivalLevel } from '../content/rival.ts';
+import { MACHINE_ACTS } from '../sim/operate.ts';
 import type { LevelDef } from '../content/house.ts';
 import { isMapId, mapById } from '../content/maps/index.ts';
 import type { MapId } from '../content/maps/index.ts';
@@ -1100,7 +1101,17 @@ export class Room {
         !p.grounded && p.ladder === null && p.down === 0 ? 1 : 0,
         p.fatigue,
         p.squeeze ? Math.atan2(p.squeeze.x, p.squeeze.z) : NO_SQUEEZE,
-        p.work?.there ? [p.work.hand.x, p.work.hand.y, p.work.hand.z] : 0,
+        p.work?.there
+          ? [
+              p.work.hand.x,
+              p.work.hand.y,
+              p.work.hand.z,
+              MACHINE_ACTS.indexOf(p.work.act),
+              p.work.slot,
+              p.work.machineId ?? -1,
+              p.work.n,
+            ]
+          : 0,
         (p.holding?.flip ? 1 : 0) + (p.holding?.eighth ? 2 : 0),
       ];
     });

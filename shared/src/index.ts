@@ -16,6 +16,7 @@ export * from './content/maps/common.ts';
 export * from './content/maps/chevron.ts';
 export * from './sim/sim.ts';
 export * from './sim/dog.ts';
+export * from './sim/operate.ts';
 export * from './builds/types.ts';
 export * from './builds/match.ts';
 export * from './builds/lighthouse.ts';

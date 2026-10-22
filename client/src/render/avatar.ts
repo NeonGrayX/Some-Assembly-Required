@@ -107,6 +107,12 @@ export interface Avatar {
   wrenchOut: number;
   ratchet: number;
   turns: number;
+  /**
+   * How far into operating a machine move by move (0..1, see `Gait.operate`), and the last
+   * move asked for, which the body eases out of.
+   */
+  operate: number;
+  move: Operate;
   /** How far into the climbing pose (0..1), and the ladder it is on (kept while letting go). */
   climb: number;
   ladder: LadderDef | null;
@@ -433,6 +439,8 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     wrenchOut: 0,
     ratchet: 0,
     turns: 0,
+    operate: 0,
+    move: { hands: [null, null], crouch: 0, lean: 0, look: null },
     climb: 0,
     ladder: null,
     carry: 0,
@@ -527,6 +535,11 @@ export interface Gait {
    * hand (unless it holds something), and working (`work`) turns a bolt there with it.
    */
   wrench?: boolean;
+  /**
+   * Operating a machine move by move (see `render/operate.ts`), in place of working it with
+   * the hands anyhow (`work`).
+   */
+  operate?: Operate | null;
   /** The ladder the player is up, while climbing it. */
   climb?: LadderDef | null;
   /** Off the ground (jumping or falling), and not on a ladder. */
@@ -550,6 +563,18 @@ export interface Gait {
  * holds nothing and swings free, as the left one does carrying the vacuum.
  */
 export type Grip = [THREE.Vector3 | null, THREE.Vector3 | null];
+
+/**
+ * A move operating a machine, in the avatar's own space: where each hand goes (null: it hangs
+ * free), how far the hips come down on bent knees (m) and the chest leans in (radians) to get
+ * them there (see `reachPose`), and where the head looks.
+ */
+export interface Operate {
+  hands: Grip;
+  crouch: number;
+  lean: number;
+  look: THREE.Vector3 | null;
+}
 
 /** From a shoulder pivot to the middle of the hand at the end of the arm. */
 const HAND_REACH = 2 * ARM_DROP - HAND_IN;
@@ -801,6 +826,40 @@ function reachFor(a: Avatar, i: 0 | 1, target: THREE.Vector3): number {
   return Math.PI - atElbow;
 }
 
+/** How low the hips go at most to reach something (m), on bent knees: a deep squat. */
+export const MAX_CROUCH = 0.5;
+/** How far the chest leans in (radians) going down for something low, and at most. */
+const STOOP = { per: 0.9, most: 0.5 };
+
+/**
+ * How far the body goes down on bent knees (m) and leans in (radians) for each hand to reach
+ * where `hands` say (the avatar's own space, as it stands): no further down than it must, but
+ * leaning in more the lower it goes, as someone stooping to something does; up as it stands
+ * for what is high, the arms going up to it.
+ */
+export function reachPose(hands: Grip): { crouch: number; lean: number } {
+  const lean = (c: number) => Math.min(STOOP.most, STOOP.per * c);
+  // The reach a little short of the whole arm, so the elbow keeps a bend.
+  const R = HAND_REACH - 0.02;
+  let crouch = 0;
+  // Twice over: the lean for the crouch the first time round brings the shoulders forward.
+  for (let pass = 0; pass < 2; pass++) {
+    const z = -(ARM.y - TORSO.y) * Math.sin(lean(crouch));
+    let need = 0;
+    for (const [i, h] of hands.entries()) {
+      if (!h) continue;
+      const dx = h.x - (i === 0 ? -ARM.x : ARM.x);
+      const dz = h.z - z;
+      const flat = R * R - dx * dx - dz * dz;
+      // Out of reach across: as far down as the hand is below the shoulder.
+      const drop = flat > 0 ? ARM.y - h.y - Math.sqrt(flat) : ARM.y - h.y;
+      need = Math.max(need, drop);
+    }
+    crouch = Math.min(MAX_CROUCH, Math.max(0, need));
+  }
+  return { crouch, lean: lean(crouch) };
+}
+
 /**
  * Swings arms and legs by how fast the avatar moved since the last frame, as car-test.html's
  * mechanic walks and runs: the knee of the leg swinging through folds, the body bobs as the legs
@@ -967,7 +1026,14 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     }
   }
   const squat = LAND_SQUAT * Math.sin((a.land * Math.PI) / 2);
-  const crouch = 0.05 * a.careful + squat;
+  // Operating a machine: eases in and out as working it does, the hands going on to the last
+  // place the move had them.
+  if (gait.operate) a.move = gait.operate;
+  // (Quick to take the hands to where the move has them, as it begins with them hanging.)
+  a.operate += ((gait.operate ? 1 : 0) - a.operate) * Math.min(1, dt * (gait.operate ? 14 : 6));
+  if (a.operate < 1e-3) a.operate = 0;
+  const op = a.operate * a.operate * (3 - 2 * a.operate) * (1 - a.pat);
+  const crouch = 0.05 * a.careful + squat + a.move.crouch * op;
   // Limping: as the sore leg takes the weight the body drops and leans over it.
   const favour = w.limp * Math.max(0, Math.sin(cycle)) * Math.min(1, a.amp * 3) * (1 - w.air);
   const dip = favour * LIMP_DIP;
@@ -1008,9 +1074,10 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.legs[1].position.y += tread.up[1] - tread.down;
   // Leaning over (to the dog, or into a machine): the shoulders come forward with the chest,
   // the head looks down at the dog.
-  const lean = Math.sin(PAT_LEAN * k + WORK_LEAN * wk);
+  const stoop = a.move.lean * op;
+  const lean = Math.sin(PAT_LEAN * k + WORK_LEAN * wk + stoop);
   const stride = a.amp * ahead * (1 - w.air) * (1 - k);
-  a.torso.rotation.x = -PAT_LEAN * k - WORK_LEAN * wk - WALK.lean * stride;
+  a.torso.rotation.x = -PAT_LEAN * k - WORK_LEAN * wk - stoop - WALK.lean * stride;
   a.head.rotation.x = -0.4 * k + WALK.nod * stride;
   a.head.position.z = -(HEAD.y - TORSO.y) * lean;
   for (const arm of a.arms)
@@ -1130,6 +1197,33 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     a.toil = 0;
     a.ratchet = 0;
   }
+  // Operating a machine, each hand to where the move has it (one it leaves free hangs), the
+  // shoulder coming forward as it goes in front of the chest, or reaching after it if just out
+  // of reach; the head looks at what the hands do.
+  if (op > 0) {
+    for (const i of [0, 1] as const) {
+      const at = a.move.hands[i];
+      if (!at) continue;
+      const arm = a.arms[i];
+      const side = i === 0 ? -1 : 1;
+      const inward = Math.min(1, Math.max(0, (ARM.x - side * at.x) / PROTRACT.span));
+      arm.position.x -= side * PROTRACT.x * inward * op;
+      arm.position.z -= PROTRACT.z * inward * op;
+      _dir.subVectors(at, arm.position);
+      const short = Math.min(PROTRACT.reach, _dir.length() - HAND_REACH + 1e-3);
+      if (short > 0) arm.position.addScaledVector(_dir.normalize(), short * op);
+      _walk.copy(arm.quaternion);
+      const b = reachFor(a, i, at);
+      arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), op);
+      bend[i] = bend[i]! + (b - bend[i]!) * op;
+    }
+    const look = a.move.look;
+    if (look) {
+      _dir.subVectors(look, a.head.position);
+      const pitch = Math.max(-0.7, Math.min(0.5, Math.atan2(_dir.y, Math.hypot(_dir.x, _dir.z))));
+      a.head.rotation.x += (pitch - a.head.rotation.x) * op;
+    }
+  }
 
   if (c > 0 && a.ladder) {
     const l = a.ladder;
@@ -1162,6 +1256,11 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const glance = Math.max(-HEAD_TURN, Math.min(HEAD_TURN, (turn?.lead ?? 0) * HEAD_LEAD));
   a.glance += (glance - a.glance) * Math.min(1, dt * 20);
   a.head.rotation.y = a.glance * (1 - c) * (1 - q) - Math.sign(a.side || 1) * SQUEEZE_LOOK * q;
+  const look = op > 0 ? a.move.look : null;
+  if (look) {
+    const yaw = Math.max(-HEAD_TURN, Math.min(HEAD_TURN, Math.atan2(-look.x, -look.z)));
+    a.head.rotation.y += (yaw - a.head.rotation.y) * op;
+  }
   const into = (turn?.spin ?? 0) * a.amp * LEAN * (1 - w.air);
   a.group.rotation.z = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, into)) * (1 - c);
   a.elbows[0].rotation.x = bend[0];

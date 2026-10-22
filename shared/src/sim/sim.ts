@@ -14,6 +14,8 @@ import type { FurnitureState } from '../net/protocol.ts';
 import type { SabotageTool } from '../round.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
+import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
+import type { MachineAct } from './operate.ts';
 import { DT, TICK_RATE, seconds } from './time.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
@@ -66,6 +68,7 @@ import type {
   LadderDef,
   LevelDef,
   MachineDef,
+  MachineKind,
   OutputSlot,
   PrintJob,
   SiteDef,
@@ -197,6 +200,44 @@ const WORK_CLOSE = 0.08;
 const WORK_WALK_TICKS = seconds(1.5);
 /** How long they stay at a machine working it, once there (clearing a jam: till it is clear). */
 export const WORK_TICKS = seconds(1.1);
+/** The brick works' events that set a machine making something, once a player's hands start it. */
+const MAKES: SimEvent['kind'][] = ['fill', 'dispense', 'moulded'];
+
+/**
+ * What a player does at a machine (see `MachineAct`), by what it did for them (`done`, the
+ * brick works' event their click raised there, if any) and the place in its output area they
+ * clicked (`slot`, -1 for none): the place they take from, for `take`.
+ */
+function actOf(
+  done: SimEvent | undefined,
+  slot: number,
+  kind: MachineKind | undefined,
+): { act: MachineAct; at: number } {
+  switch (done?.kind) {
+    case 'fill':
+      return { act: 'fill', at: -1 };
+    case 'dispense':
+    case 'moulded':
+      return { act: 'start', at: -1 };
+    case 'print':
+      return { act: 'print', at: -1 };
+    case 'pour':
+      return { act: 'pour', at: -1 };
+    case 'mouldIn':
+      return { act: 'mould', at: -1 };
+    case 'toolDown':
+      return { act: 'return', at: -1 };
+    case 'printerIn':
+      return { act: 'lay', at: -1 };
+    case 'fixing':
+      return { act: 'fix', at: -1 };
+    case 'toolUp':
+      return { act: 'take', at: done.slot ?? slot };
+  }
+  // A part taken out of a moulding machine's bay, or off the printer's bed unprinted.
+  if (slot >= 0) return { act: 'take', at: slot };
+  return kind === 'printer' ? { act: 'take', at: -1 } : { act: 'work', at: -1 };
+}
 
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
@@ -606,9 +647,21 @@ export interface Work {
   n: number;
   /** The machine they work, or null for the electrical panel. */
   machineId: number | null;
-  /** Where they stand to work it, and where their hands go: where they clicked it. */
+  /**
+   * What they do there (see `MachineAct`), and for `take` which place in its output area they
+   * take from (-1 for the printer's bed, and for every other act).
+   */
+  act: MachineAct;
+  slot: number;
+  /**
+   * Where they stand to work it (their station for the act: see `actStation`), and where they
+   * clicked it, which they face.
+   */
   spot: Vec3;
   hand: Vec3;
+  /** The tick they set to work, and whether the machine waits for their hands to start it. */
+  since: number;
+  delays: boolean;
   /** Got there (or as near as they could), and working. */
   there: boolean;
   /** Ticks left walking up to it, then working it once there. */
@@ -1914,7 +1967,7 @@ export class Sim {
       else if (w && !w.there) {
         const way = sub(w.spot, add(start, total));
         const off = Math.hypot(way.x, way.z);
-        if (off < WORK_CLOSE || --w.walk <= 0) w.there = true;
+        if (off < WORK_CLOSE || --w.walk <= 0) this.arrive(w);
         else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
       } else if (w && --w.ticks <= 0 && this.fixerOf(w.machineId) !== p.id) {
         p.work = null;
@@ -2833,10 +2886,28 @@ export class Sim {
     const [events, version] = [this.events.length, this.furnitureVersion];
     this.doAct(p, action);
     const did = this.events.length !== events || this.furnitureVersion !== version;
-    if (did && (hit?.owner.kind === 'machine' || hit?.owner.kind === 'output'))
-      this.startWork(p, hit.owner.machineId, hit);
-    else if (did && hit?.owner.kind === 'panel' && this.power.fixer === p.id)
-      this.startWork(p, null, hit);
+    if (did && (hit?.owner.kind === 'machine' || hit?.owner.kind === 'output')) {
+      const { machineId } = hit.owner;
+      const slot = hit.owner.kind === 'output' ? hit.owner.slot : -1;
+      const done = this.events.slice(events).find((e) => e.machineId === machineId);
+      const { act, at } = actOf(done, slot, this.machines.get(machineId)?.def.kind);
+      this.startWork(p, machineId, hit, act, at);
+      // What it makes is only begun once their hands set it going.
+      if (p.work && done && MAKES.includes(done.kind)) p.work.delays = true;
+    } else if (did && hit?.owner.kind === 'panel' && this.power.fixer === p.id)
+      this.startWork(p, null, hit, 'fix');
+  }
+
+  /**
+   * They have got to where they work (or as near as they could): what the machine was asked to
+   * make is begun as their hands set it going (see `ACT_TIMES`), and done that much later.
+   */
+  private arrive(w: Work): void {
+    w.there = true;
+    const m = w.machineId === null ? undefined : this.machines.get(w.machineId);
+    if (!w.delays || !m?.making) return;
+    m.making.at += this.tick - w.since + seconds(ACT_TIMES[w.act].lead);
+    this.furnitureVersion++;
   }
 
   /** Whether player `id` is fixing something: clearing a jammed machine, or the panel. */
@@ -2852,24 +2923,42 @@ export class Sim {
   }
 
   /**
-   * Walks `p` up to the machine (null: the electrical panel) they clicked at `hit`, to work it
-   * (see `Player.work`).
+   * Walks `p` up to the machine (null: the electrical panel) they clicked at `hit`, to do `act`
+   * there (see `Player.work`): to their station for it before the machine, or where they
+   * clicked it.
    */
-  private startWork(p: Player, machineId: number | null, hit: AimHit): void {
+  private startWork(
+    p: Player,
+    machineId: number | null,
+    hit: AimHit,
+    act: MachineAct = 'work',
+    slot = -1,
+  ): void {
     const at = p.body.translation();
     // Out from the face they clicked; off a top, back the way they came.
     let out = v3(hit.normal.x, 0, hit.normal.z);
     if (length(out) < 0.3) out = v3(at.x - hit.point.x, 0, at.z - hit.point.z);
     out = length(out) > 1e-6 ? scale(out, 1 / length(out)) : v3(0, 0, 1);
-    const spot = add(v3(hit.point.x, at.y, hit.point.z), scale(out, WORK_STANDOFF));
+    let spot = add(v3(hit.point.x, at.y, hit.point.z), scale(out, WORK_STANDOFF));
+    const def = machineId === null ? undefined : this.machines.get(machineId)?.def;
+    const x = def ? actStation(def.kind, act, slot) : null;
+    if (def && x !== null) {
+      const station = rotate(yawQuat(def.facing), v3(x, 0, def.size.z / 2 + ACT_STAND));
+      spot = v3(def.pos.x + station.x, at.y, def.pos.z + station.z);
+    }
+    const ticks = act === 'fix' ? WORK_TICKS : seconds(ACT_TIMES[act].seconds);
     p.work = {
       n: ++p.works,
       machineId,
+      act,
+      slot,
       spot,
       hand: hit.point,
+      since: this.tick,
+      delays: false,
       there: false,
       walk: WORK_WALK_TICKS,
-      ticks: WORK_TICKS,
+      ticks,
     };
   }
 
@@ -3481,8 +3570,9 @@ export class Sim {
     }
     if (m.def.kind === 'dispenser') {
       if (p.tool?.kind !== 'mould') return;
+      const mould = p.tool.type;
       this.setTool(p, null);
-      return event('toolDown');
+      return event('toolDown', { mould });
     }
     if (m.def.kind === 'printer') {
       if (p.tool) return;

@@ -220,7 +220,7 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
     }
   });
 
-  it('swings the flap or guard over its output area as what waits there is taken', () => {
+  it('swings the flap or guard over its output area as the hands take what waits there', () => {
     for (const [kind, name] of [
       ['dispenser', 'flap'],
       ['press', 'bayFlap'],
@@ -232,6 +232,8 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
       view.tick(1);
       const shut = part(view, name).rotation.x;
       view.update({ ...full, out: full.out.map((x, i) => (i === 0 ? null : x)) }, {});
+      // As the hands that took it take hold of it.
+      view.release(0);
       view.tick(1.15);
       expect(part(view, name).rotation.x, kind).toBeLessThan(shut - 0.5);
       view.tick(2);

@@ -6,6 +6,7 @@ import type { BrickTypeId } from '@sar/shared';
 import { brickGeometry } from '../render/bricks.ts';
 import { mouldTop, posedInMould } from '../render/mouldCavity.ts';
 import type { MouldTop } from '../render/mouldCavity.ts';
+import { HOPPER_STEP, HOPPER_STEP_SIZE } from '../render/operate.ts';
 import { bentPath, boxUV, cbox, glow, mat, put, rbox, tube } from './kit.ts';
 import { SPORT } from './sportscar.ts';
 
@@ -97,6 +98,7 @@ export const LIVE_PARTS = [
   'gantry',
   'button',
   'progress',
+  'hopperStep',
   'lamp0',
   'lamp1',
   'lamp2',
@@ -260,6 +262,9 @@ function pushButton(parent: THREE.Object3D, x: number, y: number, z: number, r: 
   bar(button, cap, 'z', 0, 0, 0.008, r, 0.016, 24).name = 'buttonCap';
 }
 
+/** How wide the box the silo's start button is on is. */
+const SILO_BUTTON_BOX = 0.1;
+
 /**
  * Where the silo's parts are, in its frame: its radius and how far back its middle is, the
  * ring its body stands on, the tap and the grate under it (whose top is the silo's output area,
@@ -277,11 +282,10 @@ export const SILO = (() => {
     spout: { y: 0.8, z: tapZ - 0.04 },
     grate: { y: 0.5, z: tapZ - 0.04 },
     stack: { x: -w / 2 + 0.2, z: d / 2 - 0.25 },
+    /** Its display's middle across and up, and how wide it is. */
+    screen: { x: 0.07 + SILO_BUTTON_BOX + 0.04 + 0.065, y: 1.1, w: 0.13 },
   };
 })();
-
-/** How wide the box the silo's start button is on is. */
-const SILO_BUTTON_BOX = 0.1;
 
 /**
  * A progress bar `len` long, its middle at (`x`, `y`), standing out of a face at `z`: a dark
@@ -416,6 +420,11 @@ export function buildSilo(): THREE.Group {
   cbox(g, cyan(1.4), 0, grate.y - 0.016, grate.z + 0.136, 0.32, 0.008, 0.006, 0.002).name =
     'outLight';
   anchor(g, 'out0', 0, grate.y + 0.0125, grate.z);
+  // The display on a post on the tap's right, beyond the button (the game draws on it).
+  const sx = SILO.screen.x;
+  can(g, charcoal(), sx, (SILO.screen.y - 0.08) / 2, tap.z - 0.06, 0.025, SILO.screen.y - 0.08, 12);
+  rbox(g, charcoal(), sx, SILO.screen.y, tap.z - 0.04, SILO.screen.w + 0.04, 0.12, 0.08, 0.012);
+  cbox(g, dark(), sx, SILO.screen.y, tap.z, SILO.screen.w, 0.08, 0.004, 0.002);
   // A stack of empty buckets on its left.
   const stack = new THREE.Group();
   stack.name = 'stack';
@@ -874,8 +883,8 @@ export function buildBrickPress(): THREE.Group {
     0.02,
   );
   cbox(loaded, dark(), meet + 0.01, axis.y, axis.z, 0.02, 0.34, 0.32, 0.004);
-  // The safety door before the mould: glass in a charcoal frame, a steel handle, sliding to the
-  // right in a track on the bed under a rail held up on two posts.
+  // The safety door before the mould: glass in a charcoal frame, a steel handle at its left end
+  // (it is pushed open by it), sliding to the right in a track on the bed under a rail held up on two posts.
   const slide = new THREE.Group();
   slide.name = 'safetyDoor';
   g.add(slide);
@@ -899,7 +908,7 @@ export function buildBrickPress(): THREE.Group {
   rbox(
     slide,
     steel(),
-    door.x1 - 0.08,
+    door.x0 + 0.08,
     (door.y0 + door.y1) / 2,
     door.z + 0.04,
     0.03,
@@ -984,7 +993,39 @@ export function buildBrickPress(): THREE.Group {
   for (let i = 0; i < 4; i++)
     cbox(g, dark(), house.x, top + 0.12 + i * 0.04, pz + 0.002, 0.36, 0.014, 0.006, 0.002);
   stackLight(g, house.x + 0.15, top + house.h, -0.15);
+  hopperStep(g, hopper.x, PRESS.face);
   return g;
+}
+
+/**
+ * The step under the press's hopper, in its bed at `x` (the bed's front at `z`), slid in out
+ * of sight: a tread on two cheeks, striped yellow at its front edge, in a group named
+ * `hopperStep` to slide out and stand on to pour pellets in.
+ */
+function hopperStep(parent: THREE.Object3D, x: number, z: number): void {
+  const step = new THREE.Group();
+  step.name = 'hopperStep';
+  parent.add(step);
+  const { w, d } = HOPPER_STEP_SIZE;
+  const top = HOPPER_STEP;
+  // (Its front a hair inside the bed's, slid in, but for the stripe along it.)
+  const mid = z - 0.004 - d / 2;
+  cbox(step, gunmetal(), x, top - 0.02, mid, w, 0.04, d, 0.006);
+  for (const s of [-1, 1])
+    cbox(
+      step,
+      charcoal(),
+      x + s * (w / 2 - 0.015),
+      (top - 0.04) / 2,
+      mid,
+      0.03,
+      top - 0.04,
+      d,
+      0.006,
+    );
+  cbox(step, paint(BUS.yellow), x, top - 0.02, z, w, 0.03, 0.012, 0.003);
+  for (let i = -4; i <= 4; i++)
+    cbox(step, dark(), x + i * 0.05, top + 0.002, mid, 0.012, 0.004, d - 0.04, 0.002);
 }
 
 /**

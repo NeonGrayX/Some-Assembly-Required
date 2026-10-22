@@ -347,7 +347,8 @@ describe('bots and a build carried off its job site', () => {
     sim.players.get(ada)!.body.setTranslation({ x: 30, y: 1, z: 30 }, true);
     let size = build.grid.size;
     let worst = 0;
-    for (let t = 0; t < 500 * 60 && room.phase === 'building'; t++) {
+    // (Long enough for the bots to work the machines move by move, as players do.)
+    for (let t = 0; t < 650 * 60 && room.phase === 'building'; t++) {
       room.update();
       worst = Math.max(worst, size - sim.build().grid.size);
       size = sim.build().grid.size;
