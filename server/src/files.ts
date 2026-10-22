@@ -20,6 +20,7 @@ const MIME: Record<string, string> = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json',
   '.wasm': 'application/wasm',
   '.glb': 'model/gltf-binary',
 };
