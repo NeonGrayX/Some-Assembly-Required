@@ -241,6 +241,16 @@ solo('player carrying the vacuum', () => {
   }
   return both;
 });
+solo('player fixing with the wrench', () => {
+  const a = makeAvatar(0x2e86de, null);
+  // Mid-pull on a bolt in a machine's front, as the brick works have them.
+  const work = new THREE.Vector3(0, 0.05, -0.62);
+  for (let i = 0; i < 50; i++) {
+    const gait = { limping: false, carrying: false, careful: false, work, wrench: true };
+    animateAvatar(a, gait, 1 / 60);
+  }
+  return a.group;
+});
 solo('vacuum: running, half full', () => {
   const v = new VacuumView();
   v.setLoad(5, 10);

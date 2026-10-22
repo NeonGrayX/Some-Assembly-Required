@@ -366,6 +366,30 @@ const POSES: Pose[] = [
     },
   },
   {
+    name: 'working a machine',
+    play(a, check) {
+      const work = new THREE.Vector3(0, 0.05, -0.55);
+      for (let i = 0; i < 90; i++) {
+        animateAvatar(a, { ...still, work }, dt);
+        if (i > 30 && i % 4 === 0) check();
+      }
+    },
+  },
+  {
+    name: 'fixing a machine with the wrench',
+    play(a, check) {
+      // Walking up to it with the wrench out, then turning a bolt in its front, low and high.
+      run(a, 60, new THREE.Vector3(0, 0, -2), () => ({ ...still, wrench: true }), check);
+      for (const y of [-0.25, 0.05, 0.35]) {
+        const work = new THREE.Vector3(0, y, -0.55);
+        for (let i = 0; i < 120; i++) {
+          animateAvatar(a, { ...still, work, wrench: true }, dt);
+          if (i > 30 && i % 3 === 0) check();
+        }
+      }
+    },
+  },
+  {
     name: 'jumping and landing',
     play(a, check) {
       let y = 0;

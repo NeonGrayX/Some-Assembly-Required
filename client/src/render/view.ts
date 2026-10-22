@@ -347,8 +347,12 @@ export class View {
       slope: OnSlope;
       /** Which way the body faces, turning to the way they walk (see `Facing`). */
       facing: Facing;
+      /** Turns of a bolt their wrench has made, as of the last one heard (see `ratchets`). */
+      turns: number;
     }
   >();
+  /** Where a wrench turned a bolt this frame (world space), to be heard (see `syncPlayers`). */
+  readonly ratchets: THREE.Vector3[] = [];
   /** The catapult's arm, and how far through a throw it is (null: at rest). */
   private catapultArm: THREE.Group | null = null;
   private catapultSwing: number | null = null;
@@ -825,7 +829,9 @@ export class View {
    * over becomes a ragdoll in the client's world (made when their knock count goes up) until
    * they are back on their feet. `firstPerson`: the camera is in close, so your own builder is
    * kept out of its sight; `looking`: you play in first person, so your builder faces the way
-   * you look rather than the way you walk.
+   * you look rather than the way you walk. `fixing` says who is fixing something (a jammed
+   * machine, the electrical panel), the wrench out in their hand; each turn of a bolt it makes
+   * is put in `ratchets`.
    */
   syncPlayers(
     players: Map<number, Player>,
@@ -835,7 +841,9 @@ export class View {
     who: (id: number) => { colour: number; name: string },
     physics: { R: typeof RAPIER; world: World },
     dt: number,
+    fixing: (id: number) => boolean = () => false,
   ): void {
+    this.ratchets.length = 0;
     for (const [id, v] of this.avatars) {
       if (!players.has(id)) {
         this.dropAvatar(v);
@@ -870,6 +878,7 @@ export class View {
           speaking: null,
           slope: { sink: 0, ahead: 0, right: 0 },
           facing: new Facing(p.input.yaw),
+          turns: 0,
         };
         this.avatars.set(p.id, v);
       }
@@ -967,6 +976,7 @@ export class View {
               : vacuum,
           pat,
           work,
+          wrench: fixing(p.id),
           climb: p.ladder === null ? null : (this.level.ladders[p.ladder] ?? null),
           airborne: !p.grounded && p.ladder === null && p.down === 0,
           slope: v.slope,
@@ -976,6 +986,10 @@ export class View {
         dt,
       );
       v.avatar.treat.visible = p.treat;
+      if (v.avatar.turns !== v.turns) {
+        v.turns = v.avatar.turns;
+        this.ratchets.push(g.localToWorld(v.avatar.workAt.clone()));
+      }
       v.avatar.page.visible = p.page !== null;
       if (v.ragdoll?.standing) {
         g.updateMatrixWorld(true);
@@ -988,7 +1002,11 @@ export class View {
       // camera in close, your own builder is only kept out of its sight.
       g.visible = !v.ragdoll;
       const unseen = p.id === localId && firstPerson;
-      if (unseen !== v.unseen || wore || v.tool !== carried) setUnseen(g, unseen);
+      // Seen through your own eyes, the wrench still shows, as what you carry does.
+      if (unseen !== v.unseen || wore || v.tool !== carried) {
+        setUnseen(g, unseen);
+        setUnseen(v.avatar.wrench, false);
+      }
       v.unseen = unseen;
       for (const worn of v.worn.values()) aimHeadlamp(worn, v.avatar, p.input.pitch);
     }

@@ -61,6 +61,11 @@ export interface Avatar {
   hatCollider: HatCollider;
   /** A dog biscuit in the right hand, shown while holding a treat. */
   treat: THREE.Mesh;
+  /**
+   * A spanner in the right hand, its grip in the fist, shown while fixing something (see
+   * `Gait.wrench`). Its open end points along its own -z, `WRENCH_REACH` from the grip.
+   */
+  wrench: THREE.Group;
   /** A page sticking out of the chest pocket, shown while one is in it. */
   page: THREE.Mesh;
   /** Limbs hang from pivots at the shoulders and hips, so swinging is a rotation. */
@@ -95,6 +100,13 @@ export interface Avatar {
   work: number;
   workAt: THREE.Vector3;
   toil: number;
+  /**
+   * How far the wrench is out in the hand (0..1), the ratchet's cycle (one turn of the bolt
+   * each), and how many turns it has made, so each can be heard.
+   */
+  wrenchOut: number;
+  ratchet: number;
+  turns: number;
   /** How far into the climbing pose (0..1), and the ladder it is on (kept while letting go). */
   climb: number;
   ladder: LadderDef | null;
@@ -193,6 +205,64 @@ function cap(head: THREE.Group): { group: THREE.Group; collider: HatCollider } {
   part(group, red, [0, 0.095 - below, -0.17], [0.24, 0.025, 0.12], 0.012, 'peak');
   part(group, charcoal(), [0, 0.19 - below, 0], [0.05, 0.02, 0.05], 0.008, 'button');
   return { group, collider: { halfHeight: 0.06, radius: 0.14, y: 0.06 } };
+}
+
+/** How far the wrench's open end is from where the fist grips it. */
+const WRENCH_REACH = 0.2;
+/**
+ * The wrench in the fist when not at work, in the forearm's space: the open end forward, a
+ * little down, flat side out, as a torch is held.
+ */
+const WRENCH_REST = new THREE.Quaternion().setFromRotationMatrix(
+  new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(0, 1, -0.3).normalize(),
+    new THREE.Vector3(0, 0.3, 1).normalize(),
+  ),
+);
+
+/**
+ * A combination spanner, chrome steel with a red rubber grip: the grip at the origin, the
+ * shank along -z to the open end's jaws round a bolt `WRENCH_REACH` away, and the ring end
+ * behind the fist. It lies flat across x.
+ */
+function spanner(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'wrench';
+  const chrome = own(0xd4d9dd, {
+    mottle: 'metal',
+    roughness: 0.22,
+    metalness: 0.85,
+    envMapIntensity: 2.4,
+  });
+  const rubber = own(SPORT.red, { mottle: 'plastic', roughness: 0.6 });
+  const box = (
+    material: THREE.Material,
+    [x, y, z]: [number, number, number],
+    [sx, sy, sz]: [number, number, number],
+    r: number,
+    name: string,
+  ) => {
+    const m = rbox(g, material, x, y, z, sx, sy, sz, r);
+    m.name = name;
+    return m;
+  };
+  // Chunky, as the mechanic's own parts are, so it reads from across a room.
+  box(chrome, [0, 0, -0.05], [0.014, 0.036, 0.27], 0.006, 'shank');
+  box(rubber, [0, 0, 0.02], [0.024, 0.046, 0.1], 0.01, 'grip');
+  // The open end: a crown at the end of the shank and two jaws round the bolt.
+  const R = WRENCH_REACH;
+  box(chrome, [0, 0, -R + 0.035], [0.018, 0.08, 0.034], 0.012, 'crown');
+  for (const side of [-1, 1])
+    box(chrome, [0, side * 0.03, -R - 0.008], [0.018, 0.02, 0.048], 0.008, 'jaw');
+  // The ring end, behind the fist.
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.024, 0.009, 8, 20), chrome);
+  ring.rotation.y = Math.PI / 2;
+  ring.position.z = 0.1;
+  ring.name = 'ring';
+  g.add(ring);
+  g.traverse((o) => (o.castShadow = true));
+  return g;
 }
 
 /**
@@ -319,6 +389,11 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
   treat.visible = false;
   treat.castShadow = true;
   elbows[1]!.add(treat);
+  const wrench = spanner();
+  wrench.position.y = -FOREARM;
+  wrench.quaternion.copy(WRENCH_REST);
+  wrench.visible = false;
+  elbows[1]!.add(wrench);
   // Folded, half out of the chest pocket, a little askew: whoever has a page shows it.
   const page = new THREE.Mesh(
     new THREE.BoxGeometry(0.075, 0.07, 0.004),
@@ -336,6 +411,7 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     hat: hat.group,
     hatCollider: hat.collider,
     treat,
+    wrench,
     page,
     arms,
     elbows: elbows as [THREE.Group, THREE.Group],
@@ -354,6 +430,9 @@ export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avat
     work: 0,
     workAt: new THREE.Vector3(),
     toil: 0,
+    wrenchOut: 0,
+    ratchet: 0,
+    turns: 0,
     climb: 0,
     ladder: null,
     carry: 0,
@@ -443,6 +522,11 @@ export interface Gait {
   pat?: THREE.Vector3 | null;
   /** Where the player works a machine with their hands, in the avatar's own space. */
   work?: THREE.Vector3 | null;
+  /**
+   * Fixing something (clearing a jam, the electrical panel): the wrench is out in the right
+   * hand (unless it holds something), and working (`work`) turns a bolt there with it.
+   */
+  wrench?: boolean;
   /** The ladder the player is up, while climbing it. */
   climb?: LadderDef | null;
   /** Off the ground (jumping or falling), and not on a ladder. */
@@ -613,6 +697,24 @@ const WORK_LEAN = 0.18;
 const WORK_HANDS = 0.11;
 const TOIL_RATE = 2.2;
 const TOIL = { push: 0.035, lift: 0.02 };
+/**
+ * Fixing with the wrench: the bolt it turns is this far right of where they work (keeping the
+ * right arm clear of the chest) and stands this far out of it, it turns
+ * so many times a second, the handle pulled down from `high` to `low` (radians above the
+ * horizontal, out to the right) for the first `pull` of each turn and ratcheted back up for the
+ * rest, while the left hand braces on the machine `brace` to the bolt's left.
+ */
+const BOLT = { right: 0.05, out: 0.035 };
+const RATCHET = { rate: 1.3, pull: 0.6, high: 1.05, low: 0.12, brace: 0.17 };
+
+/** How far up (radians) the wrench's handle is `phase` (0..1) into a turn of the bolt. */
+export function ratchetAngle(phase: number): number {
+  const { pull, high, low } = RATCHET;
+  const smooth = (x: number) => x * x * (3 - 2 * x);
+  return phase < pull
+    ? high + (low - high) * smooth(phase / pull)
+    : low + (high - low) * smooth((phase - pull) / (1 - pull));
+}
 
 /**
  * Climbing. The player's capsule is pressed up to the wall with the ladder running through it,
@@ -904,8 +1006,9 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   const tread = footing(a, gait.slope, knee);
   a.legs[0].position.y += tread.up[0] - tread.down;
   a.legs[1].position.y += tread.up[1] - tread.down;
-  // Leaning over: the shoulders come forward with the chest, the head looks down at the dog.
-  const lean = Math.sin(PAT_LEAN * k);
+  // Leaning over (to the dog, or into a machine): the shoulders come forward with the chest,
+  // the head looks down at the dog.
+  const lean = Math.sin(PAT_LEAN * k + WORK_LEAN * wk);
   const stride = a.amp * ahead * (1 - w.air) * (1 - k);
   a.torso.rotation.x = -PAT_LEAN * k - WORK_LEAN * wk - WALK.lean * stride;
   a.head.rotation.x = -0.4 * k + WALK.nod * stride;
@@ -984,24 +1087,49 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
     bend[patting] = bend[patting] + (b - bend[patting]) * k;
   }
   // Working a machine, each free hand on it a little to its own side, the two pushing in turn
-  // (what the hands hold stays held).
+  // (what the hands hold stays held). Fixing it, the right hand turns a bolt there with the
+  // wrench, pulling the handle down and ratcheting it back up, the left braced beside it.
+  const wrench = !!gait.wrench && !gait.carrying;
   if (wk > 0) {
     a.toil += dt * TOIL_RATE * Math.PI * 2;
+    if (wrench) {
+      const was = a.ratchet;
+      a.ratchet += dt * RATCHET.rate;
+      if (wk > 0.5 && Math.floor(a.ratchet - RATCHET.pull) > Math.floor(was - RATCHET.pull))
+        a.turns++;
+    }
     for (const i of [0, 1] as const) {
       const free = wk * (1 - hold[i]);
       if (free === 0) continue;
       const s = Math.sin(a.toil + i * Math.PI);
       _hand.copy(a.workAt);
-      _hand.x += (i === 0 ? -1 : 1) * WORK_HANDS;
-      _hand.y += Math.max(0, s) * TOIL.lift;
-      _hand.z += s * TOIL.push;
+      if (wrench && i === 1) {
+        const up = ratchetAngle(a.ratchet % 1);
+        _hand.x += BOLT.right + Math.cos(up) * WRENCH_REACH;
+        _hand.y += Math.sin(up) * WRENCH_REACH;
+        _hand.z += BOLT.out;
+      } else if (wrench) {
+        _hand.x -= RATCHET.brace;
+      } else {
+        _hand.x += (i === 0 ? -1 : 1) * WORK_HANDS;
+        _hand.y += Math.max(0, s) * TOIL.lift;
+        _hand.z += s * TOIL.push;
+      }
       const arm = a.arms[i];
+      // The shoulder comes forward as the hand goes in front of the chest, as carrying has it.
+      const side = i === 0 ? -1 : 1;
+      const inward = Math.min(1, Math.max(0, (ARM.x - side * _hand.x) / PROTRACT.span));
+      arm.position.x -= side * PROTRACT.x * inward * free;
+      arm.position.z -= PROTRACT.z * inward * free;
       _walk.copy(arm.quaternion);
       const b = reachFor(a, i, _hand);
       arm.quaternion.slerpQuaternions(_walk, _aim.copy(arm.quaternion), free);
       bend[i] = bend[i]! + (b - bend[i]!) * free;
     }
-  } else a.toil = 0;
+  } else {
+    a.toil = 0;
+    a.ratchet = 0;
+  }
 
   if (c > 0 && a.ladder) {
     const l = a.ladder;
@@ -1040,6 +1168,44 @@ export function animateAvatar(a: Avatar, gait: Gait, dt: number): void {
   a.elbows[1].rotation.x = bend[1];
   a.knees[0].rotation.x = knee[0];
   a.knees[1].rotation.x = knee[1];
+  poseWrench(a, wrench, wk, dt);
+}
+
+const _toElbow = new THREE.Matrix4();
+const _bolt = new THREE.Vector3();
+const _along = new THREE.Vector3();
+const _flat = new THREE.Vector3();
+const _across = new THREE.Vector3();
+const _grip = new THREE.Vector3();
+const _turned = new THREE.Quaternion();
+
+/**
+ * Takes the wrench out (or puts it away) as `out` says, and turns it in the fist: the open end
+ * forward at rest, and working (`wk`), onto the bolt where the hands work, flat to the machine.
+ * Call once the arms are posed.
+ */
+function poseWrench(a: Avatar, out: boolean, wk: number, dt: number): void {
+  const w = a.wrench;
+  a.wrenchOut += ((out ? 1 : 0) - a.wrenchOut) * Math.min(1, dt * 12);
+  if (a.wrenchOut < 1e-3) a.wrenchOut = 0;
+  w.visible = a.wrenchOut > 0;
+  if (!w.visible) return;
+  w.scale.setScalar(a.wrenchOut * a.wrenchOut * (3 - 2 * a.wrenchOut));
+  w.quaternion.copy(WRENCH_REST);
+  if (wk <= 0) return;
+  // From the avatar's space into the forearm's, through the shoulder, the arm and the elbow.
+  const elbow = a.elbows[1];
+  for (const o of [a.arms[1], elbow.parent!, elbow]) o.updateMatrix();
+  _toElbow.copy(a.arms[1].matrix).multiply(elbow.parent!.matrix).multiply(elbow.matrix).invert();
+  _bolt.set(a.workAt.x + BOLT.right, a.workAt.y, a.workAt.z + BOLT.out).applyMatrix4(_toElbow);
+  _grip.set(0, -FOREARM, 0);
+  _along.subVectors(_bolt, _grip).normalize();
+  // Flat to the machine: its broad side faces the way the avatar does.
+  _flat.set(0, 0, 1).transformDirection(_toElbow);
+  _flat.addScaledVector(_along, -_flat.dot(_along)).normalize();
+  _across.crossVectors(_along.negate(), _flat);
+  _turned.setFromRotationMatrix(_basis.makeBasis(_flat, _across, _along));
+  w.quaternion.slerp(_turned, wk);
 }
 
 // Ragdoll parts only collide with the level and bricks (group 1), never with players or

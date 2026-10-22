@@ -1684,6 +1684,38 @@ export class Sfx {
     this.chime(t + 0.68, 2349, 0.04 * volume, 0.35);
   }
 
+  /**
+   * A wrench turning a bolt: the handle pulled down with a dull clunk as the bolt gives, then
+   * the ratchet's pawl clicking over its teeth on the way back up.
+   */
+  ratchet(volume = 1): void {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    this.impact(
+      t,
+      [
+        [310, 0.05, 0.5],
+        [1250, 0.03, 0.3],
+      ],
+      0.05 * volume,
+      { f: 900, seconds: 0.012, amount: 0.6 },
+    );
+    for (let i = 0; i < 5; i++) {
+      const r = 0.95 + Math.random() * 0.1;
+      this.impact(
+        t + 0.08 + i * 0.045,
+        [
+          [4100 * r, 0.014, 1],
+          [6300 * r, 0.01, 0.5],
+          [1900 * r, 0.02, 0.25],
+        ],
+        0.045 * volume * (1 - i * 0.12),
+        { f: 5000, seconds: 0.003, amount: 0.7 },
+      );
+    }
+  }
+
   /** A machine breaking down: an alarm's buzz three times, the notes falling under it. */
   breakdown(volume = 1): void {
     const ctx = this.ctx;

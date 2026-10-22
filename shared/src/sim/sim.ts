@@ -545,8 +545,9 @@ export interface Player {
   /** Their shape side-on, as thin as they are deep: what moves while they squeeze. */
   slim: Collider;
   /**
-   * Working a machine they clicked, as patting the dog: walking up to it to stand before where
-   * they clicked, then working it there with their hands a while (see `Work`). Moving off ends it.
+   * Working a machine (or the broken electrical panel) they clicked, as patting the dog: walking
+   * up to it to stand before where they clicked, then working it there with their hands a while
+   * (see `Work`), or with a wrench till it is fixed. Moving off ends it.
    */
   work: Work | null;
   /** How many times they have set to work, so a client takes up each once (see `Work.n`). */
@@ -599,11 +600,12 @@ export interface Player {
   snapLockKey: boolean;
 }
 
-/** A player working a machine (see `Player.work`). */
+/** A player working a machine or the electrical panel (see `Player.work`). */
 export interface Work {
   /** Which time this is that they set to work (see `Player.works`). */
   n: number;
-  machineId: number;
+  /** The machine they work, or null for the electrical panel. */
+  machineId: number | null;
   /** Where they stand to work it, and where their hands go: where they clicked it. */
   spot: Vec3;
   hand: Vec3;
@@ -1914,7 +1916,7 @@ export class Sim {
         const off = Math.hypot(way.x, way.z);
         if (off < WORK_CLOSE || --w.walk <= 0) w.there = true;
         else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
-      } else if (w && --w.ticks <= 0 && this.machines.get(w.machineId)?.fixer !== p.id) {
+      } else if (w && --w.ticks <= 0 && this.fixerOf(w.machineId) !== p.id) {
         p.work = null;
       }
       // At a ladder's top, pushing on more or less toward what it reaches takes them straight
@@ -2825,17 +2827,35 @@ export class Sim {
     // Lying on the ground, nobody can do anything.
     if (!p || this.replica || p.down > 0) return;
     // A machine that did something for them (it took what they put in, made something, gave it
-    // up, or they set about clearing its jam): they go up to it and work it.
+    // up, or they set about clearing its jam), or the broken panel they set about fixing: they
+    // go up to it and work it.
     const hit = this.aim(p);
     const [events, version] = [this.events.length, this.furnitureVersion];
     this.doAct(p, action);
     const did = this.events.length !== events || this.furnitureVersion !== version;
     if (did && (hit?.owner.kind === 'machine' || hit?.owner.kind === 'output'))
       this.startWork(p, hit.owner.machineId, hit);
+    else if (did && hit?.owner.kind === 'panel' && this.power.fixer === p.id)
+      this.startWork(p, null, hit);
   }
 
-  /** Walks `p` up to the machine they clicked at `hit`, to work it (see `Player.work`). */
-  private startWork(p: Player, machineId: number, hit: AimHit): void {
+  /** Whether player `id` is fixing something: clearing a jammed machine, or the panel. */
+  fixing(id: number): boolean {
+    if (this.power.fixer === id) return true;
+    for (const m of this.machines.values()) if (m.fixer === id) return true;
+    return false;
+  }
+
+  /** Who is fixing machine `machineId` (null: the electrical panel), if anyone. */
+  fixerOf(machineId: number | null): number | null {
+    return machineId === null ? this.power.fixer : (this.machines.get(machineId)?.fixer ?? null);
+  }
+
+  /**
+   * Walks `p` up to the machine (null: the electrical panel) they clicked at `hit`, to work it
+   * (see `Player.work`).
+   */
+  private startWork(p: Player, machineId: number | null, hit: AimHit): void {
     const at = p.body.translation();
     // Out from the face they clicked; off a top, back the way they came.
     let out = v3(hit.normal.x, 0, hit.normal.z);
