@@ -2,8 +2,8 @@ import { fbm, hash, noise } from './noise.ts';
 import type { StreetPlan } from './street.ts';
 
 /**
- * The car scene's big painted textures, the moss of its cobbled patches, the road's asphalt and
- * the pavements' slabs, millions of pixels and seconds of work each: painted from a `PaintJob`,
+ * The car scene's big painted textures, the moss of its cobbled patches, the road's asphalt, the
+ * pavements' slabs, and a map's gravelled lot and lawns, millions of pixels and seconds of work each: painted from a `PaintJob`,
  * which says all a texture is painted from and can be sent as it is to a worker, so that they
  * are painted off the main thread (see `paintedOnce`). Nothing here but the noise they are made
  * of, so that is all a worker takes in.
@@ -25,7 +25,16 @@ export type PaintJob =
       rect: Rect;
       perMetre: number;
     }
-  | { kind: 'paving'; w: number; d: number; perMetre: number; seed: number };
+  | { kind: 'paving'; w: number; d: number; perMetre: number; seed: number }
+  | {
+      kind: 'gravel';
+      outline: [number, number][];
+      /** The middles of the tracks wheels have worn into it, each a line of points. */
+      tracks: [number, number][][];
+      rect: Rect;
+      perMetre: number;
+    }
+  | { kind: 'lawn'; outline: [number, number][]; rect: Rect; perMetre: number };
 
 /** A painted texture's pixels, RGBA in rows. */
 export interface Painting {
@@ -58,6 +67,10 @@ export function paint(job: PaintJob, perMetre = job.perMetre): Painting {
       return asphalt(job.marks, polygonField(job.outline), job.rect, perMetre);
     case 'paving':
       return paving(job.w, job.d, perMetre, job.seed);
+    case 'gravel':
+      return gravel(polygonField(job.outline), job.tracks, job.rect, perMetre);
+    case 'lawn':
+      return lawn(polygonField(job.outline), job.rect, perMetre);
   }
 }
 
@@ -304,6 +317,194 @@ function paving(w: number, d: number, perMetre: number, seed: number): Painting 
       data[k + 1] = c[1]!;
       data[k + 2] = c[2]!;
       data[k + 3] = 255;
+    }
+  return { data, width: W, height: H };
+}
+
+/**
+ * Past the edge of a patch (`f` above 0, `broken` its noise there): a band of dark wet ground,
+ * then a grey wash brushed out over the floor, as dry paint, fading out; the colour and how much
+ * it covers. The moss's and the road's rims are painted the same.
+ */
+function rim(f: number, broken: number): [number[], number] {
+  const wet = [0x4a, 0x4e, 0x50];
+  const wash = [0x9a, 0x94, 0x8c];
+  if (f < 0.25)
+    return [
+      wet.map((v) => v * (0.85 + 0.3 * broken)),
+      0.85 * Math.min(1, (0.25 - f) / 0.06 + broken * 0.5),
+    ];
+  const t = (f - 0.25) / 0.45;
+  return [
+    mix(wet, wash, Math.min(1, t * 3)).map((v) => v * (0.85 + 0.3 * broken)),
+    Math.max(0, (1 - t) * (0.75 + 0.5 * broken) - 0.15) * 0.6,
+  ];
+}
+
+/**
+ * How far (`x`, `z`) is from the line through `points`, in metres, across it: past either of its
+ * ends, as far as can be, so it ends square rather than rounded.
+ */
+function acrossLine(points: [number, number][], x: number, z: number): number {
+  let best = Infinity;
+  const last = points.length - 1;
+  for (let i = 1; i <= last; i++) {
+    const [ax, az] = points[i - 1]!;
+    const [bx, bz] = points[i]!;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const along = ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz);
+    if ((i === 1 && along < 0) || (i === last && along > 1)) continue;
+    const t = Math.max(0, Math.min(1, along));
+    best = Math.min(best, Math.hypot(x - ax - t * dx, z - az - t * dz));
+  }
+  return best;
+}
+
+/** How far apart a lorry's wheels run, and how wide the rut each wears. */
+const WHEELS = { apart: 1.7, rut: 0.6 };
+
+/**
+ * A building lot's ground, over `rect` (x0, z0, w, d): rolled gravel, grey-brown, flecked with
+ * pale and dark stones, darker where it lies damp, ruts worn in it along `tracks` with puddles
+ * standing in them, moss creeping in from the edge, a few weeds; its edge brushed out over the
+ * floor as the moss's is.
+ */
+function gravel(
+  field: Field,
+  tracks: [number, number][][],
+  rect: Rect,
+  perMetre: number,
+): Painting {
+  const [x0, z0, w, d] = rect;
+  const [W, H] = pixels(w, d, perMetre);
+  const data = new Uint8Array(W * H * 4);
+  const dark = [0x5e, 0x58, 0x4e];
+  const mid = [0x7e, 0x77, 0x6a];
+  const light = [0x9c, 0x95, 0x87];
+  const pale = [0xc2, 0xbd, 0xb2];
+  const stone = [0x3e, 0x3b, 0x36];
+  const damp = [0x50, 0x4a, 0x40];
+  const mud = [0x46, 0x3e, 0x32];
+  const puddle = [0x30, 0x35, 0x3a];
+  const moss = [0x3a, 0x4c, 0x22];
+  const mossLight = [0x6e, 0x8a, 0x36];
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      const x = x0 + ((i + 0.5) / W) * w;
+      const z = z0 + (1 - (j + 0.5) / H) * d;
+      const rough = (fbm(x * 0.35, z * 0.35, 8, 303, 4) - 0.5) * 0.9;
+      const streak = (noise(x * 0.25, z * 14, 1000, 305) - 0.5) * 0.6;
+      const f = field(x, z) + rough + streak * 0.6;
+      const k = (j * W + i) * 4;
+      if (f > 0.7) {
+        data[k + 3] = 0;
+        continue;
+      }
+      let c: number[];
+      let a = 1;
+      if (f > 0) [c, a] = rim(f, noise(x * 3, z * 14, 1000, 307));
+      else {
+        const m = fbm(x * 0.03, z * 0.03, 24, 311, 4);
+        c = m < 0.5 ? mix(dark, mid, m / 0.5) : mix(mid, light, (m - 0.5) / 0.5);
+        // The ruts: a pair along each track, worn smooth and dark, water standing in the deepest.
+        let rut = 0;
+        for (const t of tracks) {
+          const off = Math.abs(acrossLine(t, x, z) - WHEELS.apart / 2);
+          // Dying out toward the track's end.
+          const [ex, ez] = t[t.length - 1]!;
+          const fade = Math.min(1, Math.hypot(x - ex, z - ez) / 2.5);
+          // Flat along its floor, its sides worn smooth.
+          const across = Math.max(0, Math.min(1, (off / (WHEELS.rut / 2) - 0.5) / 0.5));
+          rut = Math.max(rut, (1 - across * across * (3 - 2 * across)) * fade);
+        }
+        rut *= 0.7 + 0.3 * fbm(x * 0.05, z * 0.05, 20, 313, 3);
+        // The stones: pale ones and dark ones, fewer where the wheels have pressed them in.
+        const s1 = noise(x * 34, z * 34, 100000, 317);
+        const s2 = noise(x * 52 + 7.3, z * 52, 100000, 319);
+        const loose = 1 - 0.6 * rut;
+        c = mix(c, pale, Math.max(0, s1 - 0.68) * 2.6 * loose);
+        c = mix(c, stone, Math.max(0, 0.3 - s2) * 2.4 * loose);
+        c = c.map((v) => v * (0.94 + 0.12 * noise(x * 110, z * 110, 100000, 321)));
+        // Damp, darker ground in broad patches.
+        c = mix(c, damp, Math.max(0, fbm(x * 0.04, z * 0.04, 24, 323, 3) - 0.6) * 2.4);
+        c = mix(c, mud, rut * 0.8);
+        const pool = Math.max(0, fbm(x * 0.06, z * 0.06, 24, 327, 3) - 0.58) * 6;
+        c = mix(c, puddle, Math.min(1, pool * rut) * 0.9);
+        // Moss creeping in from the edge in clumps, and here and there out in the open.
+        const clump = fbm(x * 0.08, z * 0.08, 24, 331, 4);
+        const edge = Math.max(0, 1 + f / 1.4);
+        const green = Math.max(0, Math.min(1, (clump + edge * 0.35 - 0.68) * 5)) * (1 - rut);
+        const tuft = noise(x * 16, z * 16, 100000, 333);
+        c = mix(c, mix(moss, mossLight, tuft), green * (0.6 + 0.4 * tuft));
+        // Weeds: a scatter of small bright sprigs.
+        const weed = noise(x * 9, z * 9, 100000, 337);
+        c = mix(c, mossLight, Math.max(0, weed - 0.93) * 12 * (1 - rut));
+      }
+      data[k] = c[0]!;
+      data[k + 1] = c[1]!;
+      data[k + 2] = c[2]!;
+      data[k + 3] = Math.round(Math.min(1, a) * 255);
+    }
+  return { data, width: W, height: H };
+}
+
+/**
+ * A lawn over `rect` (x0, z0, w, d): grass mown in broad stripes along x, its blades flecked
+ * light and dark, clumps of darker clover, yellowed patches and a few worn bare ones, a scatter
+ * of daisies, the grass longer and darker toward its edge, brushed out over the floor past it.
+ */
+function lawn(field: Field, rect: Rect, perMetre: number): Painting {
+  const [x0, z0, w, d] = rect;
+  const [W, H] = pixels(w, d, perMetre);
+  const data = new Uint8Array(W * H * 4);
+  const dark = [0x2c, 0x42, 0x1a];
+  const mid = [0x46, 0x62, 0x26];
+  const light = [0x6e, 0x8e, 0x34];
+  const tip = [0x9c, 0xb8, 0x52];
+  const dry = [0x8a, 0x86, 0x4c];
+  const earth = [0x4c, 0x40, 0x30];
+  const daisy = [0xe8, 0xe6, 0xd8];
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      const x = x0 + ((i + 0.5) / W) * w;
+      const z = z0 + (1 - (j + 0.5) / H) * d;
+      const rough = (fbm(x * 0.35, z * 0.35, 8, 403, 4) - 0.5) * 0.9;
+      const streak = (noise(x * 0.25, z * 14, 1000, 405) - 0.5) * 0.6;
+      const f = field(x, z) + rough + streak * 0.6;
+      const k = (j * W + i) * 4;
+      if (f > 0.7) {
+        data[k + 3] = 0;
+        continue;
+      }
+      let c: number[];
+      let a = 1;
+      if (f > 0) [c, a] = rim(f, noise(x * 3, z * 14, 1000, 407));
+      else {
+        const m = fbm(x * 0.03, z * 0.03, 24, 411, 4);
+        c = m < 0.5 ? mix(dark, mid, m / 0.5) : mix(mid, light, (m - 0.5) / 0.5);
+        // Mown in stripes a mower wide, each laid the other way: lighter and darker in turn.
+        const stripe = Math.sin(((z + 0.3 * noise(x * 0.4, 0, 1000, 413)) / 1.1) * Math.PI);
+        c = c.map((v) => v * (1 + 0.09 * Math.max(-1, Math.min(1, stripe * 3))));
+        // The blades: short streaks along the stripes, their tips catching the light.
+        const blade = noise(x * 70, z * 180, 100000, 415);
+        c = mix(c, tip, Math.max(0, blade - 0.72) * 1.6);
+        c = mix(c, dark, Math.max(0, 0.25 - blade) * 1.6);
+        // Clumps of clover, darker; yellowed patches; and bare earth worn through in a few.
+        c = mix(c, dark, Math.max(0, fbm(x * 0.12, z * 0.12, 24, 417, 3) - 0.6) * 2.2);
+        c = mix(c, dry, Math.max(0, fbm(x * 0.05, z * 0.05, 24, 419, 3) - 0.58) * 2.4);
+        const bare = Math.max(0, fbm(x * 0.07, z * 0.07, 24, 421, 4) - 0.68) * 5;
+        c = mix(c, earth, Math.min(1, bare) * (0.7 + 0.3 * blade));
+        // Longer and darker toward the edge, where the mower does not reach.
+        c = mix(c, dark, Math.max(0, 1 + f / 0.5) * 0.45);
+        // Daisies: a few white dots with yellow hearts.
+        const flower = noise(x * 28, z * 28, 100000, 423);
+        if (flower > 0.975 && bare < 0.2) c = mix(daisy, [0xe0, 0xc0, 0x30], (flower - 0.975) * 80);
+      }
+      data[k] = c[0]!;
+      data[k + 1] = c[1]!;
+      data[k + 2] = c[2]!;
+      data[k + 3] = Math.round(Math.min(1, a) * 255);
     }
   return { data, width: W, height: H };
 }

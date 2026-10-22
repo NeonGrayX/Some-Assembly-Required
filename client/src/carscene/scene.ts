@@ -3,7 +3,7 @@ import { BUS_LOW, buildBus } from './bus.ts';
 import { HOVER, buildCar } from './car.ts';
 import type { Car } from './car.ts';
 import { buildCone, fallenCone } from './cone.ts';
-import { buildGround, cobblePatch } from './ground.ts';
+import { buildGround, cobblePatch, coverGround } from './ground.ts';
 import { buildHouse } from './house.ts';
 import { buildBrickWorks } from './machines.ts';
 import type { MachinePlace } from './machines.ts';
@@ -22,7 +22,7 @@ import { busShelter } from './shelter.ts';
 import { palletLoad, palletStack, portaloo, skip } from './dressing.ts';
 import { portableSignal, roadPlate, spoilHeap, waterBarrier, worksSign } from './roadworks.ts';
 import { SITE_PAD, buildJobSite } from './jobsite.ts';
-import type { Ground, GroundLayout } from './ground.ts';
+import type { Ground, GroundCover, GroundLayout } from './ground.ts';
 import { poweredIn } from './gadgets.ts';
 
 /**
@@ -380,6 +380,8 @@ export interface CarSceneLayout {
   patch: { x: number; z: number };
   /** The stretches of road under parked vehicles, past the street's. */
   roads: RoadLayout[];
+  /** The open ground covered round the street and the yards, where not the studio's floor. */
+  cover: GroundCover | null;
   /** Where the vehicles park, where not as the picture has them. */
   parked: Parking[];
   house: Place;
@@ -415,6 +417,7 @@ export interface CarSceneLayout {
 export const PICTURE: CarSceneLayout = {
   patch: { x: 0, z: 0 },
   roads: [ROAD, BUS_ROAD],
+  cover: null,
   parked: [],
   house: HOUSE_PLACE,
   bigHouse: BIG_HOUSE_PLACE,
@@ -517,6 +520,7 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
     tufts: LAYOUT.tufts.map((t) => ({ ...t, x: t.x + px, z: t.z + pz })),
   });
   root.add(ground.root);
+  if (L.cover) root.add(coverGround(L.cover));
   for (const r of L.roads) root.add(buildRoad(r));
   root.add(cobblePatch(placed(HOUSE_YARD_OUTLINE, L.house), 41).root);
   root.add(cobblePatch(placed(BIG_HOUSE_YARD_OUTLINE, L.bigHouse), 53).root);

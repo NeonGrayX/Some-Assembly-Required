@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { fbm, hash, noise, paintedOnce, rng } from './kit.ts';
 import { polygonField } from './paint.ts';
-import type { Field } from './paint.ts';
+import type { Field, Rect } from './paint.ts';
 import { BACKDROP, SWEEP_GLSL } from './studio.ts';
 
 export { mix, polygonField } from './paint.ts';
@@ -516,6 +516,49 @@ export function cobblePatch(
   }
 
   return { root, field };
+}
+
+/**
+ * The open ground a map covers past its street and its yards: a lot of rolled gravel, ruts worn
+ * in it, and lawns, each in its outline with its edge brushed out as the moss's is, and paths of
+ * slabs over the lawns.
+ */
+export interface GroundCover {
+  /**
+   * The lot: its outline, the tracks worn in it (see `PaintJob`), and the rectangle its texture
+   * covers, which can cut it off straight short of its brushed edge (where a rival lot meets it).
+   */
+  gravel: { outline: [number, number][]; tracks: [number, number][][]; rect: Rect };
+  lawns: { outline: [number, number][]; rect: Rect }[];
+  /** The paths, each a rectangle of slabs (x0, z0, its width along x and depth along z). */
+  paths: Rect[];
+}
+
+/** `cover` laid on the ground: under the road, the pavements and the cobbles, the paths over it. */
+export function coverGround(cover: GroundCover): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'cover';
+  // Drawn before the rest of the ground's painted layers (the road's at 0.5, the cobbles' at 1),
+  // which lie over them: the lot and the lawns first, then the paths.
+  const under = { y: 0.0015, order: 0.2 };
+  const over = { y: 0.0025, order: 0.3 };
+  const lay = (rect: Rect, map: THREE.Texture, shine: number, grain: number, at = under) => {
+    const geo = new THREE.PlaneGeometry(rect[2], rect[3]);
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.Mesh(geo, groundMaterial(0xffffff, { map, shine, grain }));
+    m.position.set(rect[0] + rect[2] / 2, at.y, rect[1] + rect[3] / 2);
+    m.renderOrder = at.order;
+    root.add(m);
+  };
+  const { gravel } = cover;
+  lay(gravel.rect, paintedOnce({ kind: 'gravel', ...gravel, perMetre: 64 }), 0.1, 0.9);
+  for (const l of cover.lawns)
+    lay(l.rect, paintedOnce({ kind: 'lawn', ...l, perMetre: 64 }), 0.05, 0.5);
+  for (const [i, p] of cover.paths.entries()) {
+    const job = { kind: 'paving', w: p[2], d: p[3], perMetre: 100, seed: 221 + 2 * i } as const;
+    lay(p, paintedOnce(job), 0.35, 0.5, over);
+  }
+  return root;
 }
 
 export function buildGround(layout: GroundLayout): Ground {
