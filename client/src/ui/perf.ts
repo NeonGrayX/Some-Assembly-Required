@@ -7,28 +7,23 @@ import {
   UPLOADED,
   profiler,
 } from '../profiler.ts';
+import { FloatCard } from './floatCard.ts';
 
 /** How far back the graphs reach. */
 const WINDOW_MS = 10_000;
 /** Frames are averaged over slices this long for the frame rate, so a slow frame still dips. */
 const SLICE_MS = 100;
-const WIDTH = 280;
 const HEIGHT = 64;
 /** Room on the right of the plot for the axis labels. */
 const AXIS = 30;
-const PLOT = WIDTH - AXIS;
 /** The time a frame has at 60 fps, dashed across the frame time graph. */
 const BUDGET = 1000 / 60;
 /** The rows under the frame time graph marking what may have caused a hitch. */
 const LANES = ['gc', 'sh', 'up'] as const;
 const LANE = 6;
 const STORE = 'sar.perf.open';
-/** Where the card was dragged to, and whether it shows one column or two. */
+/** Where the card was dragged to, its size, and the order of its graphs. */
 const LAYOUT = 'sar.perf.layout';
-/** Kept clear between the card and the window's edges. */
-const EDGE = 8;
-/** How much of the card stays on screen when it is dragged towards an edge: its title bar. */
-const GRIP = 40;
 
 const NS = SECTIONS.length;
 const NG = GPU_SECTIONS.length;
@@ -70,23 +65,6 @@ interface Stack {
   peak: number;
 }
 
-/**
- * Where the card sits, measured from the window's nearer edges, so it grows away from them: a card
- * dragged to the bottom right opens its graphs upwards and its second column leftwards.
- */
-interface Spot {
-  h: 'left' | 'right';
-  x: number;
-  v: 'top' | 'bottom';
-  y: number;
-}
-
-interface Layout {
-  /** Null until the card is first dragged: it sits where the page's styles put it. */
-  spot: Spot | null;
-  columns: 1 | 2;
-}
-
 /** One collapsible graph: its summary line and what draws it while it is open. */
 interface Group {
   id: string;
@@ -124,24 +102,21 @@ function outside(i: number): number {
  * time went (physics, game logic, the scene, lighting, rendering, the solo server, and what is
  * outside the game), and a graph for each of those broken down further, with the graphics
  * card's time, ping and memory. Each graph folds away; hover any of them to read one moment.
- * The card drags by its title bar and shows the whole frame beside its breakdowns, or all in one
- * column.
+ * The card moves and resizes like a window, in one column or two as its width allows, and each
+ * graph is a small card in it that drags to another place.
  */
 export class PerfPanel {
+  private readonly card: FloatCard;
   private readonly el: HTMLElement;
-  /** The graphs: the whole frame in the first column, its breakdowns in the second. */
-  private readonly cols: HTMLElement;
-  private readonly sides: [HTMLElement, HTMLElement];
-  /** The column the next group goes in. */
-  private side = 0;
-  private layout: Layout = { spot: null, columns: 2 };
+  /** The column the next group goes in, until they are rearranged: the whole frame, then the rest. */
+  private side: 0 | 1 = 0;
   private readonly groups: Group[] = [];
   private readonly fps: Line;
   private readonly ping: Line;
   private readonly heap: Line;
   private readonly slowest: HTMLElement;
-  /** Where the pointer is over a graph (px from the left of the plot), for every graph alike. */
-  private hoverX: number | null = null;
+  /** Where the pointer is over a graph, as a share of the plot's width, for every graph alike. */
+  private hover: number | null = null;
   private lastDraw = 0;
   private isOpen = false;
   /** The frames in the window: `from` up to (not including) `to`, as the profiler counts them. */
@@ -155,13 +130,14 @@ export class PerfPanel {
     /** False on pages without a game, which have no server or ping to show. */
     private readonly inGame = true,
   ) {
-    this.el = document.createElement('div');
-    this.el.id = 'perf';
-    this.el.hidden = true;
-    this.cols = this.card();
-    this.sides = [document.createElement('div'), document.createElement('div')];
-    for (const side of this.sides) side.className = 'perf-col';
-    this.cols.append(...this.sides);
+    this.card = new FloatCard(
+      'perf',
+      'Performance',
+      LAYOUT,
+      () => this.toggle(),
+      () => (this.lastDraw = 0),
+    );
+    this.el = this.card.el;
     let shown: string[] = ['fps', 'frame'];
     try {
       const saved = JSON.parse(localStorage.getItem(STORE) ?? 'null') as unknown;
@@ -309,155 +285,11 @@ export class PerfPanel {
       return last === undefined || Number.isNaN(last) ? '' : `${Math.round(last)} MB`;
     };
 
+    this.card.arrange();
     // On the page itself rather than in the HUD, so it can float over the game's other panels.
     document.body.append(this.el);
     status.title = 'Click for frame rate and where the time goes, over the last 10 seconds';
     status.addEventListener('click', () => this.toggle());
-    window.addEventListener('resize', () => this.place());
-    // A graph opened or a column added can push the card past the window's edge.
-    new ResizeObserver(() => this.place()).observe(this.el);
-  }
-
-  /** The title bar, which drags the card, and the box the graphs go in, which scrolls. */
-  private card(): HTMLElement {
-    try {
-      const saved = JSON.parse(localStorage.getItem(LAYOUT) ?? 'null') as Partial<Layout> | null;
-      if (saved?.columns === 1) this.layout.columns = 1;
-      const spot = saved?.spot;
-      if (
-        spot &&
-        (spot.h === 'left' || spot.h === 'right') &&
-        (spot.v === 'top' || spot.v === 'bottom') &&
-        Number.isFinite(spot.x) &&
-        Number.isFinite(spot.y)
-      )
-        this.layout.spot = spot;
-    } catch {
-      // Private browsing or blocked storage: the card starts where it always did.
-    }
-
-    const bar = document.createElement('div');
-    bar.className = 'perf-bar';
-    bar.title = 'Drag to move. Double-click to put it back.';
-    const title = document.createElement('strong');
-    title.textContent = 'Performance';
-    const choice = document.createElement('span');
-    choice.className = 'perf-columns';
-    choice.append('columns');
-    const buttons = ([1, 2] as const).map((n) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = String(n);
-      b.title = n === 1 ? 'One column' : 'Two columns side by side';
-      b.addEventListener('click', () => {
-        this.layout.columns = n;
-        this.applyColumns(buttons);
-        this.save();
-      });
-      return b;
-    });
-    choice.append(...buttons);
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.className = 'perf-close';
-    close.textContent = '×';
-    close.title = 'Close';
-    close.setAttribute('aria-label', 'Close the performance graphs');
-    close.addEventListener('click', () => this.toggle());
-    bar.append(title, choice, close);
-
-    let grab: { id: number; dx: number; dy: number; w: number; h: number } | null = null;
-    bar.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || (e.target as Element).closest('button')) return;
-      const r = this.el.getBoundingClientRect();
-      grab = {
-        id: e.pointerId,
-        dx: e.clientX - r.left,
-        dy: e.clientY - r.top,
-        w: r.width,
-        h: r.height,
-      };
-      bar.setPointerCapture(e.pointerId);
-      bar.classList.add('dragging');
-      e.preventDefault();
-    });
-    bar.addEventListener('pointermove', (e) => {
-      if (!grab || e.pointerId !== grab.id) return;
-      const { innerWidth: W, innerHeight: H } = window;
-      const left = Math.max(EDGE, Math.min(e.clientX - grab.dx, W - grab.w - EDGE));
-      const top = Math.max(EDGE, Math.min(e.clientY - grab.dy, H - GRIP));
-      const right = left + grab.w / 2 > W / 2;
-      const bottom = top + grab.h / 2 > H / 2;
-      this.layout.spot = {
-        h: right ? 'right' : 'left',
-        x: right ? W - left - grab.w : left,
-        v: bottom ? 'bottom' : 'top',
-        y: bottom ? H - top - grab.h : top,
-      };
-      this.place();
-    });
-    const drop = (e: PointerEvent) => {
-      if (!grab || e.pointerId !== grab.id) return;
-      grab = null;
-      bar.classList.remove('dragging');
-      this.save();
-    };
-    bar.addEventListener('pointerup', drop);
-    bar.addEventListener('pointercancel', drop);
-    bar.addEventListener('dblclick', (e) => {
-      if ((e.target as Element).closest('button')) return;
-      this.layout.spot = null;
-      this.place();
-      this.save();
-    });
-
-    const scroll = document.createElement('div');
-    scroll.className = 'perf-scroll';
-    const cols = document.createElement('div');
-    cols.className = 'perf-cols';
-    scroll.append(cols);
-    this.el.append(bar, scroll);
-    this.applyColumns(buttons, cols);
-    this.place();
-    return cols;
-  }
-
-  private applyColumns(buttons: HTMLButtonElement[], cols = this.cols): void {
-    cols.classList.toggle('two', this.layout.columns === 2);
-    buttons.forEach((b, k) =>
-      b.setAttribute('aria-pressed', String(k + 1 === this.layout.columns)),
-    );
-  }
-
-  /** Puts the card where it was dragged, kept on screen with its title bar in reach. */
-  private place(): void {
-    const s = this.el.style;
-    const spot = this.layout.spot;
-    if (!spot) {
-      s.left = s.right = s.top = s.bottom = s.maxHeight = '';
-      // Where the page puts it can be past the right edge of a narrow window, as on a phone.
-      const r = this.el.getBoundingClientRect();
-      if (r.right > window.innerWidth) {
-        s.left = `${Math.max(0, window.innerWidth - r.width - EDGE)}px`;
-      }
-      return;
-    }
-    const { innerWidth: W, innerHeight: H } = window;
-    const x = Math.max(0, Math.min(spot.x, W - this.el.offsetWidth - EDGE));
-    s.left = spot.h === 'left' ? `${x}px` : 'auto';
-    s.right = spot.h === 'right' ? `${x}px` : 'auto';
-    const y = Math.max(0, Math.min(spot.y, H - GRIP));
-    s.top = spot.v === 'top' ? `${y}px` : 'auto';
-    s.bottom = spot.v === 'bottom' ? `${y}px` : 'auto';
-    s.maxHeight = `${H - y - EDGE}px`;
-  }
-
-  private save(): void {
-    try {
-      localStorage.setItem(LAYOUT, JSON.stringify(this.layout));
-    } catch {
-      // Not remembered, that is all.
-    }
   }
 
   get open(): boolean {
@@ -553,7 +385,7 @@ export class PerfPanel {
         // Not remembered, that is all.
       }
     });
-    this.sides[this.side]!.append(el);
+    this.card.dock(id, el, summary, this.side);
     this.groups.push({ id, el, readout, draw, summary: () => '' });
     return body;
   }
@@ -568,11 +400,8 @@ export class PerfPanel {
 
   private canvas(body: HTMLElement, height: number): HTMLCanvasElement {
     const box = document.createElement('div');
+    // As wide as its column; `context` sizes its pixels to match each time it draws.
     const canvas = document.createElement('canvas');
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = WIDTH * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${WIDTH}px`;
     canvas.style.height = `${height}px`;
     const time = document.createElement('div');
     time.className = 'perf-time';
@@ -580,11 +409,12 @@ export class PerfPanel {
     box.append(canvas, time);
     body.append(box);
     canvas.addEventListener('mousemove', (e) => {
-      this.hoverX = Math.min(e.offsetX, PLOT - 1);
+      const plot = canvas.clientWidth - AXIS;
+      this.hover = Math.min(e.offsetX, plot - 1) / plot;
       this.lastDraw = 0;
     });
     canvas.addEventListener('mouseleave', () => {
-      this.hoverX = null;
+      this.hover = null;
       this.lastDraw = 0;
     });
     return canvas;
@@ -624,7 +454,7 @@ export class PerfPanel {
       floor,
       overview,
       heads,
-      columns: new Int32Array(PLOT),
+      columns: new Int32Array(0),
       peak: 0,
     };
   }
@@ -652,7 +482,8 @@ export class PerfPanel {
 
   /** What else there is to say about a group: at the frame hovered, else the newest. */
   private extra(id: string, c: Stack): string {
-    const hovered = this.hoverX === null ? -1 : c.columns[this.hoverX]!;
+    const k = this.hoverColumn(c.columns.length);
+    const hovered = k === null ? -1 : c.columns[k]!;
     const i = hovered >= 0 ? hovered : (profiler.count - 2 + CAPACITY) % CAPACITY;
     if (profiler.count < 2) return '';
     if (id === 'physics') {
@@ -762,43 +593,64 @@ export class PerfPanel {
     return points;
   }
 
+  /** The pixel column of a plot `plot` wide that the pointer is over. */
+  private hoverColumn(plot: number): number | null {
+    return this.hover === null || !plot ? null : Math.min(plot - 1, Math.floor(this.hover * plot));
+  }
+
   /** The grid, labelled on the right, for a plot from `top` to `bottom` up to `max`. */
-  private grid(g: CanvasRenderingContext2D, max: number, top: number, bottom: number): void {
+  private grid(
+    g: CanvasRenderingContext2D,
+    plot: number,
+    max: number,
+    top: number,
+    bottom: number,
+  ): void {
     const y = (v: number) => bottom - (v / max) * (bottom - top);
     g.font = '10px ui-monospace, monospace';
     g.textBaseline = 'middle';
     for (const v of [0, max / 2, max]) {
       g.fillStyle = css('--perf-grid');
-      g.fillRect(0, Math.round(y(v)) - 0.5, PLOT, 1);
+      g.fillRect(0, Math.round(y(v)) - 0.5, plot, 1);
       g.fillStyle = css('--perf-muted');
-      g.fillText(String(v), PLOT + 6, y(v));
+      g.fillText(String(v), plot + 6, y(v));
     }
   }
 
-  private context(canvas: HTMLCanvasElement, height: number): CanvasRenderingContext2D {
+  /** The canvas cleared, its pixels matched to the width it is shown at, and its plot's width. */
+  private context(
+    canvas: HTMLCanvasElement,
+    height: number,
+  ): [g: CanvasRenderingContext2D, plot: number] {
+    const width = Math.max(AXIS + 60, Math.round(canvas.clientWidth));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+    }
     const g = canvas.getContext('2d')!;
-    const dpr = canvas.width / WIDTH;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, WIDTH, height);
-    return g;
+    g.clearRect(0, 0, width, height);
+    return [g, width - AXIS];
   }
 
   private drawStack(c: Stack, now: number): void {
     const p = profiler;
-    const g = this.context(c.canvas, c.height);
+    const [g, plot] = this.context(c.canvas, c.height);
     const top = 6;
     const bottom = HEIGHT + 10;
-    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * PLOT;
+    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * plot;
 
     // Each pixel column shows the frame with the most time in it, over every column the frame
     // lasted, so a long frame is as wide as it was long and a spike is never averaged away.
+    if (c.columns.length !== plot) c.columns = new Int32Array(plot);
     const cols = c.columns.fill(-1);
-    const most = new Float32Array(PLOT);
+    const most = new Float32Array(plot);
     for (let n = this.from; n < this.to; n++) {
       const i = n % CAPACITY;
       const t = this.total(c, i);
       const a = Math.max(0, Math.floor(x(p.start[i]!)));
-      const b = Math.min(PLOT - 1, Math.floor(x(p.start[i]! + p.gap[i]!)));
+      const b = Math.min(plot - 1, Math.floor(x(p.start[i]! + p.gap[i]!)));
       for (let k = a; k <= b; k++) {
         if (cols[k]! < 0 || t > most[k]!) {
           cols[k] = i;
@@ -808,12 +660,12 @@ export class PerfPanel {
     }
     const max = niceMax(Math.max(c.floor, ...most));
     const y = (v: number) => bottom - (Math.min(v, max) / max) * (bottom - top);
-    this.grid(g, max, top, bottom);
+    this.grid(g, plot, max, top, bottom);
 
-    const base = new Float32Array(PLOT);
+    const base = new Float32Array(plot);
     for (const s of c.series) {
       g.fillStyle = s.colour;
-      for (let k = 0; k < PLOT; k++) {
+      for (let k = 0; k < plot; k++) {
         const i = cols[k]!;
         if (i < 0) continue;
         const v = s.value(i);
@@ -833,7 +685,7 @@ export class PerfPanel {
         g.setLineDash([3, 3]);
         g.beginPath();
         g.moveTo(0, Math.round(y(BUDGET)) + 0.5);
-        g.lineTo(PLOT, Math.round(y(BUDGET)) + 0.5);
+        g.lineTo(plot, Math.round(y(BUDGET)) + 0.5);
         g.stroke();
         g.setLineDash([]);
       }
@@ -843,9 +695,9 @@ export class PerfPanel {
       g.textBaseline = 'middle';
       LANES.forEach((label, row) => {
         g.fillStyle = css('--perf-grid');
-        g.fillRect(0, lane(row) + LANE / 2 - 0.5, PLOT, 1);
+        g.fillRect(0, lane(row) + LANE / 2 - 0.5, plot, 1);
         g.fillStyle = css('--perf-muted');
-        g.fillText(label, PLOT + 6, lane(row) + LANE / 2);
+        g.fillText(label, plot + 6, lane(row) + LANE / 2);
       });
       g.fillStyle = css('--perf-text');
       for (const t of p.gcTimes)
@@ -859,10 +711,11 @@ export class PerfPanel {
     }
 
     // Hover: a crosshair on the frame under the pointer, its parts in the legend.
-    const hovered = this.hoverX === null ? -1 : cols[this.hoverX]!;
-    if (this.hoverX !== null) {
+    const hx = this.hoverColumn(plot);
+    const hovered = hx === null ? -1 : cols[hx]!;
+    if (hx !== null) {
       g.fillStyle = css('--perf-muted');
-      g.fillRect(Math.round(this.hoverX) - 0.5, top, 1, bottom - top);
+      g.fillRect(hx - 0.5, top, 1, bottom - top);
     }
     if (hovered >= 0) {
       c.heads[0].textContent = `${((p.start[hovered]! - now) / 1000).toFixed(1)} s`;
@@ -890,13 +743,13 @@ export class PerfPanel {
   }
 
   private drawLine(c: Line, now: number): void {
-    const g = this.context(c.canvas, HEIGHT);
+    const [g, plot] = this.context(c.canvas, HEIGHT);
     const top = 6;
     const bottom = HEIGHT - 6;
     const max = niceMax(Math.max(c.floor, ...c.points.map((p) => p.v)));
-    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * PLOT;
+    const x = (at: number) => ((at - (now - WINDOW_MS)) / WINDOW_MS) * plot;
     const y = (v: number) => bottom - (Math.min(v, max) / max) * (bottom - top);
-    this.grid(g, max, top, bottom);
+    this.grid(g, plot, max, top, bottom);
 
     // Garbage collections as small ticks along the bottom of the frame rate and memory graphs.
     if (c === this.fps || c === this.heap) {
@@ -915,8 +768,8 @@ export class PerfPanel {
     }
 
     // Hover: a crosshair on the nearest sample, its value beside it.
-    if (this.hoverX !== null && c.points.length) {
-      const at = now - WINDOW_MS + (this.hoverX / PLOT) * WINDOW_MS;
+    if (this.hover !== null && c.points.length) {
+      const at = now - WINDOW_MS + this.hover * WINDOW_MS;
       const p = c.points.reduce((a, b) => (Math.abs(b.at - at) < Math.abs(a.at - at) ? b : a));
       const px = x(p.at);
       g.fillStyle = css('--perf-muted');
@@ -932,7 +785,7 @@ export class PerfPanel {
       g.font = '10px ui-monospace, monospace';
       g.textBaseline = 'top';
       const w = g.measureText(text).width;
-      const tx = Math.min(Math.max(0, px - w / 2), PLOT - w);
+      const tx = Math.min(Math.max(0, px - w / 2), plot - w);
       g.fillStyle = css('--perf-surface');
       g.fillRect(tx - 2, 0, w + 4, 12);
       g.fillStyle = css('--perf-text');
