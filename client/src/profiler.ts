@@ -1,5 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type * as THREE from 'three';
+import { GpuMemory, type GpuBytes } from './gpuMemory.ts';
 
 /**
  * What a frame's time is split into, group by group: each group is its own graph in the
@@ -122,7 +123,8 @@ const EVENTS = 1000;
 
 /**
  * Times the graphics card's work with the browser's timer queries (EXT_disjoint_timer_query),
- * where it has them. Only one query runs at a time, so a pass inside another (the shadow maps
+ * where it has them: Chromium's WebGL 2 extension, or Firefox's WebGL 1 one, which it also lends
+ * to WebGL 2 but only with `webgl.enable-privileged-extensions` on in about:config. Only one query runs at a time, so a pass inside another (the shadow maps
  * inside the scene's draw) pauses the outer one's and resumes it after. Results come in a few
  * frames late; queries are reused from a fixed ring, so nothing is allocated per frame.
  */
@@ -152,10 +154,10 @@ class GpuTimer {
     started: (frame: number) => void,
   ): GpuTimer | null {
     if (!('createQuery' in gl)) return null;
-    const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as {
-      TIME_ELAPSED_EXT: number;
-      GPU_DISJOINT_EXT: number;
-    } | null;
+    type Ext = { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
+    // Firefox's extension has the same constants, and lets WebGL 2's own query calls take them.
+    const ext = (gl.getExtension('EXT_disjoint_timer_query_webgl2') ??
+      gl.getExtension('EXT_disjoint_timer_query')) as Ext;
     return ext ? new GpuTimer(gl, ext, started) : null;
   }
 
@@ -248,6 +250,8 @@ export class Profiler {
   readonly flags = new Uint8Array(CAPACITY);
   /** The page's JavaScript heap at the end of each frame (MB), or NaN where not reported. */
   readonly heap = new Float32Array(CAPACITY).fill(NaN);
+  /** What the watched renderer holds on the graphics card at the end of each frame (MB, estimated). */
+  readonly graphics = new Float32Array(CAPACITY).fill(NaN);
   /** Frames recorded so far: frame `n` is stored at `n % CAPACITY`. */
   count = 0;
   /**
@@ -274,6 +278,7 @@ export class Profiler {
   private timer: GpuTimer | null = null;
   private timing = false;
   private renderer: THREE.WebGLRenderer | null = null;
+  private memory: GpuMemory | null = null;
   private seen = { programs: 0, geometries: 0, textures: 0 };
   private gcPlanted = false;
   private readonly gcWatch = new FinalizationRegistry<null>(() => {
@@ -291,6 +296,11 @@ export class Profiler {
     const r = this.renderer;
     if (!r) return null;
     return { ...r.info.memory, programs: r.info.programs?.length ?? 0 };
+  }
+
+  /** What the watched renderer holds on the graphics card, estimated (see `GpuMemory`). */
+  get graphicsMemory(): GpuBytes | null {
+    return this.memory?.read() ?? null;
   }
 
   /** Call first thing in every frame, with how long the in-tab solo server ran since the last. */
@@ -312,6 +322,7 @@ export class Profiler {
     this.steps[i] = 0;
     this.flags[i] = 0;
     this.heap[i] = NaN;
+    this.graphics[i] = NaN;
     this.timing = (this.gpuTiming || this.gpuRecording) && this.timer !== null;
     this.gpu.fill(this.timing ? 0 : NaN, i * NG, (i + 1) * NG);
     this.gpuWaiting[i] = 0;
@@ -352,6 +363,7 @@ export class Profiler {
     }
     const memory = (performance as Performance & { memory?: Memory }).memory;
     if (memory) this.heap[this.slot] = memory.usedJSHeapSize / 2 ** 20;
+    if (this.memory) this.graphics[this.slot] = this.memory.total / 2 ** 20;
     this.active = false;
   }
 
@@ -406,7 +418,10 @@ export class Profiler {
     }
     if (watched.has(renderer)) return;
     watched.add(renderer);
-    this.renderer ??= renderer;
+    if (!this.renderer) {
+      this.renderer = renderer;
+      this.memory = GpuMemory.watch(renderer.getContext());
+    }
     this.timer ??= GpuTimer.create(renderer.getContext(), (frame) => {
       this.gpuWaiting[frame % CAPACITY]!++;
     });

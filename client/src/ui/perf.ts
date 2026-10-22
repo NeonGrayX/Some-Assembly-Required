@@ -139,6 +139,7 @@ export class PerfPanel {
   private readonly fps: Line;
   private readonly ping: Line;
   private readonly heap: Line;
+  private readonly graphics: Line;
   private readonly slowest: HTMLElement;
   /** Where the pointer is over a graph (px from the left of the plot), for every graph alike. */
   private hoverX: number | null = null;
@@ -264,7 +265,11 @@ export class PerfPanel {
       gpu.canvas.parentElement!.hidden = !supported;
       gpuNote.textContent = supported
         ? 'Timed only while this panel is open; each pass comes in a few frames late.'
-        : 'This browser does not report how long the graphics card takes.';
+        : /\bFirefox\//.test(navigator.userAgent)
+          ? 'Firefox only lets pages time the graphics card with ' +
+            'webgl.enable-privileged-extensions turned on in about:config (then reload). It ' +
+            'applies to every site, so turn it off again afterwards.'
+          : 'This browser does not report how long the graphics card takes.';
       return supported ? this.avgMax(gpu) : 'not reported';
     };
 
@@ -289,24 +294,54 @@ export class PerfPanel {
     };
     this.groups.at(-1)!.el.hidden = !inGame;
 
-    // Memory.
+    // Memory: the JavaScript heap where the browser reports it (only Chromium does), and an
+    // estimate of what is on the graphics card, counted the same in every browser.
     const heapBody = this.group('memory', 'Memory', css('--perf-fps'), shown, (now) => {
-      this.heap.points = this.heapPoints(now);
+      this.heap.points = this.memoryPoints(now, profiler.heap);
       this.drawLine(this.heap, now);
+      this.graphics.points = this.memoryPoints(now, profiler.graphics);
+      this.drawLine(this.graphics, now);
       const r = profiler.resources;
+      const g = profiler.graphicsMemory;
+      const mb = (b: number) => {
+        const v = b / 2 ** 20;
+        return `${v < 10 ? v.toFixed(1) : Math.round(v)} MB`;
+      };
       memNote.textContent =
-        (this.heap.points.length ? '' : 'This browser does not report its memory. ') +
+        (g
+          ? `${mb(g.textures)} in textures and render targets, ${mb(g.buffers)} in geometry, ` +
+            `${mb(g.renderbuffers + g.canvas)} in the screen and its depth and multisample ` +
+            'buffers. '
+          : '') +
         (r
-          ? `On the graphics card: ${r.geometries} geometries, ${r.textures} textures, ` +
-            `${r.programs} shader programs.`
+          ? `${r.geometries} geometries, ${r.textures} textures, ${r.programs} shader programs.`
           : '');
     });
+    const heapLabel = this.note(heapBody, 'JavaScript heap');
     this.heap = this.line(heapBody, css('--perf-fps'), 'MB', 100);
+    const noHeap = this.note(
+      heapBody,
+      'This browser does not report its JavaScript memory (only Chrome, Edge and other ' +
+        'Chromium browsers do).',
+    );
+    const graphicsLabel = this.note(heapBody, 'Graphics card, estimated from what was uploaded');
+    this.graphics = this.line(heapBody, css('--perf-3'), 'MB', 100);
     const memNote = this.note(heapBody, '');
     this.groups.at(-1)!.summary = () => {
-      const last = profiler.heap[(profiler.count - 1) % CAPACITY];
-      this.heap.canvas.parentElement!.hidden = !this.heap.points.length;
-      return last === undefined || Number.isNaN(last) ? '' : `${Math.round(last)} MB`;
+      // The last frame finished: this one's readings are taken as it ends.
+      const at = (profiler.count - 2 + CAPACITY) % CAPACITY;
+      const heap = profiler.heap[at];
+      const graphics = profiler.graphics[at];
+      const reported = !!this.heap.points.length;
+      this.heap.canvas.parentElement!.hidden = heapLabel.hidden = !reported;
+      noHeap.hidden = reported;
+      this.graphics.canvas.parentElement!.hidden = graphicsLabel.hidden =
+        !this.graphics.points.length;
+      const parts: string[] = [];
+      if (heap !== undefined && !Number.isNaN(heap)) parts.push(`${Math.round(heap)} MB`);
+      if (graphics !== undefined && !Number.isNaN(graphics))
+        parts.push(`~${Math.round(graphics)} MB graphics`);
+      return parts.join(' · ');
     };
 
     // On the page itself rather than in the HUD, so it can float over the game's other panels.
@@ -745,8 +780,8 @@ export class PerfPanel {
     return points;
   }
 
-  /** The heap at the end of each slice of the window, where the browser reports it. */
-  private heapPoints(now: number): Point[] {
+  /** A memory reading at the end of each slice of the window, where there is one. */
+  private memoryPoints(now: number, values: Float32Array): Point[] {
     const p = profiler;
     const points: Point[] = [];
     let n = this.from;
@@ -755,7 +790,7 @@ export class PerfPanel {
       for (; n <= this.to && n < p.count; n++) {
         const i = n % CAPACITY;
         if (p.start[i]! > end) break;
-        v = p.heap[i]!;
+        v = values[i]!;
       }
       if (!Number.isNaN(v)) points.push({ at: end, v });
     }
