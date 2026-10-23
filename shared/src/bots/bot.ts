@@ -7,7 +7,7 @@ import type { PrintedPage } from '../builds/forgery.ts';
 import type { TargetBrick } from '../builds/types.ts';
 import { levelBoards, levelSites, machinePose } from '../content/house.ts';
 import type { BrickGrid } from '../grid.ts';
-import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../math.ts';
+import { add, conj, length, makeRng, scale, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
 import { EYE_OFFSET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
@@ -18,6 +18,7 @@ import type { PathCosts, Plate, Waypoint } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
 import type { Squad, Team } from './squad.ts';
 import type { Errand, Heard } from './talk.ts';
+import { PageJobs } from './pageJobs.ts';
 import { Building } from './building.ts';
 import { JUMP_LIFT, MAX_PITCH, REACH, brickKey } from './common.ts';
 import { BrickMaking } from './making.ts';
@@ -83,11 +84,11 @@ export class Bot {
    * The one page it remembers, as a player would: its step and what it says. Reading another
    * step's page forgets this one.
    */
-  private memory: { step: number; added: TargetBrick[]; doubted: boolean } | null = null;
+  memory: { step: number; added: TargetBrick[]; doubted: boolean } | null = null;
   /** Pages (number and stamp) it read, and whether it saw the stamp is wrong. */
   private readonly doubts = new Map<string, boolean>();
   /** The step whose page it is off to read at the board. */
-  private wantStep: number | null = null;
+  wantStep: number | null = null;
   /** The build matched against the page it remembers, once a build version and reading. */
   private recall: { version: number; read: number; result: MatchResult } | null = null;
   private reads = 0;
@@ -106,6 +107,8 @@ export class Bot {
   private wanderAt = 0;
   /** Nodes something is in the way of, with the tick to try them again. */
   private readonly blocked = new Map<number, number>();
+  /** Finding and reading the pages (see `PageJobs`). */
+  readonly pageJobs: PageJobs;
   /** Putting bricks on the build (see `Building`). */
   readonly building: Building;
   /** Making bricks at the brick works (see `BrickMaking`). */
@@ -121,6 +124,7 @@ export class Bot {
     seed: number,
   ) {
     this.random = makeRng(seed * 7919 + id);
+    this.pageJobs = new PageJobs(this);
     this.building = new Building(this);
     this.making = new BrickMaking(this);
     this.sabotage = new Sabotage(this);
@@ -511,7 +515,7 @@ export class Bot {
         if (!this.squad.game.sim.panel) return null;
         return this.named('fix the panel', this.onDuty('panelBy', this.fixPanel()));
       case 'search':
-        return this.search();
+        return this.pageJobs.search();
       case 'bell':
         return this.named('ring the bell', this.onDuty('bellBy', this.ringBell()));
       case 'come':
@@ -555,7 +559,7 @@ export class Bot {
     return sub(p.body.translation(), v3(0, FEET, 0));
   }
 
-  private eye(): Vec3 {
+  eye(): Vec3 {
     return this.squad.game.sim.eye(this.me()!);
   }
 
@@ -584,7 +588,7 @@ export class Bot {
   }
 
   /** Every so often: pages in view are noted, and pinned pages close by are read. */
-  private look(): void {
+  look(): void {
     const sim = this.squad.game.sim;
     const round = this.squad.game.round!;
     const team = this.team;
@@ -615,7 +619,7 @@ export class Bot {
       if (length(sub(at, eye)) < 10 && this.visible(eye, at, -1)) team.dogSeen = this.squad.tick;
     }
     // Places pages lie, close by and in view, count as looked at.
-    this.spots().forEach((s, i) => {
+    this.pageJobs.spots().forEach((s, i) => {
       if (length(sub(s, eye)) < 2.5 && this.visible(eye, add(s, v3(0, 0.1, 0)), -1))
         team.looked.set(i, this.squad.tick);
     });
@@ -623,7 +627,7 @@ export class Bot {
   }
 
   /** Whether a straight look from `eye` reaches a page (nothing solid in the way). */
-  private visible(eye: Vec3, at: Vec3, pageId: number): boolean {
+  visible(eye: Vec3, at: Vec3, pageId: number): boolean {
     const sim = this.squad.game.sim;
     const R = this.squad.rapier;
     const d = sub(at, eye);
@@ -799,16 +803,16 @@ export class Bot {
     if (debris !== null) return this.named('clear the build', this.clearDebris(debris));
     const searching = this.shouldSearch(plan.work, plan.unknown + plan.lost);
     if (searching || p.handsOff) {
-      const job = this.search();
+      const job = this.pageJobs.search();
       if (job) return job;
     }
     const brick = p.handsOff ? null : this.pick(plan.ready);
     if (brick) return this.named('build', this.building.buildOne(brick));
     // Nothing on the page it remembers left to do: off to the board for the next one.
     if (!p.handsOff && plan.next !== null)
-      return this.named('read a page', this.readStep(plan.next));
+      return this.named('read a page', this.pageJobs.readStep(plan.next));
     if (plan.unknown + plan.lost > 0) {
-      const job = this.search();
+      const job = this.pageJobs.search();
       if (job) return job;
     }
     return this.named('wait', this.loiter());
@@ -843,8 +847,8 @@ export class Bot {
     );
   }
 
-  /** Runs `job` busy finding `key` (see `searching`), so the others pick something else. */
-  private searchingFor<T>(key: string, job: Job<T>): Job<T> {
+  /** Runs `job` busy finding `key` (see `PageJobs.searching`), so the others pick something else. */
+  searchingFor<T>(key: string, job: Job<T>): Job<T> {
     return this.claiming(
       () => (this.searchKey = key),
       () => (this.searchKey = ''),
@@ -979,7 +983,7 @@ export class Bot {
   }
 
   /** Keeps what a page says in mind, forgetting the page it remembered before (if another). */
-  private remember(page: PrintedPage): void {
+  remember(page: PrintedPage): void {
     if (page.step < 0) return;
     // A forgery it saw through is checked against the master index, if anyone read it.
     this.memory = { step: page.step, added: page.added, doubted: this.spotted(page) };
@@ -1003,7 +1007,7 @@ export class Bot {
   }
 
   /** A step's pages out where anyone can read them: pinned up, or lying about, on this side. */
-  private readablePages(step: number) {
+  readablePages(step: number) {
     const sim = this.squad.game.sim;
     return [...sim.pages.values()].filter((pg) => {
       if (!pg.body || pg.printed?.step !== step || pg.carriedBy !== null) return false;
@@ -1769,285 +1773,7 @@ export class Bot {
 
   // ---------------------------------------------------------------- jobs: pages
 
-  /** The next thing to do about pages nobody has read: one lying about, or a hiding place to open. */
-  private search(): Job | null {
-    const sim = this.squad.game.sim;
-    const round = this.squad.game.round!;
-    const team = this.team;
-    const me = this.feet();
-    const claimed = new Set(
-      [...this.squad.bots.values()].filter((b) => b !== this).map((b) => b.searching),
-    );
-    // A page lying where someone saw it, nearest first.
-    const pages = [...team.sightings]
-      .map(([id, s]) => ({ id, s, page: sim.pages.get(id) }))
-      .filter(
-        ({ id, page }) =>
-          page &&
-          page.carriedBy === null &&
-          !claimed.has(`page|${id}`) &&
-          !this.avoided(`page|${id}`) &&
-          page.body !== null &&
-          page.pinned === null &&
-          this.unread(page.printed?.step ?? -2, page.hidden),
-      )
-      .sort((a, b) => length(sub(a.s.pos, me)) - length(sub(b.s.pos, me)));
-    const next = pages[0];
-    if (next) {
-      const page = next.page!;
-      if (page.hideout !== null)
-        return this.named('open a hiding place', this.openHideout(page.hideout));
-      return this.named('take a page', this.takePage(page.id));
-    }
-    // A page in the dog's mouth, seen lately: get it to drop it.
-    const dogPage = sim.dog.page === null ? undefined : sim.pages.get(sim.dog.page);
-    if (
-      dogPage &&
-      !claimed.has('dog') &&
-      !this.me()?.holding &&
-      !this.me()?.treat &&
-      this.squad.tick - team.dogSeen < 10 * 60 &&
-      this.unread(dogPage.printed?.step ?? -2, true)
-    ) {
-      return this.named('take a page off the dog', this.takeFromDog());
-    }
-    // Pinned pages someone else put up that nobody here has read: go and read them.
-    if (round.canRead(this.id) && !this.saboteur) {
-      const unreadPinned = [...sim.pages.values()].find(
-        (pg) => pg.pinned !== null && pg.printed && this.unread(pg.printed.step),
-      );
-      if (unreadPinned && !claimed.has('board'))
-        return this.named('read the board', this.readBoard());
-    }
-    // A hiding place nobody has opened lately, nearest first.
-    const hideouts = [...sim.hideouts.values()]
-      .filter(
-        (h) =>
-          !h.locked &&
-          !team.wasSearched(h.def.id) &&
-          !claimed.has(`hideout|${h.def.id}`) &&
-          !this.avoided(`hideout|${h.def.id}`) &&
-          (sim.sideOf(h.def.pos) === null || sim.sideOf(h.def.pos) === this.site),
-      )
-      .sort((a, b) => length(sub(a.def.pos, me)) - length(sub(b.def.pos, me)));
-    const h = hideouts[0];
-    if (h) return this.named('open a hiding place', this.openHideout(h.def.id));
-    // Nothing left to open: go round the places pages lie, the one looked at longest ago first.
-    let best: { i: number; score: number } | null = null;
-    const spots = this.spots();
-    for (let i = 0; i < spots.length; i++) {
-      const s = spots[i]!;
-      if (sim.sideOf(s) !== null && sim.sideOf(s) !== this.site) continue;
-      if (claimed.has(`spot|${i}`) || this.avoided(`spot|${i}`)) continue;
-      const ago = this.squad.tick - (team.looked.get(i) ?? -1e6);
-      const score = Math.min(ago, 1e5) - 60 * length(sub(s, me));
-      if (!best || score > best.score) best = { i, score };
-    }
-    if (best) return this.named('look around', this.lookAt(best.i));
-    return null;
-  }
-
-  /** Where pages lie about: the level's places for them, and where the dog drops them. */
-  private spots(): Vec3[] {
-    const level = this.squad.game.sim.level;
-    return [...level.pageSpots, ...level.dog.points];
-  }
-
-  /** Grabs the dog's collar, so it drops the page in its mouth. */
-  private *takeFromDog(): Job {
-    const sim = this.squad.game.sim;
-    const ok = yield* this.searchingFor(
-      'dog',
-      this.use(
-        {
-          key: 'dog',
-          point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
-          ok: (o) => o.kind === 'dog',
-        },
-        { kind: 'grab' },
-        0.9,
-      ),
-    );
-    for (let k = 0; k < 20; k++) yield;
-    this.look();
-    return ok;
-  }
-
-  /** What this bot is busy finding, so the others pick something else. */
-  get searching(): string {
-    return this.searchKey;
-  }
-  private searchKey = '';
-
-  /**
-   * Whether the team still needs to read this step's page, or, `hidden` away, to get it back
-   * on the board to read there again.
-   */
-  private unread(step: number, hidden = false): boolean {
-    // A page it cannot read could be any: worth taking to the board.
-    if (step === -2) return true;
-    if (step < 0) return this.team.realStamp === null;
-    if (hidden && !this.readablePages(step).length) return true;
-    return !this.team.notes.has(step);
-  }
-
-  private *takePage(id: number): Job {
-    const sim = this.squad.game.sim;
-    const ok = yield* this.searchingFor(
-      `page|${id}`,
-      this.use(
-        {
-          key: `page|${id}`,
-          point: () => {
-            const page = sim.pages.get(id);
-            return page?.body && page.carriedBy === null && page.pinned === null
-              ? page.body.translation()
-              : null;
-          },
-          ok: (o) => o.kind === 'page' && o.pageId === id,
-        },
-        { kind: 'grab' },
-        0.9,
-      ),
-    );
-    if (!ok || this.me()?.page !== id) {
-      this.team.sightings.delete(id);
-      return false;
-    }
-    return true;
-  }
-
-  private openHideout(id: number): Job {
-    return this.searchingFor(`hideout|${id}`, this.openHideoutNow(id));
-  }
-
-  private *openHideoutNow(id: number): Job {
-    const sim = this.squad.game.sim;
-    const h = sim.hideouts.get(id)!;
-    const team = this.team;
-    if (!h.open) {
-      const centre = add(h.def.pos, v3(0, h.def.kind === 'rug' ? 0.02 : 0, 0));
-      const ok = yield* this.use(
-        {
-          key: `hideout|${id}`,
-          point: () => centre,
-          ok: (o) => o.kind === 'hideout' && o.hideoutId === id,
-        },
-        { kind: 'grab' },
-      );
-      if (!ok) return false;
-      // Pages spill out in front: take a look.
-      for (let k = 0; k < 20; k++) yield;
-      this.look();
-    }
-    team.searched.set(id, this.squad.tick);
-    return true;
-  }
-
-  private readBoard(): Job {
-    return this.searchingFor('board', this.readBoardNow());
-  }
-
-  private *readBoardNow(): Job {
-    const sim = this.squad.game.sim;
-    for (const b of levelBoards(sim.level).filter((x) => x.site === this.site)) {
-      for (const side of [1, -1]) {
-        const out = rotate(yawQuat(b.facing), v3(0, 0, -side * 1.3));
-        const spot = add(b.pos, out);
-        const n = this.squad.nav.closest(v3(spot.x, b.pos.y - 1.3, spot.z), 1, 1.5);
-        if (n === null) continue;
-        yield* this.walk([n], undefined, 20);
-        this.ctl.yaw = Math.atan2(-(b.pos.x - spot.x), -(b.pos.z - spot.z));
-        for (let k = 0; k < 20; k++) yield;
-        this.look();
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Goes to the board and reads a step's page, which it then
-   * remembers in place of the page it had in mind. Someone who cannot read asks the reader.
-   */
-  private *readStep(step: number): Job {
-    // Not this one again for a while if it comes to nothing (taken down, or nothing to do).
-    this.failed(`read|${step}`, 25);
-    const round = this.squad.game.round!;
-    if (!round.canRead(this.id)) {
-      const note = this.team.notes.get(step);
-      if (note) this.remember(note);
-      return this.memory?.step === step;
-    }
-    this.wantStep = step;
-    try {
-      const sim = this.squad.game.sim;
-      const boards = levelBoards(sim.level).filter((b) => b.site === this.site);
-      const nav = this.squad.nav;
-      for (const pg of this.readablePages(step)) {
-        // Someone may have taken it while the bot went to an earlier one.
-        if (!pg.body) continue;
-        const at = pg.body.translation();
-        // In front of the board or behind it (pages hang on both faces); else by it on the floor.
-        const b = boards.sort((x, y) => length(sub(x.pos, at)) - length(sub(y.pos, at)))[0];
-        const spots =
-          pg.pinned !== null && b
-            ? [1, -1].map((side) => {
-                const spot = add(at, rotate(yawQuat(b.facing), v3(0, 0, -side * 1.3)));
-                return nav.closest(v3(spot.x, b.pos.y - 1.3, spot.z), 1, 1.5);
-              })
-            : nav.around(at, 1.4, 2.6, 0.6).slice(0, 1);
-        for (const n of spots) {
-          if (this.memory?.step === step) break;
-          if (n === null) continue;
-          yield* this.walk([n], undefined, 20);
-          const from = nav.pos(n);
-          this.ctl.yaw = Math.atan2(-(at.x - from.x), -(at.z - from.z));
-          for (let k = 0; k < 20; k++) yield;
-          this.look();
-        }
-      }
-    } finally {
-      this.wantStep = null;
-    }
-    return this.memory?.step === step;
-  }
-
-  private lookAt(i: number): Job {
-    return this.searchingFor(`spot|${i}`, this.lookAtNow(i));
-  }
-
-  private *lookAtNow(i: number): Job {
-    const s = this.spots()[i]!;
-    this.failed(`spot|${i}`, 30);
-    const nav = this.squad.nav;
-    // Stand where it can be seen: from eye height first, else with a jump (onto a tall shelf).
-    const top = add(s, v3(0, 0.1, 0));
-    const seen = (n: number, h: number) => this.visible(add(nav.pos(n), v3(0, h, 0)), top, -1);
-    const n = nav
-      .around(s, 1.2, 2.6, 0.6)
-      .map((n) => ({ n, rank: seen(n, 1.6) ? 0 : seen(n, 2.3) ? 1 : 2 }))
-      .sort((a, b) => a.rank - b.rank)
-      .map((o) => o.n);
-    const there = n.length ? yield* this.walk(n.slice(0, 4), undefined, 25) : false;
-    // Turn round once there, in case it lies behind something.
-    for (let k = 0; k < 4; k++) {
-      this.ctl.yaw += Math.PI / 2;
-      for (let t = 0; t < 6; t++) yield;
-      this.look();
-    }
-    // Up on a shelf above its eyes: jump to see over the edge.
-    if (s.y > this.eye().y - 0.3) {
-      const f = this.feet();
-      this.ctl.yaw = Math.atan2(-(s.x - f.x), -(s.z - f.z));
-      this.ctl.jump = true;
-      for (let t = 0; t < 30; t++) {
-        yield;
-        if (t % 5 === 4) this.look();
-      }
-    }
-    if (there) this.team.looked.set(i, this.squad.tick);
-    return true;
-  }
+  searchKey = '';
 
   // ---------------------------------------------------------------- jobs: building
 
