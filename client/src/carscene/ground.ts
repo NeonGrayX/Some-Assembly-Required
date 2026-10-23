@@ -541,9 +541,12 @@ export interface GroundCover {
   paths: Rect[];
 }
 
-/** `cover` laid on the ground: under the road, the pavements and the cobbles, the paths over it. */
+/**
+ * `cover` laid on the ground (its lot, if it has one): under the road, the pavements and the
+ * cobbles, the paths over it.
+ */
 export function coverGround(
-  cover: GroundCover,
+  cover: Omit<GroundCover, 'gravel'> & Partial<Pick<GroundCover, 'gravel'>>,
   o: { perMetre?: number; slabs?: number; haze?: boolean } = {},
 ): THREE.Group {
   const { perMetre = 64, slabs = 100, haze } = o;
@@ -571,7 +574,7 @@ export function coverGround(
     root.add(m);
   };
   const { gravel } = cover;
-  lay(gravel.rect, paintedOnce({ kind: 'gravel', ...gravel, perMetre }), 0.1, 0.9);
+  if (gravel) lay(gravel.rect, paintedOnce({ kind: 'gravel', ...gravel, perMetre }), 0.1, 0.9);
   for (const l of cover.lawns)
     lay(l.rect, paintedOnce({ kind: 'lawn', ...l, perMetre }), 0.05, 0.5);
   for (const [i, p] of cover.paths.entries()) {
