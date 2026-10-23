@@ -64,7 +64,7 @@ const where = (p: { x: number; y: number; z: number }) =>
 
 async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   const { isFence, makeFence, makeHandrail, makeProp } = await import('./props.ts');
-  const { MachineView } = await import('./brickworks.ts');
+  const { machineView } = await import('./brickworks.ts');
   const { machineInUse } = await import('./scene.ts');
   const { Furniture } = await import('./furniture.ts');
   const { addHouseDetails, cutWindows, windowOpenings } = await import('./details.ts');
@@ -109,7 +109,7 @@ async function modelsOf(level: LevelDef, open: boolean): Promise<Part[]> {
   }
   if (level.catapult) parts.push(...partsOf('catapult', makeCatapult(level.catapult).group));
   for (const def of level.machines) {
-    const view = new MachineView(def);
+    const view = machineView(def);
     // With something waiting in its output area too.
     view.update(machineInUse(def), {});
     const pos = { x: def.pos.x, y: def.pos.y + def.size.y / 2, z: def.pos.z };

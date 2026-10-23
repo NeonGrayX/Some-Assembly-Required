@@ -16,24 +16,13 @@ import {
   machinePad,
 } from '../carscene/machines.ts';
 import { glow, mat } from '../carscene/kit.ts';
-import {
-  MachineLook,
-  bedPart,
-  bucket,
-  clamp01,
-  ease,
-  lyingPart,
-  mouldBlock,
-  ownMesh,
-  pelletFill,
-  pelletHeap,
-  pelletStream,
-  span,
-} from './brickworks.ts';
-import type { Job, MachineEvent } from './brickworks.ts';
 import { brickMaterial } from './bricks.ts';
 import { HANDLED, HATCH_MOULD, HOPPER_STEP_SIZE } from './operate.ts';
 import type { MachineControls } from './operate.ts';
+import { bucket, mouldBlock, pelletFill, pelletStream } from './carried.ts';
+import { MachineLook } from './machineLook.ts';
+import type { Job, MachineEvent } from './machineLook.ts';
+import { bedPart, clamp01, ease, lyingPart, ownMesh, pelletHeap, span } from './machineParts.ts';
 
 /**
  * The brick works' machines drawn with the car scene's models (see `carscene/machines.ts`), on

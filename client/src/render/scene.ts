@@ -13,7 +13,6 @@ import { buildScenery, screenPicture } from './chevron.ts';
 import { addHouseDetails, cutWindows, windowOpenings } from './details.ts';
 import { CEILING_UNDER, Furniture, NO_FILL, WALL_PIECE, lightIndoors } from './furniture.ts';
 import { bakeLampShadows } from './lampShadows.ts';
-import { MachineView } from './brickworks.ts';
 import { isFence, makeFence, makeHandrail, makeProp } from './props.ts';
 import type { PropParts } from './props.ts';
 import { groundAt, makeBell, makeCatapult, makeDoneButton } from './stations.ts';
@@ -32,6 +31,7 @@ import {
   madeOf,
   surfaceOf,
 } from './styles.ts';
+import { machineView } from './brickworks.ts';
 
 /** Where a box is, as it is named by. */
 export const where = (p: { x: number; y: number; z: number }) =>
@@ -423,7 +423,7 @@ export function buildLevelModels(level: LevelDef): LevelModels {
   const { root, furniture, owner, label } = buildLevelScene(level);
   // The machines with something in them, as the view adds them after the merge.
   for (const def of level.machines) {
-    const view = new MachineView(def);
+    const view = machineView(def);
     view.update(machineInUse(def), {});
     root.add(view.group);
     label(`${def.kind} #${def.id}`, view.group);

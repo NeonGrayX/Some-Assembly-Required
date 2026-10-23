@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { ACT_STAND, PLAYER_FEET, actStation, outputSlots } from '@sar/shared';
 import type { MachineAct, Player, SimEvent } from '@sar/shared';
-import { HANDLE_BACK, bucket, mouldBlock, pelletFill, pelletStream } from './brickworks.ts';
-import type { MachineLook } from './brickworks.ts';
 import { moveFor } from './operate.ts';
 import type { Frame, Move, Stage } from './operate.ts';
+import { HANDLE_BACK, bucket, mouldBlock, pelletFill, pelletStream } from './carried.ts';
+import type { MachineLook } from './machineLook.ts';
 
 /**
  * Players operating the brick works' machines move by move (see `operate.ts`), as everyone sees

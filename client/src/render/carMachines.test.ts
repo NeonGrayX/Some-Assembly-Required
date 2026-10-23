@@ -3,8 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { BUCKET_SHOTS, MACHINE_SIZE, MAKE_SECONDS, OUTPUT_ROOM, outputSlots } from '@sar/shared';
 import type { MachineDef, MachineKind, MachineState, Made, OutputSlot } from '@sar/shared';
 import { MACHINE_MODELS } from '../carscene/machines.ts';
-import type { MachineEvent } from './brickworks.ts';
 import { CarMachineView } from './carMachines.ts';
+import type { MachineEvent } from './machineLook.ts';
 
 beforeAll(() => {
   // The game's signs are drawn on canvases: a stand-in that draws nothing will do.

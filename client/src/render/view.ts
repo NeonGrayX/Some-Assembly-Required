@@ -66,8 +66,6 @@ import { VacuumView } from './vacuum.ts';
 import { DogView } from './dog.ts';
 import { setTimeOfDay } from './daynight.ts';
 import type { Furniture } from './furniture.ts';
-import { MachineView, makeHeldTool } from './brickworks.ts';
-import type { MachineLook } from './brickworks.ts';
 import { CarMachineView } from './carMachines.ts';
 import { Operating } from './operating.ts';
 import type { Released } from './operating.ts';
@@ -98,6 +96,9 @@ import { SEA_ROCKS, SHORE_MAP, Surface, madeOfAll, setSeaRocks } from './styles.
 import type { SeaRock } from './styles.ts';
 import { isFence } from './props.ts';
 import { addPrints, printsVersion } from './prints.ts';
+import { machineView } from './brickworks.ts';
+import { makeHeldTool } from './carried.ts';
+import type { MachineLook } from './machineLook.ts';
 
 interface AssemblyView {
   group: THREE.Group;
@@ -577,7 +578,7 @@ export class View {
     // The machines change with what is put in them: drawn on their own, after the merge. A
     // level drawn with the car scene's models has its machines in that style too.
     for (const def of level.machines) {
-      const machine = level.scenery ? new CarMachineView(def) : new MachineView(def);
+      const machine = level.scenery ? new CarMachineView(def) : machineView(def);
       this.machineViews.set(def.id, machine);
       root.add(machine.group);
     }
