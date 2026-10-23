@@ -225,7 +225,7 @@ export class Placing {
       this.sim.world.contactPairsWith(c, (other) => {
         const o = this.sim.owners.get(other.handle);
         if (o?.kind === 'brick' && o.assemblyId === a.id) return;
-        if (this.sim.touching(c, other)) rests = true;
+        if (this.sim.knocks.touching(c, other)) rests = true;
       });
       if (rests) return true;
     }

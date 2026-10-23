@@ -313,7 +313,7 @@ export class Movement {
         this.wedged(p, add(at, m), dir.x / asked, dir.z / asked);
       p.ladder = onLadder && !p.grounded ? ladderId : null;
       if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.sim.replica) {
-        this.sim.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
+        this.sim.knocks.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
       }
       if (p.grounded && p.vy < 0) {
         p.vy = 0;

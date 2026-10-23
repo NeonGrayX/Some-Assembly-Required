@@ -30,16 +30,15 @@ import {
   SQUEEZE,
   STEP_UP,
   WORLD_GROUPS,
-  assemblyMass,
   groups,
   isLooseBrick,
-  viewDir,
   REACH,
   QUARTER,
   collidersOf,
 } from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
+import { DOWN_TICKS, KnockDowns } from './knockdowns.ts';
 import { Movement } from './movement.ts';
 import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
@@ -116,6 +115,7 @@ import type { Quat, Vec3 } from '../math.ts';
 type Rapier = typeof RAPIER;
 
 export { DT, TICK_RATE, catchUp } from './time.ts';
+export { DOWN_TICKS, LIMP_TICKS } from './knockdowns.ts';
 export { STAIRS_MARGIN, STAIRS_SLIDE, WALK_SPEED } from './movement.ts';
 export { VACUUM_CAPACITY, vacuumRestPose } from './vacuum.ts';
 export { CAMERA_DISTANCE, CAMERA_LIFT, CAMERA_SHOULDER, cameraPosition } from './sight.ts';
@@ -201,25 +201,10 @@ function actOf(
 }
 
 // Knock-downs
-/** How long a trip or a hit keeps a player on the ground. */
-export const DOWN_TICKS = Math.round(2.5 * TICK_RATE);
-/** Hits from assemblies at least this heavy (kg) and fast (m/s) knock a player over. */
-const HIT_MASS = 5;
-const HIT_SPEED = 3.5;
-/** Chance per second to trip while sprinting with a build, per kg it weighs. */
-const TRIP_CHANCE_PER_KG = 0.012;
-/** How fast someone slides along the floor when they fall (m/s), losing speed quickly. */
-const FALL_SLIDE = 2.2;
-/** Limping after stepping on a brick: slower, and no sprinting. */
-export const LIMP_TICKS = 10 * TICK_RATE;
 /** Clicks on a build someone else carries that tug it out of their hands. */
 export const TUG_CLICKS = 6;
 /** The most time between two clicks of one tug before it starts over. */
 const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
-/** How hard a clumsy stumble knocks the build in front (velocity change, m/s). */
-const CLUMSY_SEVERITY = 4.2;
-/** How far in front of a stumbling player things get caught (m). */
-const CLUMSY_REACH = 1.0;
 /** How far out from the baseplate's edge the hungry dog stands to wreck the build. */
 const WRECK_STAND_OUT = 0.25;
 /**
@@ -228,8 +213,6 @@ const WRECK_STAND_OUT = 0.25;
  */
 const WRECK_REACH = 1.1;
 const WRECK_HEIGHT = 0.95;
-/** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
-const STEP_HEIGHT = 0.2;
 /**
  * How far over a guarded railing (round a stairwell or a roof) players meet a wall they cannot
  * see. At the top of a jump (1.3 m up) a player steps onto anything up to `STEP_UP` higher,
@@ -244,12 +227,6 @@ const LITTER_SPREAD = 1.1;
 const LITTER_TYPES: BrickTypeId[] = ['1x1', '1x2', 'plate1x2'];
 /** The colours litter comes in: the everyday ones. */
 const LITTER_COLOURS: ColourId[] = ['red', 'white', 'yellow', 'blue', 'light-grey', 'black'];
-/** The small bricks a barefoot trap spills. */
-const TRAP_BRICKS: { type: BrickTypeId; colour: ColourId }[] = [
-  { type: '1x1', colour: 'red' },
-  { type: '1x2', colour: 'yellow' },
-  { type: '1x1', colour: 'white' },
-];
 
 /** What a floor or a ceiling is, for the camera: a box no thicker than this, and this wide both ways. */
 const SLAB = { thick: 0.6, wide: 1.5 };
@@ -1048,9 +1025,11 @@ export class Sim {
   /** What players see and aim at (see `Sight`). */
   readonly sight: Sight;
   /** Putting down what players hold (see `Placing`). */
-  private readonly placing: Placing;
+  readonly placing: Placing;
   /** The vacuum cleaner at work (see `VacuumCleaner`). */
-  private readonly vacuuming: VacuumCleaner;
+  readonly vacuuming: VacuumCleaner;
+  /** Players knocked down and pulled up (see `KnockDowns`). */
+  readonly knocks: KnockDowns;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1060,7 +1039,7 @@ export class Sim {
   readonly owners = new Map<number, ColliderOwner>();
   /** The ground's colliders, and the level's floors and ceilings: no camera looks through them. */
   readonly floors = new Set<number>();
-  private readonly rng: () => number;
+  readonly rng: () => number;
   /** The level, with the round's pictures for the UV printer once a round is under way. */
   level: LevelDef;
   /** Every corkboard, site by site (see `levelBoards`): slots run board by board. */
@@ -1083,6 +1062,7 @@ export class Sim {
     this.works = new BrickWorks(this);
     this.sight = new Sight(this);
     this.placing = new Placing(this);
+    this.knocks = new KnockDowns(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1450,7 +1430,7 @@ export class Sim {
     a.body.setAngvel(angvel, true);
   }
 
-  private removeCollider(a: Assembly, brickId: number): void {
+  removeCollider(a: Assembly, brickId: number): void {
     const cs = a.colliders.get(brickId);
     if (!cs) return;
     for (const c of cs) {
@@ -1530,7 +1510,7 @@ export class Sim {
    * The piece holding part `main` (else the baseplate, else the largest piece) stays in `a`;
    * the others become new dynamic assemblies at the same pose and velocity.
    */
-  private resplit(a: Assembly, broken: Connection[] = [], main?: number): Assembly[] {
+  resplit(a: Assembly, broken: Connection[] = [], main?: number): Assembly[] {
     const parts = a.grid.components(broken);
     if (parts.length <= 1) return [];
     // The piece with the baseplate keeps the assembly, so the team's build keeps its id.
@@ -1915,7 +1895,7 @@ export class Sim {
       case 'suck':
         return p.handsOff || this.vacuum.heldBy !== p.id ? undefined : this.vacuuming.suck(p, true);
       case 'pull':
-        return p.handsOff ? undefined : this.pull(p);
+        return p.handsOff ? undefined : this.knocks.pull(p);
       case 'place':
         return p.handsOff ? undefined : this.placing.place(p, action.output === true);
       case 'drop':
@@ -2131,7 +2111,7 @@ export class Sim {
       // Grabbing the baseplate itself lifts the whole build off the job site (to carry it to
       // the inspector). Grabbing any other brick of it takes just that brick.
       const brick = a.grid.bricks.get(hit.owner.brickId)!;
-      if (!BRICK_TYPES[brick.type].fixture) return this.pull(p);
+      if (!BRICK_TYPES[brick.type].fixture) return this.knocks.pull(p);
     }
     if (this.tooTiredFor(p, a, hit.point)) return;
     if (a.anchored) {
@@ -3096,136 +3076,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- knock-downs
 
-  /**
-   * Knocks a player over: what they carry keeps flying the way they fell, they slide a little
-   * along `push` and lie there for `ticks`. Returns false if they were already down.
-   */
-  knockDown(p: Player, push: Vec3, ticks = DOWN_TICKS): boolean {
-    if (p.down > 0 || this.replica) return false;
-    const held = this.heldAssembly(p);
-    this.placing.release(p);
-    this.vacuuming.putVacuumDown(p);
-    if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
-    const flat = v3(push.x, 0, push.z);
-    const len = length(flat);
-    p.slide = len > 1e-3 ? scale(flat, FALL_SLIDE / len) : v3();
-    p.fling = v3();
-    p.vel = v3();
-    p.down = ticks;
-    p.knocks++;
-    this.events.push({ kind: 'trip', pos: this.eye(p), playerId: p.id, dir: p.slide });
-    return true;
-  }
-
-  /** Sprinting with a build in your arms: the heavier it is, the likelier a trip. */
-  private maybeTrip(p: Player): void {
-    const held = this.heldAssembly(p);
-    if (!held || isLooseBrick(held) || p.down > 0 || !p.grounded) return;
-    const i = p.input;
-    if (p.gear.has('brace')) return;
-    if (!i.sprint || i.careful || (i.forward === 0 && i.right === 0)) return;
-    if (this.rng() < TRIP_CHANCE_PER_KG * assemblyMass(held) * DT) {
-      this.knockDown(p, viewDir(i.yaw, 0));
-    }
-  }
-
-  /**
-   * The saboteur's clumsy mode: a trip like any other, except that whatever is just in front
-   * takes the stumble. Loose builds get shoved; the job-site build loses what its weaker joints
-   * held. Returns where it happened, or null if the player is already down.
-   */
-  clumsyTrip(p: Player): Vec3 | null {
-    if (p.down > 0 || this.replica) return null;
-    const fwd = viewDir(p.input.yaw, 0);
-    const feet = sub(p.body.translation(), v3(0, PLAYER_FEET, 0));
-    const front = add(feet, scale(fwd, CLUMSY_REACH));
-    this.knockDown(p, fwd);
-    for (const a of [...this.assemblies.values()]) {
-      if (a.heldBy !== null) continue;
-      const inReach = [...a.grid.bricks.values()].some((b) => {
-        const t = this.brickPose(a, b).pos;
-        return Math.hypot(t.x - front.x, t.z - front.z) < CLUMSY_REACH && t.y < feet.y + 1.4;
-      });
-      if (!inReach) continue;
-      const shove = add(scale(fwd, 2.2), v3(0, 1, 0));
-      if (a.anchored) {
-        const pieces = this.resplit(a, planBreaks(a.grid, CLUMSY_SEVERITY, this.rng));
-        for (const piece of pieces) piece.body.setLinvel(shove, true);
-        if (pieces.length) this.events.push({ kind: 'break', pos: front, count: pieces.length });
-      } else {
-        a.body.setLinvel(add(a.body.linvel(), shove), true);
-      }
-    }
-    return feet;
-  }
-
-  /** The saboteur's barefoot trap: a few small bricks spilled on the floor in front. */
-  dropTrap(p: Player): Vec3 | null {
-    if (p.down > 0 || this.replica) return null;
-    const fwd = viewDir(p.input.yaw, 0);
-    const right = v3(-fwd.z, 0, fwd.x);
-    const feet = sub(p.body.translation(), v3(0, PLAYER_FEET, 0));
-    TRAP_BRICKS.forEach(({ type, colour }, i) => {
-      const at = add(feet, add(scale(fwd, 0.7 + 0.25 * (i % 2)), scale(right, (i - 1) * 0.3)));
-      this.spawnBrick(type, colour, add(at, v3(0, 0.15, 0)), yawQuat(this.rng() * Math.PI));
-    });
-    // They clatter as they land, not as they appear.
-    return add(feet, scale(fwd, 0.8));
-  }
-
-  /**
-   * Someone walking onto a loose brick lying on the floor (anyone's, not only a trap's)
-   * yelps and limps for a while; sprinting onto one sends them flying. The brick skids away.
-   */
-  private stepOnBricks(p: Player): void {
-    // Walking carefully, you step over them; in steel-toe boots they do not hurt.
-    if (p.down > 0 || p.limp > 0 || !p.grounded || p.input.careful) return;
-    if (p.gear.has('boots')) return;
-    if (p.input.forward === 0 && p.input.right === 0) return;
-    const centre = p.body.translation();
-    const feetY = centre.y - PLAYER_FEET;
-    for (const a of this.assemblies.values()) {
-      if (!isLooseBrick(a) || a.heldBy !== null) continue;
-      const t = a.body.worldCom();
-      if (t.y > feetY + STEP_HEIGHT || t.y < feetY - 0.3) continue;
-      if (Math.hypot(t.x - centre.x, t.z - centre.z) > PLAYER_RADIUS * 0.9) continue;
-      p.limp = LIMP_TICKS;
-      this.events.push({ kind: 'ouch', pos: this.eye(p), playerId: p.id });
-      const away = Math.atan2(t.x - centre.x, t.z - centre.z);
-      a.body.setLinvel({ x: Math.sin(away) * 2, y: 1, z: Math.cos(away) * 2 }, true);
-      if (p.input.sprint) this.knockDown(p, viewDir(p.input.yaw, 0));
-      return;
-    }
-  }
-
-  /** Players hit by a fast, heavy assembly (a thrown or falling build) go down. */
-  private knockDownHitPlayers(): void {
-    for (const a of this.assemblies.values()) {
-      if (a.anchored || a.heldBy !== null) continue;
-      // The velocity from before this step: the hit itself has already slowed it down.
-      const v = length(a.prevLinvel) > length(a.body.linvel()) ? a.prevLinvel : a.body.linvel();
-      const speed = length(v);
-      if (speed < HIT_SPEED || assemblyMass(a) < HIT_MASS) continue;
-      for (const c of collidersOf(a)) {
-        this.world.contactPairsWith(c, (other) => {
-          const o = this.owners.get(other.handle);
-          if (o?.kind !== 'player') return;
-          const p = this.players.get(o.playerId);
-          if (p && this.touching(c, other)) this.knockDown(p, scale(v, 1 / speed));
-        });
-      }
-    }
-  }
-
-  /** Whether two colliders actually touch, rather than only having overlapping bounds. */
-  touching(a: Collider, b: Collider): boolean {
-    let hit = false;
-    this.world.contactPair(a, b, (m) => {
-      for (let i = 0; i < m.numContacts(); i++) if (m.contactDist(i) < 0.03) hit = true;
-    });
-    return hit;
-  }
-
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
     const centre = add(this.aboveGround(feet, 0), v3(0, PLAYER_FEET + CONTROLLER_OFFSET, 0));
@@ -3238,27 +3088,6 @@ export class Sim {
     p.slide = v3();
     p.slip = p.squeeze = null;
     p.work = null;
-  }
-
-  private pull(p: Player): void {
-    if (p.holding || this.vacuum.heldBy === p.id) return;
-    const hit = this.sight.aim(p);
-    if (hit?.owner.kind !== 'brick' || !this.mayUse(p, hit.point)) return;
-    const a = this.assemblies.get(hit.owner.assemblyId);
-    if (!a || a.heldBy !== null || a.frozen) return;
-    const b = a.grid.bricks.get(hit.owner.brickId)!;
-    if (BRICK_TYPES[b.type].fixture) return;
-    if (a.grid.size === 1) return this.hold(p, a);
-    const pose = this.brickPose(a, b);
-    this.removeCollider(a, b.id);
-    a.grid.remove(b.id);
-    this.collidersChanged(a);
-    a.version++;
-    this.resplit(a);
-    // The same brick, prints and all, now loose.
-    const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id, b.prints);
-    // Like any brick picked up, it turns to sit straight across the hands.
-    this.hold(p, loose);
   }
 
   // ---------------------------------------------------------------- replica
@@ -3554,8 +3383,8 @@ export class Sim {
       this.applyHold(p);
       this.placing.trackSnapLock(p);
       this.tire(p);
-      this.maybeTrip(p);
-      this.stepOnBricks(p);
+      this.knocks.maybeTrip(p);
+      this.knocks.stepOnBricks(p);
     }
     this.dog.update();
     this.updatePower();
@@ -3569,7 +3398,7 @@ export class Sim {
     this.slideDoors();
     this.stepWorld();
     this.tick++;
-    this.knockDownHitPlayers();
+    this.knocks.knockDownHitPlayers();
     this.handleImpacts();
     this.reanchorBuild();
     // Removing the one the loop is on is safe while walking a Map.
@@ -3752,5 +3581,27 @@ export class Sim {
     load: number,
   ): void {
     return this.vacuuming.replicaVacuum(heldBy, pos, yaw, leaning, load);
+  }
+
+  /**
+   * Knocks a player over: what they carry keeps flying the way they fell, they slide a little
+   * along `push` and lie there for `ticks`. Returns false if they were already down.
+   */
+  knockDown(p: Player, push: Vec3, ticks = DOWN_TICKS): boolean {
+    return this.knocks.knockDown(p, push, ticks);
+  }
+
+  /**
+   * The saboteur's clumsy mode: a trip like any other, except that whatever is just in front
+   * takes the stumble. Loose builds get shoved; the job-site build loses what its weaker joints
+   * held. Returns where it happened, or null if the player is already down.
+   */
+  clumsyTrip(p: Player): Vec3 | null {
+    return this.knocks.clumsyTrip(p);
+  }
+
+  /** The saboteur's barefoot trap: a few small bricks spilled on the floor in front. */
+  dropTrap(p: Player): Vec3 | null {
+    return this.knocks.dropTrap(p);
   }
 }
