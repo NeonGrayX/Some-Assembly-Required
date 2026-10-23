@@ -43,6 +43,7 @@ import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
 import { Movement } from './movement.ts';
 import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
+import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
 import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
 import { DT, TICK_RATE, seconds } from './time.ts';
@@ -55,8 +56,6 @@ import { partBox, partQuat, placedColliders } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
-  VACUUM,
-  VACUUM_LEAN,
   machinePose,
   printJobs,
   BOARD_FACE_SLOTS,
@@ -118,6 +117,7 @@ type Rapier = typeof RAPIER;
 
 export { DT, TICK_RATE, catchUp } from './time.ts';
 export { STAIRS_MARGIN, STAIRS_SLIDE, WALK_SPEED } from './movement.ts';
+export { VACUUM_CAPACITY, vacuumRestPose } from './vacuum.ts';
 export { CAMERA_DISTANCE, CAMERA_LIFT, CAMERA_SHOULDER, cameraPosition } from './sight.ts';
 export { BUCKET_SHOTS, MAKE_SECONDS, MAKE_TICKS, UNJAM_SECONDS } from './brickworks.ts';
 export {
@@ -237,18 +237,6 @@ const STEP_HEIGHT = 0.2;
  * they went over it.
  */
 const RAIL_GUARD = 1;
-/**
- * The vacuum's head goes where the crosshair meets the floor, kept between this near and this
- * far ahead of the player and no further than this to either side; a pull sucks up what lies
- * on the floor this close round it. One pull at most this often.
- */
-const SUCK_NEAR = 0.4;
-const SUCK_REACH = 1.3;
-const SUCK_ASIDE = 0.7;
-const SUCK_RADIUS = 0.45;
-const SUCK_TICKS = Math.round(0.4 * TICK_RATE);
-/** How many bricks the vacuum holds before it has to be emptied into a rubbish bin. */
-export const VACUUM_CAPACITY = 10;
 /** Size of a piece of gear lying about (its collider, and about what the client draws). */
 export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
 /** The litter of a gear hunt: small bricks scattered around every dog point, this far out. */
@@ -876,19 +864,6 @@ export interface VacuumState {
   load: number;
 }
 
-/**
- * Where the middle of a vacuum that nobody carries is, and how it is turned: its local +y runs
- * up the handle from the head, and its bristles face local -z.
- */
-export function vacuumRestPose(b: VacuumState): { pos: Vec3; rot: Quat } {
-  const tilt = b.leaning ? VACUUM_LEAN : Math.PI / 2;
-  const rot = mulQuat(yawQuat(b.yaw), { x: Math.sin(tilt / 2), y: 0, z: 0, w: Math.cos(tilt / 2) });
-  const foot = b.leaning
-    ? v3(b.pos.x, b.pos.y, b.pos.z)
-    : v3(b.pos.x, b.pos.y + VACUUM.depth, b.pos.z);
-  return { pos: add(foot, rotate(rot, v3(0, VACUUM.length / 2, 0))), rot };
-}
-
 export interface AimHit {
   point: Vec3;
   normal: Vec3;
@@ -1066,9 +1041,6 @@ export class Sim {
   readonly dog: Dog;
   vacuum: VacuumState;
 
-  /** Clicking it picks the vacuum up; only there while nobody carries it. */
-  private readonly vacuumCollider: Collider;
-
   /** How players move (see `Movement`). */
   private readonly movement: Movement;
   /** The brick works at work (see `BrickWorks`). */
@@ -1077,6 +1049,8 @@ export class Sim {
   readonly sight: Sight;
   /** Putting down what players hold (see `Placing`). */
   private readonly placing: Placing;
+  /** The vacuum cleaner at work (see `VacuumCleaner`). */
+  private readonly vacuuming: VacuumCleaner;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1109,17 +1083,11 @@ export class Sim {
     this.works = new BrickWorks(this);
     this.sight = new Sight(this);
     this.placing = new Placing(this);
-    this.placing = new Placing(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
-    // Not solid: players and bricks pass through it, clicks find it.
-    this.vacuumCollider = this.world.createCollider(
-      R.ColliderDesc.cuboid(VACUUM.width / 2, VACUUM.length / 2, 0.06).setSensor(true),
-      fixed,
-    );
-    this.owners.set(this.vacuumCollider.handle, { kind: 'vacuum' });
+    this.vacuuming = new VacuumCleaner(this, fixed);
     this.vacuum = {
       heldBy: null,
       pos: level.vacuum.pos,
@@ -1128,7 +1096,7 @@ export class Sim {
       sucked: -SUCK_TICKS,
       load: 0,
     };
-    this.poseVacuum();
+    this.vacuuming.poseVacuum();
     // A replica receives the baseplates (and everything else) from the server.
     if (!this.replica) this.buildIds = this.placeBaseplates();
   }
@@ -1670,7 +1638,7 @@ export class Sim {
     if (!this.replica) {
       this.placing.release(p);
       this.works.putToolAway(p);
-      this.putVacuumDown(p);
+      this.vacuuming.putVacuumDown(p);
       this.dropPage(p);
       for (const kind of [...p.gear]) this.dropGear(p, kind);
     }
@@ -1945,14 +1913,14 @@ export class Sim {
       case 'grab':
         return this.grab(p, action.output === true);
       case 'suck':
-        return p.handsOff || this.vacuum.heldBy !== p.id ? undefined : this.suck(p, true);
+        return p.handsOff || this.vacuum.heldBy !== p.id ? undefined : this.vacuuming.suck(p, true);
       case 'pull':
         return p.handsOff ? undefined : this.pull(p);
       case 'place':
         return p.handsOff ? undefined : this.placing.place(p, action.output === true);
       case 'drop':
       case 'throw':
-        if (this.vacuum.heldBy === p.id) return this.putVacuumDown(p);
+        if (this.vacuum.heldBy === p.id) return this.vacuuming.putVacuumDown(p);
         if (p.tool) return this.works.putToolAway(p);
         return action.kind === 'drop' ? this.placing.setDown(p) : this.placing.throwHeld(p);
       case 'rotate':
@@ -2073,7 +2041,8 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'vacuum') {
-      if (!p.holding && !p.tool && !p.handsOff && this.vacuum.heldBy === null) this.takeVacuum(p);
+      if (!p.holding && !p.tool && !p.handsOff && this.vacuum.heldBy === null)
+        this.vacuuming.takeVacuum(p);
       return true;
     }
     if (hit?.owner.kind === 'trashBin') {
@@ -2081,7 +2050,7 @@ export class Sim {
       // on a bin does nothing.
       const held = this.heldAssembly(p);
       if (held && !this.isBuild(held.id)) this.throwAway(held, hit.owner.bin, p.id);
-      else if (this.vacuum.heldBy === p.id) this.emptyVacuum(hit.owner.bin, p.id);
+      else if (this.vacuum.heldBy === p.id) this.vacuuming.emptyVacuum(hit.owner.bin, p.id);
       return true;
     }
     return false;
@@ -2145,7 +2114,7 @@ export class Sim {
     const hit = this.sight.aim(p);
     if (this.interact(p, hit)) return;
     if (p.handsOff) return;
-    if (this.vacuum.heldBy === p.id) return this.suck(p);
+    if (this.vacuum.heldBy === p.id) return this.vacuuming.suck(p);
     if (!hit || !this.mayUse(p, hit.point)) return;
     if (hit.owner.kind === 'machine') {
       return output ? undefined : this.works.useMachine(p, hit.owner.machineId);
@@ -2929,131 +2898,10 @@ export class Sim {
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
     this.placing.release(p);
-    this.putVacuumDown(p);
+    this.vacuuming.putVacuumDown(p);
   }
 
   // ---------------------------------------------------------------- the vacuum
-
-  /** Sets where the vacuum is, and puts its clickable shape there (none while carried). */
-  private setVacuum(b: VacuumState): void {
-    this.vacuum = b;
-    this.poseVacuum();
-  }
-
-  /** Puts the vacuum's clickable shape where it rests, or takes it away while it is carried. */
-  private poseVacuum(): void {
-    const b = this.vacuum;
-    this.vacuumCollider.setEnabled(b.heldBy === null);
-    if (b.heldBy !== null) return;
-    const { pos, rot } = vacuumRestPose(b);
-    this.vacuumCollider.setTranslationWrtParent(pos);
-    this.vacuumCollider.setRotationWrtParent(rot);
-  }
-
-  private takeVacuum(p: Player): void {
-    const at = vacuumRestPose(this.vacuum).pos;
-    this.setVacuum({ ...this.vacuum, heldBy: p.id });
-    this.events.push({ kind: 'vacuumUp', pos: at, playerId: p.id });
-  }
-
-  /** Lays the vacuum on the floor in front of whoever carries it, if they do. */
-  private putVacuumDown(p: Player): void {
-    if (this.vacuum.heldBy !== p.id) return;
-    const fwd = viewDir(p.input.yaw, 0);
-    const centre = p.body.translation();
-    const feet = v3(centre.x, centre.y - PLAYER_FEET, centre.z);
-    // Head out in front, handle back toward the player's feet.
-    const pos = this.onFloorAhead(feet, add(feet, scale(fwd, 0.9)));
-    this.setVacuum({ ...this.vacuum, heldBy: null, pos, yaw: p.input.yaw, leaning: false });
-    this.events.push({ kind: 'vacuumDown', pos, playerId: p.id });
-  }
-
-  /**
-   * One pull of the vacuum: loose bricks and small loose pieces lying on the floor in a strip
-   * in front of the player get sucked up, nearest first, as long as they fit in what room is
-   * left. The team's build and anything held stay put. Full, it takes nothing more until it is
-   * emptied into a rubbish bin. A `held` pull (the click kept down) says nothing when it is
-   * full: the first pull already did.
-   */
-  private suck(p: Player, held = false): void {
-    const v = this.vacuum;
-    if (this.tick - v.sucked < SUCK_TICKS) return;
-    v.sucked = this.tick;
-    const head = this.vacuumHead(p);
-    if (v.load >= VACUUM_CAPACITY) {
-      if (!held) this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
-      return;
-    }
-    const near: { a: Assembly; d: number }[] = [];
-    for (const a of this.assemblies.values()) {
-      if (a.anchored || a.frozen || a.heldBy !== null || this.isBuild(a.id)) continue;
-      const t = a.body.worldCom();
-      if (t.y > head.y + 0.3 || t.y < head.y - 0.2) continue;
-      const d = Math.hypot(t.x - head.x, t.z - head.z);
-      if (d <= SUCK_RADIUS) near.push({ a, d });
-    }
-    near.sort((x, y) => x.d - y.d);
-    let count = 0;
-    for (const { a } of near) {
-      if (v.load + a.grid.size > VACUUM_CAPACITY) continue;
-      v.load += a.grid.size;
-      count += a.grid.size;
-      this.removeAssembly(a);
-    }
-    this.events.push({ kind: 'suck', pos: head, playerId: p.id, count });
-    if (count > 0 && v.load >= VACUUM_CAPACITY) {
-      this.events.push({ kind: 'vacuumFull', pos: head, playerId: p.id });
-    }
-  }
-
-  /**
-   * Where the head of the vacuum a player carries rests: on the floor where their crosshair
-   * meets it, kept within reach in front of them. Looking up or far off, it goes as far out as
-   * it reaches.
-   */
-  vacuumHead(p: Player): Vec3 {
-    const centre = p.body.translation();
-    const feetY = centre.y - PLAYER_FEET;
-    const fwd = viewDir(p.input.yaw, 0);
-    const right = v3(-fwd.z, 0, fwd.x);
-    const { origin, dir } = this.sight.aimRay(p);
-    let ahead = SUCK_REACH;
-    let aside = 0;
-    if (dir.y < -1e-3) {
-      const t = (feetY - origin.y) / dir.y;
-      const off = sub(add(origin, scale(dir, t)), centre);
-      ahead = Math.min(SUCK_REACH, Math.max(SUCK_NEAR, off.x * fwd.x + off.z * fwd.z));
-      aside = Math.min(SUCK_ASIDE, Math.max(-SUCK_ASIDE, off.x * right.x + off.z * right.z));
-    }
-    const feet = v3(centre.x, feetY, centre.z);
-    return this.onFloorAhead(feet, add(feet, add(scale(fwd, ahead), scale(right, aside))));
-  }
-
-  /**
-   * `at`, a little way ahead of someone standing at `feet`, brought down onto the floor there:
-   * the floor they stand on, carried on level, except out on a map's terrain, where the ground
-   * ahead may be higher or lower than under their feet.
-   */
-  private onFloorAhead(feet: Vec3, at: Vec3): Vec3 {
-    if (!this.level.terrain?.length) return at;
-    if (Math.abs(feet.y - groundHeight(this.level, feet.x, feet.z)) > 0.25) return at;
-    return v3(at.x, groundHeight(this.level, at.x, at.z), at.z);
-  }
-
-  /** Empties the vacuum into rubbish bin `bin`: what it sucked up is gone for good. */
-  private emptyVacuum(bin: number, playerId: number): void {
-    const v = this.vacuum;
-    if (v.load === 0) return;
-    const m = this.trashBins[bin]!;
-    this.events.push({
-      kind: 'binned',
-      pos: v3((m.x0 + m.x1) / 2, m.y, (m.z0 + m.z1) / 2),
-      count: v.load,
-      emptied: true,
-      playerId,
-    });
-    v.load = 0;
-  }
 
   // ---------------------------------------------------------------- the dog
 
@@ -3256,7 +3104,7 @@ export class Sim {
     if (p.down > 0 || this.replica) return false;
     const held = this.heldAssembly(p);
     this.placing.release(p);
-    this.putVacuumDown(p);
+    this.vacuuming.putVacuumDown(p);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
     const flat = v3(push.x, 0, push.z);
     const len = length(flat);
@@ -3524,26 +3372,6 @@ export class Sim {
     item.placed = false;
     item.wornBy = wornBy;
     if (wornBy === null && !where.hidden) this.placeGear(item, pos, rot);
-  }
-
-  /** Mirrors who carries the vacuum, or where it stands or lies, and how full it is. */
-  replicaVacuum(
-    heldBy: number | null,
-    pos: Vec3,
-    yaw: number,
-    leaning: boolean,
-    load: number,
-  ): void {
-    const b = this.vacuum;
-    b.load = load;
-    if (
-      b.heldBy === heldBy &&
-      b.leaning === leaning &&
-      b.yaw === yaw &&
-      length(sub(b.pos, pos)) < 1e-4
-    )
-      return;
-    this.setVacuum({ ...b, heldBy, pos, yaw, leaning });
   }
 
   /**
@@ -3904,5 +3732,25 @@ export class Sim {
    */
   snapPreview(p: Player, ask?: ViewAsk): SnapPreview | null {
     return this.placing.snapPreview(p, ask);
+  }
+
+  /**
+   * Where the head of the vacuum a player carries rests: on the floor where their crosshair
+   * meets it, kept within reach in front of them. Looking up or far off, it goes as far out as
+   * it reaches.
+   */
+  vacuumHead(p: Player): Vec3 {
+    return this.vacuuming.vacuumHead(p);
+  }
+
+  /** Mirrors who carries the vacuum, or where it stands or lies, and how full it is. */
+  replicaVacuum(
+    heldBy: number | null,
+    pos: Vec3,
+    yaw: number,
+    leaning: boolean,
+    load: number,
+  ): void {
+    return this.vacuuming.replicaVacuum(heldBy, pos, yaw, leaning, load);
   }
 }

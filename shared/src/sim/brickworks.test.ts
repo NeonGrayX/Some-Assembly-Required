@@ -299,7 +299,7 @@ describe('the brick works', () => {
     expect(press.m.out[0]).toEqual({ kind: 'part', type: '2x4', colour: 'blue' });
     act(sim, p, { kind: 'drop' });
     // Nor with the vacuum (a click with it sucks, so try the other click too).
-    (sim as unknown as { takeVacuum(p: Player): void }).takeVacuum(p);
+    (sim as unknown as { vacuuming: { takeVacuum(p: Player): void } }).vacuuming.takeVacuum(p);
     expect(sim.vacuum.heldBy).toBe(p.id);
     aimAt(sim, p, press.outs[0]!);
     act(sim, p, { kind: 'place' });
