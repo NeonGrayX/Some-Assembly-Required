@@ -53,8 +53,8 @@ describe('the brick works without power', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    sim.breakPower();
-    expect(sim.machinesPowered).toBe(false);
+    sim.working.breakPower();
+    expect(sim.working.machinesPowered).toBe(false);
 
     const dispenser = machine(sim, 'dispenser');
     lookAt(sim, p, dispenser.stand, dispenser.target);
@@ -74,7 +74,7 @@ describe('the brick works without power', () => {
     expect([...dispenser.m.out, ...silo.m.out, ...press.m.out]).toEqual([null, null, null]);
 
     // The lights come back on, and the machines with them.
-    sim.restorePower();
+    sim.working.restorePower();
     sim.act(p.id, { kind: 'grab' });
     expect(takeOut(sim, p, press)).toBe(true);
     expect(p.holding).not.toBeNull();
@@ -84,9 +84,9 @@ describe('the brick works without power', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    sim.killPower();
+    sim.working.killPower();
     expect(sim.power.on).toBe(false);
-    expect(sim.machinesPowered).toBe(true);
+    expect(sim.working.machinesPowered).toBe(true);
     const press = loadedPress(sim, '2x4', 'red');
     lookAt(sim, p, press.stand, press.target);
     sim.act(p.id, { kind: 'grab' });
@@ -151,11 +151,11 @@ describe('tampering', () => {
     const panel = sim.panel!;
     const box = HOUSE.boxes.find((x) => x.model === 'panel')!;
     lookAt(sim, s, { x: box.pos.x, y: BASEMENT_FLOOR, z: box.pos.z - 0.9 }, panel);
-    expect(sim.aim(s)?.owner).toEqual({ kind: 'panel' });
+    expect(sim.sight.aim(s)?.owner).toEqual({ kind: 'panel' });
     sim.events = [];
     expect(round.sabotage(saboteur, 'tamper')).toBe(true);
     expect(sim.power.on).toBe(false);
-    expect(sim.machinesPowered).toBe(false);
+    expect(sim.working.machinesPowered).toBe(false);
     expect(sim.events.map((e) => e.kind)).toEqual(expect.arrayContaining(['powerOut', 'tamper']));
     // Out already: nothing more to cut.
     run(COOLDOWNS.tamper * 60 + 5);
@@ -166,13 +166,13 @@ describe('tampering', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     settle(sim);
-    sim.breakPower();
+    sim.working.breakPower();
     const panel = sim.panel!;
     const box = HOUSE.boxes.find((x) => x.model === 'panel')!;
     lookAt(sim, p, { x: box.pos.x, y: BASEMENT_FLOOR, z: box.pos.z - 1.4 }, panel);
     sim.act(p.id, { kind: 'grab' });
     expect(sim.power.fixer).toBe(p.id);
-    expect(sim.fixing(p.id)).toBe(true);
+    expect(sim.working.fixing(p.id)).toBe(true);
     expect(p.work).toMatchObject({ machineId: null, there: false });
     const from = p.body.translation().z;
     settle(sim, WORK_TICKS + 10);
@@ -180,7 +180,7 @@ describe('tampering', () => {
     expect(p.body.translation().z).toBeGreaterThan(from + 0.2);
     settle(sim, REPAIR_SECONDS * 60);
     expect(sim.power.on).toBe(true);
-    expect(sim.fixing(p.id)).toBe(false);
+    expect(sim.working.fixing(p.id)).toBe(false);
     settle(sim, 2);
     expect(p.work).toBeNull();
   });
@@ -217,7 +217,7 @@ describe('tampering', () => {
     const press = machine(sim, 'press');
     Object.assign(press.m, { jammed: true, fixer: p.id });
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
-    replica.replicaFurniture(sim.furnitureState());
+    replica.replication.replicaFurniture(sim.replication.furnitureState());
     expect(replica.machines.get(press.m.def.id)).toMatchObject({ jammed: true, fixer: p.id });
   });
 });

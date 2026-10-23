@@ -263,7 +263,7 @@ export class BenchBot {
       const d = sub(target, from);
       st.yaw = Math.atan2(-d.x, -d.z);
       st.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))));
-      from = g.sim.camera(me, eye, st);
+      from = g.sim.sight.camera(me, eye, st);
     }
   }
 
@@ -290,7 +290,7 @@ export class BenchBot {
         this.aimAt(add(target, n));
         // Tried on the replica with the view it would have; the next tick sends it for real.
         me.input = { ...saved, yaw: st.yaw, pitch: st.pitch, firstPerson: st.firstPerson };
-        if (g.sim.aim(me)?.owner.kind === kind) return true;
+        if (g.sim.sight.aim(me)?.owner.kind === kind) return true;
       }
     } finally {
       me.input = saved;
@@ -447,7 +447,7 @@ export class BenchBot {
     yield* this.approach(spot, 1.6);
     const g = this.host.game();
     yield* this.use('Place on the build', 'brick', spot, {
-      kind: g?.me && g.sim.snapPreview(g.me) ? 'place' : 'drop',
+      kind: g?.me && g.sim.placing.snapPreview(g.me) ? 'place' : 'drop',
     });
     if (this.holding()) this.host.input.act({ kind: 'drop' });
     yield* this.wait(0.3);
@@ -684,7 +684,7 @@ export class BenchBot {
     const sim = room.sim;
     for (const p of sim.players.values()) {
       const a = this.random() * Math.PI * 2;
-      sim.knockDown(p, v3(Math.cos(a) * 4, 3, Math.sin(a) * 4));
+      sim.knocks.knockDown(p, v3(Math.cos(a) * 4, 3, Math.sin(a) * 4));
     }
     yield* this.lookAround(4, false);
   }

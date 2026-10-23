@@ -263,15 +263,15 @@ export class Round {
     for (const id of hazardsFor(this.mode)) this.sim.hazards.add(id);
     this.lockHideouts();
     this.hideGear();
-    this.litter = this.sim.spawnLitter(LITTER_PER_POINT, this.rng);
-    this.sim.killPower();
+    this.litter = this.sim.gearHunt.spawnLitter(LITTER_PER_POINT, this.rng);
+    this.sim.working.killPower();
   }
 
   /** Padlocks a share of the hiding places that can take a padlock. */
   private lockHideouts(): void {
     const lockable = this.sim.level.hideouts.filter((h) => LOCKABLE.has(h.kind)).map((h) => h.id);
     const n = Math.ceil(lockable.length * LOCKED_SHARE);
-    for (const id of shuffle(lockable, this.rng).slice(0, n)) this.sim.lockHideout(id);
+    for (const id of shuffle(lockable, this.rng).slice(0, n)) this.sim.hiding.lockHideout(id);
   }
 
   /**
@@ -302,7 +302,7 @@ export class Round {
       const hideout = this.freeHideouts.find((id) => hideoutOk(kind, id));
       if (hidden < inHideouts && hideout !== undefined) {
         this.freeHideouts = this.freeHideouts.filter((id) => id !== hideout);
-        this.sim.spawnGearInHideout(kind, hideout);
+        this.sim.gearHunt.spawnGearInHideout(kind, hideout);
         hidden++;
       } else {
         const spot =
@@ -311,7 +311,7 @@ export class Round {
           (kind === 'goggles' ? this.freeSurfaces.find((at) => !indoors(level, at)) : undefined);
         if (!spot) throw new Error(`nowhere to hide the ${kind}`);
         this.freeSurfaces = this.freeSurfaces.filter((at) => at !== spot);
-        this.sim.spawnGear(kind, spot, yaw);
+        this.sim.gearHunt.spawnGear(kind, spot, yaw);
       }
       this.gearHidden.push(kind);
     }
@@ -458,9 +458,9 @@ export class Round {
     shuffle(items, this.rng).forEach((printed, i) => {
       const yaw = this.rng() * Math.PI * 2;
       if (i < hidden) {
-        this.sim.spawnPageInHideout(printed, hideouts[i]!);
+        this.sim.pageWork.spawnPageInHideout(printed, hideouts[i]!);
       } else {
-        this.sim.spawnPage(printed, surfaces[i - hidden]!, yaw);
+        this.sim.pageWork.spawnPage(printed, surfaces[i - hidden]!, yaw);
       }
     });
     this.freeHideouts = hideouts.slice(hidden);
@@ -533,7 +533,7 @@ export class Round {
     const { min, max } = POWER_FAILS_AFTER;
     this.powerFailsIn ??= min + (max - min) * this.rng();
     this.powerFailsIn -= DT;
-    if (this.powerFailsIn <= 0) this.sim.breakPower();
+    if (this.powerFailsIn <= 0) this.sim.working.breakPower();
   }
 
   /** Breaks one of the working machines down every three to five minutes. */
@@ -547,7 +547,7 @@ export class Round {
     this.machineBreaksIn = null;
     const working = [...this.sim.machines.values()].filter((m) => !m.jammed);
     const m = working[Math.floor(this.rng() * working.length)];
-    if (m) this.sim.breakMachine(m.def.id);
+    if (m) this.sim.sabotage.breakMachine(m.def.id);
   }
 
   /**
@@ -762,22 +762,22 @@ export class Round {
     if (this.chargesLeft(playerId, tool) === 0) return false;
     let at: Vec3 | null = null;
     if (tool === 'swap') {
-      at = this.sim.swapBrick(p);
+      at = this.sim.sabotage.swapBrick(p);
     } else if (tool === 'forge') {
       const page = p.page === null ? undefined : this.sim.pages.get(p.page);
       const printed = page?.printed;
       if (printed && page.step >= 0 && printed.stamp === this.stamp) {
         const fake = forgePage(this.target, page.step, this.fakeStamp, this.rng, this.bins);
-        if (this.sim.reprintPocketPage(p, fake)) at = p.body.translation();
+        if (this.sim.sabotage.reprintPocketPage(p, fake)) at = p.body.translation();
       }
     } else if (tool === 'hide') {
-      at = this.sim.hidePocketPage(p);
+      at = this.sim.sabotage.hidePocketPage(p);
     } else if (tool === 'clumsy') {
-      at = this.sim.clumsyTrip(p);
+      at = this.sim.knocks.clumsyTrip(p);
     } else if (tool === 'trap') {
-      at = this.sim.dropTrap(p);
+      at = this.sim.knocks.dropTrap(p);
     } else if (tool === 'tamper') {
-      at = this.sim.tamper(p);
+      at = this.sim.sabotage.tamper(p);
     }
     if (!at) return false;
     perPlayer(this.cooldowns, playerId).set(tool, COOLDOWNS[tool] * TICK_RATE);
@@ -798,7 +798,7 @@ export class Round {
   hidesOnClick(playerId: number): boolean {
     const p = this.sim.players.get(playerId);
     if (!p || this.role(playerId) !== 'saboteur') return false;
-    return this.sim.hideoutForPocketPage(p) !== null;
+    return this.sim.sabotage.hideoutForPocketPage(p) !== null;
   }
 
   /** Uses left of a limited tool this round, or null if it is not limited. */

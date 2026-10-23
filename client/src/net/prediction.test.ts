@@ -104,8 +104,7 @@ describe('client prediction', () => {
         const at = p.body.translation();
         from = { x: at.x, z: at.z };
         const point = { x: at.x, y: 1, z: at.z - 2 };
-        const hit = { point, normal: { x: 0, y: 0, z: 1 }, distance: 2, owner: { kind: 'static' } };
-        (room.sim as unknown as Record<string, (...a: unknown[]) => void>).startWork!(p, 1, hit);
+        room.sim.working.startWork(p, 1, { point, normal: { x: 0, y: 0, z: 1 } });
       },
     );
     expect(corrections.length).toBeLessThanOrEqual(1);

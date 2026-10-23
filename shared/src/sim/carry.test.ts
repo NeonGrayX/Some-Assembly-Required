@@ -116,7 +116,10 @@ describe('pickpocketing', () => {
     const sim = new Sim(RAPIER, HOUSE, 1);
     const a = standing(sim, { x: 0, y: 0, z: -10 });
     const b = standing(sim, { x: 0, y: 0, z: -8.8 });
-    const page = sim.spawnPage({ step: 2, added: [], stamp: 'x' }, { x: 0, y: 0.05, z: -10.8 });
+    const page = sim.pageWork.spawnPage(
+      { step: 2, added: [], stamp: 'x' },
+      { x: 0, y: 0.05, z: -10.8 },
+    );
     run(sim, 30);
     grab(sim, a, page.body!.translation());
     expect(a.page).toBe(page.id);

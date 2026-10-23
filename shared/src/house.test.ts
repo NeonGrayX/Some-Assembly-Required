@@ -57,8 +57,8 @@ describe('the house', () => {
     const p = sim.addPlayer();
     run(sim, 30);
     const fridge = sim.hideouts.get(1)!;
-    const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: 0, y: -50, z: 0 });
-    sim.hideInHideout(page, 1);
+    const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: 0, y: -50, z: 0 });
+    sim.hiding.hideInHideout(page, 1);
     const front = dropSpot(HOUSE, fridge.def);
     lookAt(sim, p, { x: front.x + 0.8, y: 0, z: front.z }, fridge.def.pos);
     sim.act(p.id, { kind: 'grab' });
@@ -94,7 +94,7 @@ describe('the house', () => {
       const way =
         ways.find((w) => !standsOn(target.x + w.x * 1.2, floor, target.z + w.z * 1.2)) ?? ways[0]!;
       lookAt(sim, p, { x: target.x + way.x * 1.2, y: floor, z: target.z + way.z * 1.2 }, target);
-      return sim.aim(p)?.owner;
+      return sim.sight.aim(p)?.owner;
     };
     const isThis = (h: HideoutState) => ({ kind: 'hideout', hideoutId: h.def.id });
     for (const h of sim.hideouts.values()) {
@@ -106,7 +106,7 @@ describe('the house', () => {
       // Shut, the whole thing opens it.
       expect(aimFromFront(h, shut), name).toEqual(isThis(h));
       if (still) expect(aimFromFront(h, inWorld(h.def, still).centre), name).toEqual(isThis(h));
-      sim.toggleHideout(h.def.id);
+      sim.hiding.toggleHideout(h.def.id);
       // Open, only the moved part shuts it: not the cabinet, not where the rug used to lie.
       expect(aimFromFront(h, hideoutPartInWorld(h.def, true, h.opening).centre), name).toEqual(
         isThis(h),
@@ -116,7 +116,7 @@ describe('the house', () => {
       if (still) {
         expect(aimFromFront(h, inWorld(h.def, still).centre), name).not.toEqual(isThis(h));
       }
-      sim.toggleHideout(h.def.id);
+      sim.hiding.toggleHideout(h.def.id);
     }
   });
 
@@ -125,12 +125,12 @@ describe('the house', () => {
     const p = sim.addPlayer();
     run(sim, 30);
     const drawer = sim.hideouts.get(2)!;
-    sim.toggleHideout(2);
+    sim.hiding.toggleHideout(2);
     // Looking down into the tray, over the drawer's front.
     const { pos, size } = drawer.def;
     const tray = { x: pos.x, y: pos.y + size.y * 0.4, z: pos.z - 0.15 };
     lookAt(sim, p, { x: pos.x, y: 0, z: pos.z - 1.2 }, tray);
-    const hit = sim.aim(p)!;
+    const hit = sim.sight.aim(p)!;
     expect(hit.owner).toEqual({ kind: 'hideout', hideoutId: 2 });
     expect(hit.point.z).toBeGreaterThan(pos.z - 0.3);
   });
@@ -166,7 +166,7 @@ describe('the house', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     const fridge = sim.hideouts.get(1)!;
-    sim.toggleHideout(1);
+    sim.hiding.toggleHideout(1);
     const door = hideoutPartInWorld(fridge.def, true, fridge.opening).centre;
     // Walk south along the kitchen wall, straight through where the open door hangs.
     p.body.setTranslation({ x: door.x, y: 0.86, z: door.z + 1 }, true);
@@ -205,7 +205,7 @@ describe('the house', () => {
     const p = sim.addPlayer();
     // Back to the kitchen's north wall, looking at a page on the floor in third person. Clear
     // of the counter's end, so the player stands on the floor, not on the counter.
-    const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: -6, y: 0, z: 12.6 });
+    const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, 0, '★'), { x: -6, y: 0, z: 12.6 });
     p.body.setTranslation({ x: -5.8, y: 0.86, z: 14.5 }, true);
     run(sim, 30);
     const target = page.body!.translation();
@@ -213,12 +213,12 @@ describe('the house', () => {
     const eye = sim.eye(p);
     // Turn until the camera (wherever it ends up) looks straight at the page.
     for (let i = 0; i < 20; i++) {
-      const cam = sim.camera(p, eye);
+      const cam = sim.sight.camera(p, eye);
       p.input.yaw = Math.atan2(-(target.x - cam.x), -(target.z - cam.z));
       p.input.pitch = Math.atan2(target.y - cam.y, Math.hypot(target.x - cam.x, target.z - cam.z));
     }
-    expect(length(sub(sim.camera(p, eye), eye))).toBeLessThan(CAMERA_DISTANCE);
-    expect(sim.aim(p)?.owner).toEqual({ kind: 'page', pageId: page.id });
+    expect(length(sub(sim.sight.camera(p, eye), eye))).toBeLessThan(CAMERA_DISTANCE);
+    expect(sim.sight.aim(p)?.owner).toEqual({ kind: 'page', pageId: page.id });
   });
 
   it('has a ladder up to the roof', () => {
@@ -338,7 +338,7 @@ describe('corkboard', () => {
     const sim = new Sim(RAPIER, HOUSE);
     const p = sim.addPlayer();
     run(sim, 30);
-    const page = sim.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: 0, y: 0, z: 5 });
+    const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: 0, y: 0, z: 5 });
     run(sim, 20);
     lookAt(sim, p, { x: 0, y: 0, z: 5.9 }, page.body!.translation());
     sim.act(p.id, { kind: 'grab' });
@@ -357,7 +357,7 @@ describe('corkboard', () => {
 
   /** Puts a fresh page in the player's pocket. */
   function pocketPage(sim: Sim, p: Player) {
-    const page = sim.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: 0, y: 0, z: 5 });
+    const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: 0, y: 0, z: 5 });
     run(sim, 20);
     lookAt(sim, p, { x: 0, y: 0, z: 5.9 }, page.body!.translation());
     sim.act(p.id, { kind: 'grab' });

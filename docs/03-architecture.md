@@ -63,6 +63,7 @@ npm workspaces (`shared`, `client`, `server`; `desktop` has its own). `shared` i
 - **Actions** (grab, place, swap, vote) are requests. The server validates them (range, cooldown, role) and broadcasts the result. The client may show an optimistic animation.
 - **Held objects:** the holder's client renders the held object attached to its hand right away. The server owns where it is.
 - **Where the code lives:** the room (`shared/src/net/room.ts`) only talks through a `send` callback, so the same code runs on the Node server and inside the browser for solo play. Clients run the shared `Sim` in replica mode. M3 in the roadmap has the details.
+- **Inside the sim:** `Sim` (`shared/src/sim/sim.ts`) owns the physics world, the level and the state everyone shares (assemblies, players, pages, machines and so on). What happens to that state is split into systems beside it, each a class holding the `Sim` it works on and reached as a field of it: `movement`, `sight` (aiming and the camera), `placing`, `carrying`, `knocks`, `works` (the brick works), `working` (players at machines, and the power), `vacuuming`, `dogWorld`, `pageWork`, `hiding`, `gearHunt`, `sabotage` and `replication` (what clients are told, and how a replica mirrors it). A system reaches others through `this.sim`.
 
 ### Hidden information
 

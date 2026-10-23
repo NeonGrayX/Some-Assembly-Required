@@ -258,7 +258,11 @@ describe('saboteur tools', () => {
     const { sim, round, saboteur } = game(4);
     const p = sim.players.get(saboteur)!;
     // A real page lying in the open yard.
-    const page = sim.spawnPage(realPage(round.target, 3, round.stamp), { x: 6, y: 0, z: 4 });
+    const page = sim.pageWork.spawnPage(realPage(round.target, 3, round.stamp), {
+      x: 6,
+      y: 0,
+      z: 4,
+    });
     for (let t = 0; t < 30; t++) sim.step();
     const at = page.body!.translation();
     lookAt(sim, p, { x: at.x, y: 0, z: at.z + 1 }, at);

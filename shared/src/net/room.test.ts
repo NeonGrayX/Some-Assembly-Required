@@ -11,7 +11,7 @@ import { GAME_MODES, GEAR_IDS, gearBits } from '../gear.ts';
 import { MAP_IDS } from '../content/maps/index.ts';
 import type { Vec3 } from '../math.ts';
 import { MAKE_TICKS, WALK_SPEED } from '../sim/sim.ts';
-import type { PageItem, Player, Sim } from '../sim/sim.ts';
+import type { Player, Sim } from '../sim/sim.ts';
 import { loadedPress, machine } from '../sim/testing.ts';
 import { RANDOM_BUILD, SNAPSHOT_EVERY, decode, encode } from './protocol.ts';
 import type { ClientMsg, ServerMsg } from './protocol.ts';
@@ -698,7 +698,7 @@ describe('Room demo mode', () => {
     const shut = hideoutPartInWorld(fridge.def, false).centre;
 
     // Pick up a page lying in front of the fridge.
-    const page = sim.spawnPage(
+    const page = sim.pageWork.spawnPage(
       { step: 0, added: [], stamp: room.round!.stamp },
       dropSpot(sim.level, fridge.def),
     );
@@ -1110,7 +1110,7 @@ describe('cheating', () => {
     const sim = room.sim;
     const ada = sim.players.get(a)!;
     const page = [...sim.pages.values()].find((p) => p.hideout === null && p.step >= 0)!;
-    (sim as unknown as { takePage(p: Player, page: PageItem): void }).takePage(ada, page);
+    sim.pageWork.takePage(ada, page);
     run(1);
     const sent = (id: number) => msgs(id, 'page').filter((m) => m.p.id === page.id);
     expect(sent(a).at(-1)!.p.printed).not.toBeNull();
@@ -1118,13 +1118,13 @@ describe('cheating', () => {
 
     // A forger reprinting it in their pocket tells nobody else a thing.
     const seen = sent(b).length;
-    sim.reprintPocketPage(ada, { ...page.printed!, stamp: 'fake' });
+    sim.sabotage.reprintPocketPage(ada, { ...page.printed!, stamp: 'fake' });
     run(1);
     expect(sent(a).at(-1)!.p.printed!.stamp).toBe('fake');
     expect(sent(b)).toHaveLength(seen);
 
     // Tucked away in a hiding place, nobody can read it until it is found.
-    sim.hideInHideout(page, [...sim.hideouts.keys()][0]!);
+    sim.hiding.hideInHideout(page, [...sim.hideouts.keys()][0]!);
     run(1);
     for (const id of [a, b])
       expect(sent(id).at(-1)!.p).toMatchObject({ hidden: true, printed: null });

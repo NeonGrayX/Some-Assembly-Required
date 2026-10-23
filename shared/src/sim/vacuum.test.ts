@@ -80,7 +80,7 @@ describe('the vacuum', () => {
     expect(sim.vacuum.load).toBe(1);
     // The head goes where the crosshair does.
     look(sim, p, { x: at.x + 0.6, y: 0, z: at.z - 0.7 });
-    expect(sim.vacuumHead(p)).toMatchObject({ x: expect.closeTo(at.x + 0.6, 1) });
+    expect(sim.vacuuming.vacuumHead(p)).toMatchObject({ x: expect.closeTo(at.x + 0.6, 1) });
     run(sim, 30);
     sim.act(p.id, { kind: 'grab' });
     expect(sim.assemblies.has(aside.id)).toBe(false);
@@ -194,7 +194,7 @@ describe('the vacuum', () => {
     look(sim, p, vacuumRestPose(sim.vacuum).pos);
     sim.act(p.id, { kind: 'grab' });
     expect(sim.vacuum.heldBy).toBe(p.id);
-    sim.knockDown(p, { x: 0, y: 0, z: -1 });
+    sim.knocks.knockDown(p, { x: 0, y: 0, z: -1 });
     expect(sim.vacuum.heldBy).toBe(null);
   });
 

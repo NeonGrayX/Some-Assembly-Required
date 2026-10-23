@@ -754,7 +754,7 @@ export class Room {
     const pages = [...this.sim.pages.values()].sort((a, b) => order(a) - order(b));
     pages
       .slice(0, boardSlots(this.sim.level))
-      .forEach((page, i) => this.sim.pinToBoard(page, readingSlot(i)));
+      .forEach((page, i) => this.sim.pageWork.pinToBoard(page, readingSlot(i)));
   }
 
   /** Finishes the team's build on its baseplate, exactly as this round's pages show it. */
@@ -764,12 +764,12 @@ export class Room {
 
   /** Breaks the electrical panel now, as if its time had come. */
   demoPowerCut(): void {
-    if (this.round && this.phase === 'building') this.sim.breakPower();
+    if (this.round && this.phase === 'building') this.sim.working.breakPower();
   }
 
   /** Gets the power back on now, as if someone had fixed the panel. */
   demoPowerRestore(): void {
-    if (this.round && this.phase === 'building') this.sim.restorePower();
+    if (this.round && this.phase === 'building') this.sim.working.restorePower();
   }
 
   /** Clears every loose brick and piece off the map, leaving the team's build alone. */
@@ -1033,7 +1033,7 @@ export class Room {
   }
 
   private furniture(): FurnitureState {
-    return this.sim.furnitureState();
+    return this.sim.replication.furnitureState();
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */
@@ -1323,7 +1323,7 @@ export class Room {
 
 /**
  * The corkboard slot of the `i`th page in reading order. Seen from in front, each row's slots
- * run right to left (see `Sim.slotPose`).
+ * run right to left (see `Pages.slotPose`).
  */
 export function readingSlot(i: number): number {
   const row = Math.floor(i / 4);

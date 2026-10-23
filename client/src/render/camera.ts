@@ -108,7 +108,7 @@ export interface CameraPose {
 
 /**
  * The farthest point on the way from `from` to `to` where a camera keeping `radius` clear of
- * walls can sit without looking through one (`Sim.sightline`).
+ * walls can sit without looking through one (`Sight.sightline`).
  */
 export type Sightline = (from: Vec3, to: Vec3, radius: number) => Vec3;
 

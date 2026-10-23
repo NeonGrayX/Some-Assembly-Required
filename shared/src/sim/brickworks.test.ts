@@ -299,7 +299,7 @@ describe('the brick works', () => {
     expect(press.m.out[0]).toEqual({ kind: 'part', type: '2x4', colour: 'blue' });
     act(sim, p, { kind: 'drop' });
     // Nor with the vacuum (a click with it sucks, so try the other click too).
-    (sim as unknown as { takeVacuum(p: Player): void }).takeVacuum(p);
+    (sim as unknown as { vacuuming: { takeVacuum(p: Player): void } }).vacuuming.takeVacuum(p);
     expect(sim.vacuum.heldBy).toBe(p.id);
     aimAt(sim, p, press.outs[0]!);
     act(sim, p, { kind: 'place' });
@@ -310,7 +310,7 @@ describe('the brick works', () => {
     expect(sim.vacuum.heldBy).toBeNull();
     // A brick in hand: clicking the tray takes nothing, and drops nothing in it either.
     const brick = sim.spawnBrick('1x1', 'red', { x: press.stand.x, y: 1.2, z: press.stand.z });
-    (sim as unknown as { hold(p: Player, a: typeof brick): void }).hold(p, brick);
+    sim.carrying.hold(p, brick);
     takeOut(sim, p, press);
     expect(p.holding?.assemblyId).toBe(brick.id);
     expect(press.m.out[0]).toEqual({ kind: 'part', type: '2x4', colour: 'blue' });
@@ -387,7 +387,7 @@ describe('the brick works', () => {
     const p = sim.addPlayer();
     settle(sim);
     const brick = sim.spawnBrick('1x1', 'red', { x: 0, y: 1.2, z: 0 });
-    (sim as unknown as { hold(p: Player, a: typeof brick): void }).hold(p, brick);
+    sim.carrying.hold(p, brick);
     const dispenser = machine(sim, 'dispenser');
     lookAt(sim, p, dispenser.stand, dispenser.target);
     act(sim, p, { kind: 'mould', type: '2x4' });
@@ -478,7 +478,10 @@ describe('the brick works', () => {
           for (const view of ['third', 'first']) {
             if (view === 'third') aimFromBehind(sim, p, middle);
             else aimAt(sim, p, middle);
-            expect(sim.aim(p)?.owner, `${kind} ${slot} from ${dist} m, ${view} person`).toEqual({
+            expect(
+              sim.sight.aim(p)?.owner,
+              `${kind} ${slot} from ${dist} m, ${view} person`,
+            ).toEqual({
               kind: 'output',
               machineId: m.def.id,
               slot,
@@ -489,7 +492,7 @@ describe('the brick works', () => {
     }
     // Aimed at the machine itself, a click is still for the machine.
     lookAt(sim, p, at.press.stand, at.press.target);
-    expect(sim.aim(p)?.owner).toEqual({ kind: 'machine', machineId: at.press.m.def.id });
+    expect(sim.sight.aim(p)?.owner).toEqual({ kind: 'machine', machineId: at.press.m.def.id });
   });
 
   it('keeps what waits in an output area out of the way of a player walking up to it', () => {
@@ -622,7 +625,7 @@ describe('the brick works', () => {
     const press = loadedPress(sim, '2x4', 'red');
     lookAt(sim, p, press.stand, press.target);
     act(sim, p, { kind: 'grab' });
-    expect(sim.breakMachine(press.m.def.id)).toBe(true);
+    expect(sim.sabotage.breakMachine(press.m.def.id)).toBe(true);
     // It still comes out, for whoever stands by for it.
     expect(takeOut(sim, p, press)).toBe(true);
     expect(heldPart(sim, p)).toMatchObject({ type: '2x4', colour: 'red' });
@@ -655,10 +658,10 @@ describe('the brick works', () => {
     const dispenser = machine(sim, 'dispenser');
     lookAt(sim, p, dispenser.stand, dispenser.target);
     act(sim, p, { kind: 'mould', type: '1x2' });
-    const told = sim.furnitureState();
+    const told = sim.replication.furnitureState();
 
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
-    replica.replicaFurniture(told);
+    replica.replication.replicaFurniture(told);
     const part = { kind: 'part', type: '2x2', colour: 'blue' };
     expect(replica.machines.get(press.m.def.id)).toMatchObject({
       mould: '2x2',
@@ -677,16 +680,20 @@ describe('the brick works', () => {
     me.body.setTranslation({ x: press.stand.x, y: 0.86, z: press.stand.z }, true);
     replica.step();
     aimAt(replica, me, press.outs[0]!);
-    expect(replica.aim(me)?.owner).toEqual({ kind: 'output', machineId: press.m.def.id, slot: 0 });
+    expect(replica.sight.aim(me)?.owner).toEqual({
+      kind: 'output',
+      machineId: press.m.def.id,
+      slot: 0,
+    });
     // Once it is taken, the tray is empty there too.
-    replica.replicaFurniture({
+    replica.replication.replicaFurniture({
       ...told,
       machines: told.machines.map((m) =>
         m[0] === press.m.def.id ? [...m.slice(0, 7), [null], null] : m,
       ) as typeof told.machines,
     });
     aimAt(replica, me, press.outs[0]!);
-    expect(replica.aim(me)?.owner.kind).not.toBe('output');
+    expect(replica.sight.aim(me)?.owner.kind).not.toBe('output');
   });
 
   it('keeps each place in an output area inside the machine but for a lip out of its front', () => {
@@ -775,7 +782,7 @@ describe('working a machine', () => {
     const p = sim.addPlayer();
     settle(sim);
     const press = machine(sim, 'press');
-    sim.breakMachine(press.m.def.id);
+    sim.sabotage.breakMachine(press.m.def.id);
     lookAt(sim, p, press.stand, press.target);
     act(sim, p, { kind: 'grab' });
     expect(press.m.fixer).toBe(p.id);

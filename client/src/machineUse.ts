@@ -29,12 +29,12 @@ export function openPicker(
 ): MachineState | null {
   if (action.kind !== 'grab' && action.kind !== 'place') return null;
   if (g.sim.vacuum.heldBy === me.id) return null;
-  const hit = g.sim.aim(me);
+  const hit = g.sim.sight.aim(me);
   if (hit?.owner.kind !== 'machine' || !g.sim.mayUse(me, hit.point)) return null;
   const m = g.sim.machines.get(hit.owner.machineId);
   // A jammed machine only takes a click to clear it; one without power makes nothing to pick,
   // and nor does one still making something or with its output area full.
-  if (!m || m.jammed || !g.sim.machinesPowered) return null;
+  if (!m || m.jammed || !g.sim.working.machinesPowered) return null;
   const busy = m.making !== null || !m.out.includes(null);
   // What the silo and the dispenser make waits in their output areas, so the hands may be full.
   if (m.def.kind === 'silo' && !busy) {
@@ -79,7 +79,7 @@ export function machineHint(g: WorksGame, p: Player, m: MachineState): Hint {
     if (m.fixer !== null) return [`Someone is clearing the jam`];
     return [inline('Jammed, it makes nothing. ', 'use', ': clear the jam (stay here)')];
   }
-  if (!g.sim.machinesPowered) {
+  if (!g.sim.working.machinesPowered) {
     return ['No power: the machines are dead until someone fixes the electrical panel'];
   }
   const making = m.making?.made;

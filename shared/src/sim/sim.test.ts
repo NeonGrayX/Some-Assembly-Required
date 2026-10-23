@@ -79,22 +79,22 @@ describe('Sim', () => {
     const eye = sim.eye(p);
     const want = cameraPosition(eye, p.input);
     expect(want.z).toBeGreaterThan(6);
-    const ray = sim.sightline(p, eye, want);
-    const ball = sim.sightline(p, eye, want, 0.25);
+    const ray = sim.sight.sightline(p, eye, want);
+    const ball = sim.sight.sightline(p, eye, want, 0.25);
     const out = (at: Vec3) => length(sub(at, eye));
     expect(out(ray)).toBeLessThan(out(want) - 0.5);
     expect(ray.z).toBeLessThan(6);
     expect(out(ball)).toBeLessThan(out(ray));
     expect(out(ball)).toBeGreaterThan(out(ray) - 0.4);
     // The camera used for aiming is the plain line of sight.
-    expect(sim.camera(p)).toEqual(ray);
+    expect(sim.sight.camera(p)).toEqual(ray);
     // Out in the open nothing holds it back.
     p.body.setTranslation({ x: -6, y: 0.86, z: -2 }, true);
     settle(sim, 2);
     const open = sim.eye(p);
     const free = cameraPosition(open, p.input);
-    expect(sim.sightline(p, open, free)).toEqual(free);
-    expect(sim.sightline(p, open, free, 0.25)).toEqual(free);
+    expect(sim.sight.sightline(p, open, free)).toEqual(free);
+    expect(sim.sight.sightline(p, open, free, 0.25)).toEqual(free);
   });
 
   it('leaves the camera out behind a lamp post, and brings it in only out of the post itself', () => {
@@ -104,11 +104,11 @@ describe('Sim', () => {
     // Out in the yard, the lamp post north of the house's front door between camera and eyes.
     const eye = v3(0, 1.5, -5.5);
     const behind = v3(0, 1.8, -9.5);
-    expect(sim.sightline(p, eye, behind)).toEqual(behind);
-    expect(sim.sightline(p, eye, behind, 0.25)).toEqual(behind);
+    expect(sim.sight.sightline(p, eye, behind)).toEqual(behind);
+    expect(sim.sight.sightline(p, eye, behind, 0.25)).toEqual(behind);
     // In the post: in front of it instead, and clear of it.
     const inPost = v3(0, 1.5, -7.5);
-    const ball = sim.sightline(p, eye, inPost, 0.25);
+    const ball = sim.sight.sightline(p, eye, inPost, 0.25);
     expect(ball.z).toBeGreaterThan(-7.5 + 0.07 + 0.2);
     expect(ball.z).toBeLessThan(-7.5 + 0.07 + 0.3);
   });
@@ -123,8 +123,8 @@ describe('Sim', () => {
     expect(indoors(HOUSE, inside)).toBe(true);
     expect(indoors(HOUSE, outside)).toBe(false);
     for (const radius of [0, 0.25]) {
-      expect(indoors(HOUSE, sim.sightline(p, inside, v3(0, 2, 3), radius))).toBe(true);
-      expect(indoors(HOUSE, sim.sightline(p, outside, v3(0, 2, 8.5), radius))).toBe(false);
+      expect(indoors(HOUSE, sim.sight.sightline(p, inside, v3(0, 2, 3), radius))).toBe(true);
+      expect(indoors(HOUSE, sim.sight.sightline(p, outside, v3(0, 2, 8.5), radius))).toBe(false);
     }
   });
 
@@ -378,7 +378,7 @@ describe('Sim', () => {
     const plate = [...sim.assemblies.values()].find((a) => a.anchored)!;
     lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
     settle(sim, 30);
-    expect(sim.snapPreview(p)).not.toBeNull();
+    expect(sim.placing.snapPreview(p)).not.toBeNull();
     sim.act(p.id, { kind: 'place' });
     expect(p.holding).toBeNull();
     expect(plate.grid.size).toBe(2);
@@ -407,7 +407,7 @@ describe('Sim', () => {
     const ahead = rotate(plate.body.rotation(), v3(0, 0, 1.3));
     lookAt(sim, p, add(side, ahead), side);
     settle(sim, 30);
-    const preview = sim.snapPreview(p);
+    const preview = sim.placing.snapPreview(p);
     // Half a plate up and half a plate back, in the headlight's recess, right on its stud.
     expect(preview?.bricks[0]?.placement).toMatchObject({
       type: 'tile1x1',
@@ -439,7 +439,7 @@ describe('Sim', () => {
     grab();
     lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
     settle(sim, 30);
-    const first = sim.snapPreview(p)!.bricks[0]!.placement;
+    const first = sim.placing.snapPreview(p)!.bricks[0]!.placement;
     sim.act(p.id, { kind: 'place' });
     expect(first.y).toBe(1);
 
@@ -454,7 +454,7 @@ describe('Sim', () => {
     const aimAt = (target: Vec3) => {
       lookAt(sim, p, { x: target.x, y: 0, z: target.z + 1.3 }, target);
       settle(sim, 2);
-      return sim.snapPreview(p)?.bricks[0]!.placement.y;
+      return sim.placing.snapPreview(p)?.bricks[0]!.placement.y;
     };
     expect(aimAt(onTop)).toBe(first.y + BRICK_TYPES[first.type].plates);
     expect(aimAt(past)).toBe(1);
@@ -492,7 +492,7 @@ describe('Sim', () => {
     sim.act(p.id, { kind: 'rotate' });
     lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
     settle(sim, 30);
-    const preview = sim.snapPreview(p);
+    const preview = sim.placing.snapPreview(p);
     expect(preview?.bricks).toHaveLength(2);
     sim.act(p.id, { kind: 'place' });
     expect(p.holding).toBeNull();
@@ -522,13 +522,13 @@ describe('Sim', () => {
     expect(p.holding!.flip ?? false).toBe(false);
     lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
     settle(sim, 2);
-    expect(orientationOf(sim.snapPreview(p)!.bricks[0]!.placement).y).toBe('+y');
+    expect(orientationOf(sim.placing.snapPreview(p)!.bricks[0]!.placement).y).toBe('+y');
     // Flipped (E), it lies on its back on a stud, and stays so as it turns.
     sim.act(p.id, { kind: 'flip' });
     sim.act(p.id, { kind: 'rotate' });
     expect(p.holding!.flip).toBe(true);
     settle(sim, 2);
-    const flipped = sim.snapPreview(p)!.bricks[0]!.placement;
+    const flipped = sim.placing.snapPreview(p)!.bricks[0]!.placement;
     expect(orientationOf(flipped).y).not.toBe('+y');
     // Placed flipped, its back takes the stud.
     sim.act(p.id, { kind: 'place' });
@@ -569,18 +569,18 @@ describe('Sim', () => {
     pickUp(one);
     lookAt(sim, p, { x: 0, y: 0, z: 1.3 }, { x: 0, y: 0.04, z: 0 });
     settle(sim, 2);
-    const square = sim.snapPreview(p)!;
+    const square = sim.placing.snapPreview(p)!;
     expect(square.turned45).toBeUndefined();
     const rot = p.holding!.rot;
     // On one stud alone: R turns it 45°, onto a lattice of its own, then on to the next quarter.
     sim.act(p.id, { kind: 'rotate' });
     expect(p.holding).toMatchObject({ rot, eighth: true });
-    const turned = sim.snapPreview(p)!;
+    const turned = sim.placing.snapPreview(p)!;
     expect(turned.turned45).toBe(true);
     expect(turned.bricks[0]!.placement.frame).toBeDefined();
     sim.act(p.id, { kind: 'rotate' });
     expect(p.holding).toMatchObject({ rot: (rot + 1) % 4, eighth: false });
-    expect(sim.snapPreview(p)!.bricks[0]!.placement.frame).toBeUndefined();
+    expect(sim.placing.snapPreview(p)!.bricks[0]!.placement.frame).toBeUndefined();
     sim.act(p.id, { kind: 'rotate' });
     expect(p.holding!.eighth).toBe(true);
     sim.act(p.id, { kind: 'place' });
@@ -599,7 +599,7 @@ describe('Sim', () => {
     pickUp(cap);
     const top = sim.brickPose(plate, placed).pos;
     lookAt(sim, p, { x: top.x, y: 0, z: top.z + 1.1 }, { ...top, y: top.y + 0.06 });
-    const on = sim.snapPreview(p)!.bricks[0]!.placement;
+    const on = sim.placing.snapPreview(p)!.bricks[0]!.placement;
     expect(frameKey(on.frame)).toBe(frameKey(placed.frame));
     // A 2x4 in hand never hangs on one stud: R turns it a quarter.
     sim.act(p.id, { kind: 'drop' });
@@ -626,7 +626,7 @@ describe('Sim', () => {
     sim.act(p.id, { kind: 'grab' });
     expect(p.holding?.assemblyId).toBe(plate.id);
     lookAt(sim, p, { x: 3, y: 0, z: 2 }, { x: 3.2, y: 0.12, z: 1.1 });
-    expect(sim.snapPreview(p)).toBeNull();
+    expect(sim.placing.snapPreview(p)).toBeNull();
   });
 
   it('breaks a tall tower that is dropped on the floor', () => {

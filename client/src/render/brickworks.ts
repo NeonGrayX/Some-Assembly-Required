@@ -507,7 +507,7 @@ export abstract class MachineLook {
   private readonly kept = new Map<number, Kept & { until: number }>();
   /**
    * What was in it when last drawn: a copy, as the replica changes its machine's state in place
-   * (see `Sim.replicaFurniture`), to tell what has gone from it since.
+   * (see `Replication.replicaFurniture`), to tell what has gone from it since.
    */
   private seen: MachineState | null = null;
   /** When it was last moved on to (seconds; see `tick`). */

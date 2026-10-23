@@ -265,7 +265,7 @@ input.onToggleReader = () => {
   const g = game;
   const me = g?.me;
   if (!g || !me || !readerEl.classList.contains('hidden')) return closeReader();
-  const hit = g.sim.aim(me);
+  const hit = g.sim.sight.aim(me);
   const aimed = hit?.owner.kind === 'page' ? g.sim.pages.get(hit.owner.pageId) : undefined;
   if (aimed) {
     if (!canRead(g, aimed.body?.translation() ?? me.body.translation())) return notice(TOO_DARK);
@@ -579,7 +579,7 @@ function pick(action: Action): void {
 function markOutput(g: ClientGame, action: Action): Action {
   if (action.kind !== 'grab' && action.kind !== 'place') return action;
   const me = g.me;
-  return me && g.sim.aim(me)?.owner.kind === 'output' ? { ...action, output: true } : action;
+  return me && g.sim.sight.aim(me)?.owner.kind === 'output' ? { ...action, output: true } : action;
 }
 
 /**
@@ -949,7 +949,7 @@ function hintFor(
   const brick = a.grid.bricks.get(o.brickId);
   if (!brick) return [];
   if (BRICK_TYPES[brick.type].fixture) {
-    if (g.sim.heavyFor(p)) {
+    if (g.sim.carrying.heavyFor(p)) {
       return a.anchored
         ? [does('carefulUse', 'lift the heavy build (slowly, or wear the back brace)')]
         : [does('use', 'carry the build (slowly, without the back brace)')];
@@ -1541,7 +1541,7 @@ function frame(now: number): void {
     const pose = rig.update(
       { eye, yaw: input.state.yaw, pitch: input.state.pitch, firstPerson: !fallen && closeUp },
       elapsed,
-      (from, to, radius) => g.sim.sightline(me, from, to, radius),
+      (from, to, radius) => g.sim.sight.sightline(me, from, to, radius),
     );
     view.camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
     view.camera.rotation.set(pose.pitch, pose.yaw, 0, 'YXZ');
@@ -1553,14 +1553,14 @@ function frame(now: number): void {
 
   profiler.next('scene.bricks');
   const held = me?.holding ? g.sim.assemblies.get(me.holding.assemblyId) : undefined;
-  const preview = me ? g.sim.snapPreview(me) : null;
+  const preview = me ? g.sim.placing.snapPreview(me) : null;
   const inspectors = g.round?.inspectors ?? g.sim.sites.map(() => IDLE_INSPECTOR);
   const inspector = inspectors[g.mySite] ?? IDLE_INSPECTOR;
   view.syncAssemblies(g.sim.assemblies, g.sim.level.svgs);
   profiler.next('scene.players');
   view.syncDog(g.sim.dog, elapsed, gameNow() / 1000);
   const vacuumBy = g.sim.vacuum.heldBy === null ? null : g.sim.players.get(g.sim.vacuum.heldBy);
-  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuumHead(vacuumBy) : null, elapsed);
+  view.syncVacuum(g.sim.vacuum, vacuumBy ? g.sim.vacuuming.vacuumHead(vacuumBy) : null, elapsed);
   view.syncPlayers(
     g.sim.players,
     g.myId,
@@ -1572,12 +1572,12 @@ function frame(now: number): void {
       world: g.sim.world,
     },
     elapsed,
-    (id) => g.sim.fixing(id),
+    (id) => g.sim.working.fixing(id),
   );
   profiler.next('scene.props');
   view.syncPages(g.sim.pages, (page) => pageArt(page.printed));
   view.syncGear(g.sim.gear);
-  view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {}, g.sim.machinesPowered);
+  view.syncMachines(g.sim.machines, g.sim.level.svgs ?? {}, g.sim.working.machinesPowered);
   profiler.next('scene.bricks');
   view.showGhost(preview, held);
   view.showInspectors(inspectors, roundTarget());
@@ -1616,7 +1616,7 @@ function frame(now: number): void {
     updatePocket(g, me);
   }
 
-  const aim = me ? g.sim.aim(me) : null;
+  const aim = me ? g.sim.sight.aim(me) : null;
   // Whether R turns the single part in hand 45° where it would go: it is turned so already, or
   // it would hang on one stud alone there.
   const single = me?.holding && g.sim.assemblies.get(me.holding.assemblyId);
@@ -1626,7 +1626,9 @@ function frame(now: number): void {
     !!preview &&
     !!single &&
     isLooseBrick(single) &&
-    (me.holding.eighth ? !!preview.turned45 : !!g.sim.snapPreview(me, { eighth: true })?.turned45);
+    (me.holding.eighth
+      ? !!preview.turned45
+      : !!g.sim.placing.snapPreview(me, { eighth: true })?.turned45);
   hintEl.textContent =
     input.locked && me ? say(hintFor(g, me, aim, preview !== null, turns45)) : '';
   if (input.touch) {

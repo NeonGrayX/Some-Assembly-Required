@@ -286,18 +286,18 @@ describe('Gear Hunt', () => {
   it('keeps a padlocked hiding place shut for everyone but the key ring wearer', () => {
     const { sim, p } = setup();
     const h = [...sim.hideouts.values()].find((x) => x.locked)!;
-    sim.toggleHideout(h.def.id, p.id);
+    sim.hiding.toggleHideout(h.def.id, p.id);
     expect(h.open).toBe(false);
     expect(sim.events.map((e) => e.kind)).toContain('locked');
     sim.events = [];
     p.gear.add('keys');
-    sim.toggleHideout(h.def.id, p.id);
+    sim.hiding.toggleHideout(h.def.id, p.id);
     expect(h.open).toBe(true);
     expect(h.locked).toBe(false);
     expect(sim.events.map((e) => e.kind)).toEqual(['unlock', 'open']);
     // Unlocked, it opens for anyone from now on.
-    sim.toggleHideout(h.def.id, 2);
-    sim.toggleHideout(h.def.id, 2);
+    sim.hiding.toggleHideout(h.def.id, 2);
+    sim.hiding.toggleHideout(h.def.id, 2);
     expect(h.open).toBe(true);
   });
 
@@ -306,7 +306,7 @@ describe('Gear Hunt', () => {
     const item = [...sim.gear.values()].find((g) => g.hideout !== null)!;
     const h = sim.hideouts.get(item.hideout!)!;
     p.gear.add('keys');
-    sim.toggleHideout(h.def.id, p.id);
+    sim.hiding.toggleHideout(h.def.id, p.id);
     run(30);
     expect(item.hideout).toBeNull();
     expect(item.body).not.toBeNull();
@@ -355,7 +355,7 @@ describe('Gear Hunt', () => {
       if (boots) p.gear.add('boots');
       for (let i = 0; i < 30; i++) sim.step();
       p.input.yaw = 0;
-      sim.dropTrap(p);
+      sim.knocks.dropTrap(p);
       for (let i = 0; i < 60; i++) sim.step();
       p.input.forward = 1;
       for (let i = 0; i < 90; i++) sim.step();
@@ -371,7 +371,7 @@ describe('Gear Hunt', () => {
     // Wear it, however it was hidden.
     if (leash.hideout !== null) {
       p.gear.add('keys');
-      sim.toggleHideout(leash.hideout, p.id);
+      sim.hiding.toggleHideout(leash.hideout, p.id);
       run(30);
     }
     pickUp(sim, p, leash);
@@ -393,7 +393,7 @@ describe('Gear Hunt', () => {
     expect(leash.body).toBeNull();
     expect(sim.events.map((e) => e.kind)).toContain('leash');
     run(60 * 20);
-    const pole = sim.dogPole();
+    const pole = sim.gearHunt.dogPole();
     expect(Math.hypot(dog.feet.x - pole.x, dog.feet.z - pole.z)).toBeLessThan(0.5);
     expect(dog.mode).toBe('sit');
     // Hungry or not, it stays put.

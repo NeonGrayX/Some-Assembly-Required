@@ -304,7 +304,7 @@ describe('Round', () => {
     const { sim, p, run } = setup();
     const panel = sim.panel!;
     expect(panel.y).toBeLessThan(BASEMENT_FLOOR + 2);
-    sim.breakPower();
+    sim.working.breakPower();
     expect(sim.power.on).toBe(false);
     // In front of it in the basement, looking at it.
     const front = HOUSE.boxes.find((b) => b.model === 'panel')!;
@@ -318,7 +318,7 @@ describe('Round', () => {
       p.input.pitch = Math.atan2(panel.y - eye.y, Math.hypot(panel.x - eye.x, panel.z - eye.z));
     };
     look();
-    expect(sim.aim(p)?.owner).toEqual({ kind: 'panel' });
+    expect(sim.sight.aim(p)?.owner).toEqual({ kind: 'panel' });
     sim.act(p.id, { kind: 'grab' });
     expect(sim.power.fixer).toBe(p.id);
     // Walking off halfway leaves it broken.
