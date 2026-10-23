@@ -147,7 +147,7 @@ Page images are **rendered at runtime** from this data (an isometric Three.js re
 
 ### Build editor
 
-An in-browser editor (`client/src/editor.ts`, **Build editor** on the main menu) that reuses the game's snapping code to place bricks and split them into steps, and imports and exports build files. This is how new target builds are made.
+An in-browser editor (`client/src/editor.ts`, **Build editor** on the main menu) that reuses the game's snapping code to place bricks and split them into steps, and imports and exports build files. This is how new target builds are made. Its undo history, its brick and colour pickers and its live build file pane are classes of their own in `client/src/editor/`.
 
 ## Client architecture
 

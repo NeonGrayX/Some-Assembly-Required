@@ -1,86 +1,60 @@
 import RAPIER from '@dimforge/rapier3d-compat';
-import * as THREE from 'three';
 import {
-  BRICK_TYPES,
-  brickName,
   DT,
   catchUp,
   EYE_OFFSET,
   GEAR_IDS,
   LIGHTHOUSE,
   MAPS,
-  RANDOM_BUILD,
-  VACUUM_CAPACITY,
   buildById,
   canFlip,
-  gearName,
   add,
   isLooseBrick,
-  tiredFactor,
-  length,
-  litAt,
-  shapeName,
-  sub,
   v3,
-  pageName,
-  pageNumber,
   loadNavCore,
-  viewDir,
-  withoutColours,
 } from '@sar/shared';
-import type {
-  Action,
-  AimHit,
-  Beam,
-  InspectionReport,
-  InspectorState,
-  Player,
-  PrintedPage,
-  SimEvent,
-  TargetBuild,
-  Vec3,
-} from '@sar/shared';
+import type { Action, InspectorState, PrintedPage } from '@sar/shared';
 import { Sfx } from './audio.ts';
-import { hearing } from './carscene/gadgets.ts';
 import { Benchmark } from './bench/bench.ts';
 import { BotArena } from './bench/arena.ts';
 import { BenchReport } from './bench/report.ts';
 import { BenchSetup } from './bench/setup.ts';
 import type { BenchRun, FrameRun } from './bench/setup.ts';
 import { gameNow } from './clock.ts';
+import { GameEvents } from './gameEvents.ts';
 import { Input, toggleFullscreen } from './input.ts';
-import { KEY_LABELS, does, inline, sayHint, touchLabels } from './hints.ts';
+import { KEY_LABELS, sayHint, touchLabels } from './hints.ts';
 import type { Hint } from './hints.ts';
-import { machineHint, outputHint, openPicker, toolHint } from './machineUse.ts';
+import { openPicker } from './machineUse.ts';
+import { hintFor } from './aimHints.ts';
 import { loadSettings } from './settings.ts';
 import { localConnection, takeSoloServerMs, withLag, wsConnection } from './net/connection.ts';
 import type { Connection } from './net/connection.ts';
 import { ClientGame } from './net/game.ts';
 import { PagePrinter, pageContent, printIndex, printUnreadable } from './render/pages.ts';
-import { printsVersion } from './render/prints.ts';
 import { ResultsView } from './render/results.ts';
 import { CameraRig } from './render/camera.ts';
 import { MenuOrbit } from './render/menuOrbit.ts';
-import { HIDEOUT_TRAVEL } from './render/furniture.ts';
 import { loadPropFiles } from './render/propFiles.ts';
 import { loadPaintings } from './carscene/paintCache.ts';
 import { view } from './worldView.ts';
 import { AppBar } from './ui/appbar.ts';
+import { BoxArt } from './ui/boxArt.ts';
 import { DemoPanel } from './ui/demo.ts';
 import { Dock } from './ui/dock.ts';
-import { setText } from './ui/dom.ts';
+import { setText, typing } from './ui/dom.ts';
 import { defaultBuildName, exportJobSite } from './ui/exportBuild.ts';
 import { LobbyPanel, Menu } from './ui/lobby.ts';
 import { loadingDone, loadingStep } from './ui/loading.ts';
 import { PerfPanel } from './ui/perf.ts';
+import { PageReader } from './ui/reader.ts';
+import { ReportPanel } from './ui/reportPanel.ts';
 import { profiler } from './profiler.ts';
 import { SettingsPanel } from './ui/settings.ts';
 import { SocialUI } from './ui/social.ts';
 import { MachinePicker } from './ui/machinePicker.ts';
 import { TouchControls, useLabel } from './ui/touch.ts';
-import { Voice } from './voice.ts';
-import type { Listener, Speaker } from './voice.ts';
-import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
+import { VoiceChat } from './voiceChat.ts';
 import './style.css';
 
 // Levels are built at once, so the prop model files are read first.
@@ -111,8 +85,8 @@ const settingsPanel = new SettingsPanel(
   (s, changed) => {
     input.sensitivity = s.sensitivity;
     sfx.setVolume(s.volume, s.muted);
-    if (changed === 'mic' && voice) {
-      const v = voice;
+    const v = voiceChat.voice;
+    if (changed === 'mic' && v) {
       void v.setMode(s.mic).then(() => settingsPanel.setMicProblem(v.micError));
     }
     if (changed === 'graphics') view.graphics.apply(s.graphics);
@@ -122,6 +96,13 @@ const settingsPanel = new SettingsPanel(
     }
   },
   () => input.freeMouse(),
+);
+const voiceChat = new VoiceChat(
+  document.getElementById('mic')!,
+  sfx,
+  settings,
+  settingsPanel,
+  () => solo,
 );
 const params = new URLSearchParams(location.search);
 const lagMs = Number(params.get('lag') ?? 0);
@@ -134,11 +115,8 @@ const hintEl = $('hint');
 const statusEl = $('status');
 const perf = new PerfPanel(statusEl, () => (solo ? null : (game?.pings ?? [])));
 const timerEl = $('timer');
-const pocketEl = $('pocket');
-const readerEl = $('reader');
-const reportEl = $('report');
 const bannerEl = $('banner');
-let reportPinned = false;
+const report = new ReportPanel($('report'));
 
 // In demo mode "again" goes straight into a new round with the demo panel's choices.
 const results = new ResultsView(
@@ -165,121 +143,17 @@ const pageArt = (printed: PrintedPage | null): HTMLCanvasElement => {
   // The build's pictures are the same on every page, so they are left out of the key.
   return printer.page(content, JSON.stringify({ ...content, svgs: undefined }));
 };
+const reader = new PageReader($('reader'), $('pocket'), pageArt, roundTarget, notice);
 const social = new SocialUI(() => game, input);
+const gameEvents = new GameEvents(sfx, () => game, notice, voiceChat);
 
-// Box art in the corner, so everyone knows what they are building. In the lobby it shows the
-// host's pick for the next round, or a question mark when the round picks one at random.
-const targetEl = $('target');
-/** The build whose art is shown (null for the question mark); undefined before the first. */
-let shownBoxArt: TargetBuild | null | undefined;
-let shownBoxArtGrey = false;
-let shownBoxArtPrints = -1;
-let shownBoxArtFree = false;
-function updateBoxArt(): void {
-  const g = game;
-  const next = g?.phase === 'lobby' ? g.lobby.build : null;
-  const build = next === RANDOM_BUILD ? null : (buildById(next ?? '') ?? designTarget());
-  // A free build has no box art: there is nothing to build but what you like.
-  const free = (g?.phase === 'lobby' ? g.lobby.mode : g?.mode) === 'free';
-  if (
-    build === shownBoxArt &&
-    free === shownBoxArtFree &&
-    view.colourBlind === shownBoxArtGrey &&
-    printsVersion() === shownBoxArtPrints
-  )
-    return;
-  shownBoxArt = build;
-  shownBoxArtFree = free;
-  shownBoxArtGrey = view.colourBlind;
-  shownBoxArtPrints = printsVersion();
-  targetEl.classList.toggle('free', free);
-  if (free) {
-    setText(targetEl.querySelector('.eyebrow')!, 'Free build');
-    setText(targetEl.querySelector('.name')!, 'Build anything');
-    setText(
-      targetEl.querySelector('small')!,
-      'No plans and no clock. Esc, then Export build, saves it as a build file. Done twice ends the session.',
-    );
-    return;
-  }
-  setText(targetEl.querySelector('.eyebrow')!, 'Build this');
-  setText(
-    targetEl.querySelector('small')!,
-    "Colours change every round: the hidden pages and the master index show this round's.",
-  );
-  targetEl.querySelector('.name')!.textContent = build?.name ?? 'a surprise build';
-  const ctx = targetEl.querySelector('canvas')!.getContext('2d')!;
-  ctx.clearRect(0, 0, 160, 160);
-  if (build) {
-    ctx.drawImage(printer.boxArt(build), 0, 0, 160, 160);
-  } else {
-    ctx.fillStyle = '#5c5f62';
-    ctx.font = 'bold 110px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('?', 80, 86);
-  }
-}
-updateBoxArt();
+const boxArt = new BoxArt($('target'), printer, designTarget);
+boxArt.update(game);
 
 input.holding = () => game?.me?.holding != null || game?.me?.tool != null;
 input.vacuuming = () => !!game?.me && game.sim.vacuum.heldBy === game.me.id;
 input.onToggleHelp = () => dock.togglePinned();
-/** Opens the reader on a page, with an optional line saying where it came from. */
-function openReader(art: HTMLCanvasElement, caption = ''): void {
-  const big = document.createElement('canvas');
-  big.width = art.width;
-  big.height = art.height;
-  big.getContext('2d')!.drawImage(art, 0, 0);
-  const label = document.createElement('div');
-  label.className = 'caption';
-  label.textContent = caption;
-  readerEl.replaceChildren(...(caption ? [label] : []), big);
-  readerEl.classList.remove('hidden');
-}
-
-function closeReader(): void {
-  readerEl.classList.add('hidden');
-  readerShown = null;
-}
-
-/** What the reader shows: 'pocket', 'shown' (held up by someone) or a page id. */
-let readerShown: string | null = null;
-
-/** Every headlamp's beam: from its wearer's eye, the way they look. */
-function beams(g: ClientGame): Beam[] {
-  return [...g.sim.players.values()]
-    .filter((p) => p.gear.has('headlamp'))
-    .map((p) => ({ eye: g.sim.eye(p), dir: viewDir(p.input.yaw, p.input.pitch) }));
-}
-
-/** Whether a page at `at` can be read: not in a gear hunt's dark house, except in a beam. */
-function canRead(g: ClientGame, at: Vec3): boolean {
-  if (g.mode !== 'gear') return true;
-  return litAt(g.sim.level, at, g.night, g.sim.power.on, beams(g));
-}
-const TOO_DARK = 'Too dark to read here. Take it outside, or get the headlamp\u2019s beam on it.';
-
-// Q reads the page you are looking at (wherever it lies), otherwise the one in your pocket.
-input.onToggleReader = () => {
-  const g = game;
-  const me = g?.me;
-  if (!g || !me || !readerEl.classList.contains('hidden')) return closeReader();
-  const hit = g.sim.sight.aim(me);
-  const aimed = hit?.owner.kind === 'page' ? g.sim.pages.get(hit.owner.pageId) : undefined;
-  if (aimed) {
-    if (!canRead(g, aimed.body?.translation() ?? me.body.translation())) return notice(TOO_DARK);
-    openReader(pageArt(aimed.printed), 'Reading it where it lies');
-    readerShown = `page:${aimed.id}`;
-  } else if (me.page !== null) {
-    const page = g.sim.pages.get(me.page);
-    if (page) {
-      if (!canRead(g, me.body.translation())) return notice(TOO_DARK);
-      openReader(pageArt(page.printed));
-      readerShown = 'pocket';
-    }
-  }
-};
+input.onToggleReader = () => reader.toggle(game);
 // Number keys: the saboteur's tools, or in a gear hunt the gear to take off and hand over.
 input.onDigit = (n) => {
   const g = game;
@@ -294,32 +168,27 @@ input.onDigit = (n) => {
 };
 // Esc closes an open manual page before it frees the mouse.
 input.onEscape = () => {
-  if (readerEl.classList.contains('hidden')) return false;
-  closeReader();
+  if (!reader.isOpen) return false;
+  reader.close();
   return true;
 };
 // Outside full screen the browser frees the mouse on Esc before the game hears it, so close the
 // page and take the mouse straight back. The game frees it on purpose for the chat, settings,
 // meetings and results; leave the page open for those.
 input.onEscapeUnlock = () => {
-  if (readerEl.classList.contains('hidden')) return;
+  if (!reader.isOpen) return;
   if (social.chatOpen || settingsPanel.isOpen || game?.meeting || results.visible) return;
   if (picker.isOpen) return;
-  closeReader();
+  reader.close();
   input.relock();
 };
 input.onShow = () => {
   if (game?.me?.page != null) game.send({ t: 'show' });
 };
-input.onToggleReport = () => (reportPinned = !reportPinned);
+input.onToggleReport = () => (report.pinned = !report.pinned);
 input.onChat = () => {
   if (game) social.openChat();
 };
-/** Whether a key went to a text box or a list on the page rather than to the game. */
-const typing = (e: Event) =>
-  e.target instanceof HTMLInputElement ||
-  e.target instanceof HTMLTextAreaElement ||
-  e.target instanceof HTMLSelectElement;
 // With the mouse free (in a meeting, or after Esc) Enter still opens the chat.
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && game && !input.locked && !typing(e) && !social.chatOpen) {
@@ -535,7 +404,7 @@ exportBtn.addEventListener('click', () => {
 const touch = new TouchControls(input, {
   tap: () => {
     // A tap on the open page puts it away, as Esc does; anywhere else it is a click.
-    if (!readerEl.classList.contains('hidden')) return closeReader();
+    if (reader.isOpen) return reader.close();
     input.act({ kind: input.holding() ? 'place' : 'grab' });
   },
   read: () => input.onToggleReader(),
@@ -546,7 +415,7 @@ const touch = new TouchControls(input, {
     input.freeMouse();
     dock.open('help');
   },
-  talk: (down) => talkKey(down),
+  talk: (down) => voiceChat.talk(down),
   fullscreen: () => void toggleFullscreen(),
 });
 const picker = new MachinePicker((a) => pick(a), input);
@@ -595,8 +464,8 @@ function pickFirst(g: ClientGame, action: Action): boolean {
 }
 
 // The open page covers the controls; a tap anywhere on it puts it away.
-readerEl.addEventListener('click', () => {
-  if (input.touch) closeReader();
+reader.el.addEventListener('click', () => {
+  if (input.touch) reader.close();
 });
 
 /** Back to the main menu, from a game (lobby, round or demo) or the build editor. */
@@ -615,9 +484,9 @@ function toMenu(): void {
     solo = false;
     demo.stop();
     results.hide();
-    closeReader();
+    reader.close();
     social.closeChat(false);
-    reportPinned = false;
+    report.pinned = false;
     dock.unpin();
     noticeEl.classList.add('hidden');
     input.freeMouse();
@@ -699,638 +568,6 @@ const IDLE_INSPECTOR: InspectorState = {
   scannedVersion: -1,
 };
 
-function hintFor(
-  g: ClientGame,
-  p: Player,
-  hit: AimHit | null,
-  canSnap: boolean,
-  turns45 = false,
-): Hint {
-  const o = hit?.owner;
-  // Rival teams: the other side is for looking at (its ground too is only ground).
-  if (
-    hit &&
-    o &&
-    o.kind !== 'static' &&
-    o.kind !== 'player' &&
-    o.kind !== 'ground' &&
-    !g.sim.mayUse(p, hit.point)
-  ) {
-    return ["The other team's side: you can look, but only touch things on your own"];
-  }
-  const power = g.sim.power;
-  if (power.fixer === p.id) {
-    return [`Fixing the electrical panel… ${Math.round(power.progress * 100)}% (stay here)`];
-  }
-  if (o?.kind === 'panel') {
-    if (power.dead) return ['The panel is dead this round. The headlamp lights the house'];
-    if (power.on && g.role === 'saboteur')
-      return ['Electrical panel', does('tamper', 'tamper with it (cut the power)')];
-    if (power.on) return ['Electrical panel: the power is on'];
-    if (power.fixer !== null) return ['Someone is fixing the electrical panel'];
-    return [does('use', 'fix the electrical panel and get the lights back on')];
-  }
-  if (o?.kind === 'catapult') {
-    return [
-      g.phase === 'building'
-        ? 'The catapult only throws between rounds'
-        : 'Catapult: step into the bucket at the back to be thrown across the yard',
-    ];
-  }
-  if (o?.kind === 'page') {
-    const page = g.sim.pages.get(o.pageId);
-    const what = page?.step === -1 ? 'the master index' : 'this page';
-    const take = does('use', p.page === null ? `pick up ${what}` : `swap your pocket for ${what}`);
-    if (page && !page.printed) {
-      const reader = g.reader !== null ? g.nameOf(g.reader) : 'the reader';
-      return [take, `only ${reader} can read it: bring it to them or pin it on the board`];
-    }
-    return [take, does('read', 'read it here')];
-  }
-  if (
-    g.role === 'reader' &&
-    (o?.kind === 'machine' || o?.kind === 'output' || o?.kind === 'brick' || o?.kind === 'vacuum')
-  ) {
-    return ["The reader can't touch bricks: tell the builders what the pages say"];
-  }
-  if (o?.kind === 'machine') {
-    const m = g.sim.machines.get(o.machineId);
-    const fixing = m?.fixer === p.id;
-    if (fixing) return [`Clearing the jam… ${Math.round(m.progress * 100)}% (stay here)`];
-    if (m) {
-      const hint = machineHint(g, p, m);
-      return g.role === 'saboteur' && !m.jammed
-        ? [...hint, does('tamper', 'tamper with it')]
-        : hint;
-    }
-  }
-  if (o?.kind === 'output') {
-    const made = g.sim.machines.get(o.machineId)?.out[o.slot];
-    if (made) return outputHint(g, p, made);
-  }
-  if (o?.kind === 'gear') {
-    const item = g.sim.gear.get(o.gearId);
-    return item ? [does('use', `put on the ${gearName(item.kind).toLowerCase()}`)] : [];
-  }
-  if (o?.kind === 'dog') {
-    if (g.sim.dog.leashed) return ['The dog is on its leash now'];
-    if (p.gear.has('leash')) return [does('use', 'leash the dog to the pole by its kennel')];
-    if (p.treat) {
-      return [does('use', 'give the dog your treat (it drops what it carries and follows you)')];
-    }
-    if (g.sim.dog.page !== null) {
-      return [does('use', 'grab its collar, so it lets go of the page')];
-    }
-    return p.holding ? ['Put down what you carry to pat the dog'] : [does('use', 'pat the dog')];
-  }
-  if (o?.kind === 'treats') {
-    return p.treat
-      ? ['You have a treat: the dog will come for it']
-      : [does('use', 'take a dog treat')];
-  }
-  if (o?.kind === 'hideout') {
-    const h = g.sim.hideouts.get(o.hideoutId);
-    if (!h) return [];
-    const name =
-      h.def.kind === 'cushion'
-        ? 'sofa cushion'
-        : h.def.kind === 'cabinet'
-          ? 'TV cabinet'
-          : h.def.kind;
-    if (g.role === 'saboteur' && p.page !== null) {
-      return [
-        does(
-          'use',
-          h.def.kind === 'rug' ? 'hide your page under the rug' : `hide your page in the ${name}`,
-        ),
-      ];
-    }
-    if (h.locked) {
-      return p.gear.has('keys')
-        ? [does('use', `unlock the ${name} with your key ring`)]
-        : [`Padlocked ${name}. The key ring opens it`];
-    }
-    if (h.def.kind === 'rug')
-      return [does('use', h.open ? 'lay the rug back down' : 'lift the rug')];
-    return [does('use', h.open ? `close the ${name}` : `open the ${name}`)];
-  }
-  if (o?.kind === 'gadget') {
-    const says = view.furniture.gadgetHint(o.gadgetId);
-    return says ? [does('use', says)] : [];
-  }
-  if (o?.kind === 'carDoor') return [does('use', g.sim.carDoorHint(o.group))];
-  if (o?.kind === 'board') {
-    return p.page !== null
-      ? [does('use', 'pin your page to the board for everyone')]
-      : ['Corkboard: pin pages here so everyone can read them'];
-  }
-  if (o?.kind === 'button' && o.buttonId === 'bell') {
-    if (!g.round) return ['The meeting bell works once a round has started'];
-    if (g.rival) return ['No Brick Meetings in a race: there is nobody to vote off'];
-    return [does('use', 'ring the bell for a Brick Meeting (one per player per round)')];
-  }
-  if (o?.kind === 'button') {
-    if (!g.round) return ['The Done button works once a round has started'];
-    if (g.rival && g.round.handedIn[o.site] != null) return ['This team has handed in its build'];
-    if (g.role === 'saboteur') return ["Saboteurs can't hand in the build: leave Done to the team"];
-    if (g.mode === 'free') {
-      return g.round.doneArmed[o.site]
-        ? [
-            inline(
-              '',
-              'use',
-              ' again to finish the free build (export it first: Esc, then Export build)',
-            ),
-          ]
-        : [does('use', 'Done (finish the free build and go back to the lobby)')];
-    }
-    return g.round.doneArmed[o.site]
-      ? g.rival
-        ? [inline('', 'use', ' again to hand in your build: it is judged and locked as it stands!')]
-        : [inline('', 'use', ' again to hand in the build! (It is locked until then)')]
-      : g.rival
-        ? [does('use', 'Done (hand in your build; accuracy counts first, then speed)')]
-        : [does('use', 'Done (hand in the build and end the round)')];
-  }
-  if (o?.kind === 'vacuum') {
-    return p.holding
-      ? ['Put down what you carry to take the vacuum']
-      : [does('use', 'take the vacuum')];
-  }
-  if (o?.kind === 'trashBin') {
-    if (!p.holding && g.sim.vacuum.heldBy === p.id) {
-      return g.sim.vacuum.load > 0
-        ? [does('use', `empty the vacuum into the bin (${g.sim.vacuum.load} bricks)`)]
-        : ['The vacuum is empty'];
-    }
-    if (!p.holding) {
-      return [
-        inline('Rubbish bin: ', 'click', ' it with a brick in hand, or drop one in, to bin it'),
-      ];
-    }
-    return g.sim.isBuild(p.holding.assemblyId)
-      ? ["The team's build doesn't go in the bin"]
-      : [does('use', 'throw what you carry in the bin (it is gone for good)')];
-  }
-  if (g.sim.vacuum.heldBy === p.id) {
-    const load = g.sim.vacuum.load;
-    return [
-      load >= VACUUM_CAPACITY
-        ? inline('The vacuum is full: ', 'click', ' a rubbish bin to empty it')
-        : does(
-            'holdUse',
-            `suck up loose bricks on the floor at the crosshair (${load}/${VACUUM_CAPACITY})`,
-          ),
-      does('drop', 'put the vacuum down'),
-    ];
-  }
-  if (p.tool) return toolHint(g, p.tool);
-  if (p.holding) {
-    const held = g.sim.assemblies.get(p.holding.assemblyId);
-    if (held && !isLooseBrick(held)) {
-      if (tiredFactor(p) < 1) {
-        return [inline('Your arms are tiring: set the build down soon (', 'drop', ')')];
-      }
-      return canSnap
-        ? [
-            does('use', 'snap it all on'),
-            does('rotate', 'rotate'),
-            does('drop', 'set down gently'),
-            does('throw', 'throw'),
-          ]
-        : [
-            does('rotate', 'rotate'),
-            does('drop', 'set the build down gently'),
-            does('throw', 'throw'),
-          ];
-    }
-    // A part that goes on by another hole too (a headlight brick's back) flips to it.
-    const [b] = held ? held.grid.bricks.values() : [];
-    const hole = b && canFlip(b.type) ? (BRICK_TYPES[b.type].backHole ? 'back' : 'top') : null;
-    const flip = !hole
-      ? []
-      : [does('flip', p.holding.flip ? 'flip back onto its bottom' : `flip onto its ${hole}`)];
-    if (canSnap)
-      return [
-        does('use', 'snap'),
-        // Hanging on one stud alone, it turns 45° a step.
-        does('rotate', turns45 ? 'turn 45°' : 'rotate'),
-        ...flip,
-        does('drop', 'drop'),
-        does('throw', 'throw'),
-      ];
-    return [
-      p.holding.flip && hole
-        ? `Aim at a stud to put it on by its ${hole}`
-        : 'Aim at the top of a build to snap',
-      ...flip,
-      does('use', 'drop'),
-      does('throw', 'throw'),
-    ];
-  }
-  if (!o) return [];
-  if (o.kind === 'player') {
-    const name = g.lobby.players.find((x) => x.id === o.playerId)?.name;
-    const page = g.sim.players.get(o.playerId)?.page ?? null;
-    if (!name || page === null) return name ? [name] : [];
-    const what = g.pocketLabels.get(page) ?? 'a page';
-    return [`${name} has ${what} in their pocket`, inline('', 'use', ' fast: pick it out')];
-  }
-  if (o.kind !== 'brick') return [];
-  const a = g.sim.assemblies.get(o.assemblyId);
-  if (!a) return [];
-  if (a.heldBy !== null) {
-    const who = g.lobby.players.find((x) => x.id === a.heldBy)?.name;
-    if (!who) return [];
-    return isLooseBrick(a)
-      ? [`${who} is holding this`]
-      : [`${who} carries this`, inline('', 'use', ' fast: tug it away')];
-  }
-  const brick = a.grid.bricks.get(o.brickId);
-  if (!brick) return [];
-  if (BRICK_TYPES[brick.type].fixture) {
-    if (g.sim.carrying.heavyFor(p)) {
-      return a.anchored
-        ? [does('carefulUse', 'lift the heavy build (slowly, or wear the back brace)')]
-        : [does('use', 'carry the build (slowly, without the back brace)')];
-    }
-    return [does('use', a.anchored ? 'lift the whole build off the job site' : 'carry the build')];
-  }
-  const named = g.colourBlind ? shapeName(brick.type) : brickName(brick.type, brick.colour);
-  const name = named.charAt(0).toUpperCase() + named.slice(1);
-  if (a.anchored) return [name, does('use', 'pull this brick off')];
-  if (a.grid.size === 1) return [name, does('use', 'pick up')];
-  return [name, does('use', 'carry build'), does('pull', 'pull this brick off')];
-}
-
-// ------------------------------------------------------------------ voice chat
-
-let voice: Voice | null = null;
-let voiceGame: ClientGame | null = null;
-/** Until when each player's voice counts as a scream (they just stepped on a brick). */
-const screams = new Map<number, number>();
-const micEl = $('mic');
-
-/** Starts voice chat for a newly joined room (never in solo play), or stops it. */
-function voiceFor(g: ClientGame | null): Voice | null {
-  const wanted = g && !solo && g.myId >= 0 ? g : null;
-  if (voiceGame === wanted) return voice;
-  voice?.close();
-  voice = null;
-  voiceGame = wanted;
-  if (!wanted) return null;
-  const v = new Voice(
-    wanted.myId,
-    wanted.ice,
-    (to, data) => wanted.send({ t: 'signal', to, data }),
-    () => sfx.output(),
-  );
-  voice = v;
-  wanted.onSignal = (from, data) => void v.signal(from, data);
-  for (const m of wanted.signals.splice(0)) void v.signal(m.from, m.data);
-  void v.setMode(settings.mic).then(() => settingsPanel.setMicProblem(v.micError));
-  return v;
-}
-
-/** Places every voice for this frame and shows who is talking. */
-function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
-  const v = voiceFor(g);
-  micEl.classList.toggle('hidden', !v);
-  if (!v) return;
-  v.sync(g.lobby.players.filter((p) => p.connected).map((p) => p.id));
-  const cam = view.camera;
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
-  const listener: Listener = { pos: cam.position.clone(), forward, up };
-  const together = g.phase !== 'building' || !!g.meeting;
-  const listenerHome = g.sentHome;
-  const now = gameNow();
-  const speakers = new Map<number, Speaker>();
-  const audience = new Set<number>();
-  const screaming = (screams.get(g.myId) ?? 0) > now;
-  for (const lp of g.lobby.players) {
-    if (lp.id === g.myId) continue;
-    const p = g.sim.players.get(lp.id);
-    const pos = p ? add(g.pose(p.body, alpha).pos, v3(0, EYE_OFFSET, 0)) : listener.pos;
-    const distance = length(sub(pos, eye));
-    const near = !together && p && !listenerHome;
-    const mix = voiceMix({
-      together,
-      distance,
-      walls: near ? g.sim.wallsBetween(eye, pos) : 0,
-      speakerHome: lp.home,
-      listenerHome,
-      screaming: (screams.get(lp.id) ?? 0) > now,
-    });
-    speakers.set(lp.id, { pos, mix });
-    // The other way round: whether they would hear us, and so get our voice at all.
-    if (
-      reaches({ together, distance, speakerHome: listenerHome, listenerHome: lp.home, screaming })
-    ) {
-      audience.add(lp.id);
-    }
-  }
-  v.setAudience(audience);
-  v.update(listener, speakers, settings.muted ? 0 : settings.voiceVolume);
-  view.showSpeaking((id) => v.speaking(id));
-
-  const mode = v.micMode;
-  micEl.textContent = !Voice.micAvailable
-    ? '🎤 listen only (talking needs https://)'
-    : v.micError
-      ? '🎤 unavailable (see Settings)'
-      : mode === 'off'
-        ? '🎤 off'
-        : v.sending
-          ? '🎤 on air'
-          : mode === 'push'
-            ? '🎤 hold C to talk'
-            : '🎤 …';
-  micEl.classList.toggle('live', v.sending);
-  micEl.classList.toggle('speaking', v.ownSpeaking);
-}
-
-/** Push to talk: hold C, or a mouse side button, wherever focus is (but not while typing). */
-function talkKey(down: boolean): void {
-  if (settings.mic !== 'push' || !voice) return;
-  const v = voice;
-  void v.pushToTalk(down).then(() => settingsPanel.setMicProblem(v.micError));
-}
-document.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyC' && !e.repeat && !typing(e)) talkKey(true);
-});
-document.addEventListener('keyup', (e) => {
-  if (e.code === 'KeyC') talkKey(false);
-});
-document.addEventListener('mousedown', (e) => {
-  if (e.button === 3 || e.button === 4) talkKey(true);
-});
-document.addEventListener('mouseup', (e) => {
-  if (e.button !== 3 && e.button !== 4) return;
-  // Side buttons would otherwise go back and forward in the browser's history.
-  e.preventDefault();
-  talkKey(false);
-});
-window.addEventListener('blur', () => talkKey(false));
-
-/** Where the player hears from, this frame. */
-let listener: Vec3 = { x: 0, y: 0, z: 0 };
-// The scenery's lamps, taps and the rest, heard from where each is, as the game's own sounds are.
-hearing.play = (noise, at) => sfx.play(noise, 1 / (1 + length(sub(at, listener)) / 4));
-
-/** Whether the vacuum's motor was still last frame, so the switch clicks as it starts. */
-let vacuumStill = true;
-
-/** The vacuum's motor, heard from wherever the vacuum is. */
-function playVacuum(listener: Vec3): void {
-  const v = view.vacuum;
-  const volume = 1 / (1 + length(sub(v.group.position, listener)) / 4);
-  if (v.speed > 0 && vacuumStill) sfx.vacuumSwitch(volume);
-  vacuumStill = v.speed === 0;
-  sfx.vacuumMotor(v.speed, volume, v.full);
-}
-
-/** Each player screams in their own voice. */
-const voicePitch = (id: number | undefined) => 0.85 + (((id ?? 0) * 37) % 30) / 100;
-
-function playEvents(events: SimEvent[], listener: Vec3): void {
-  const mine = (e: SimEvent) => e.playerId !== undefined && e.playerId === game?.myId;
-  // What a player's hands are to bring about at a machine waits for them, shown and heard when
-  // they do (the machine shows it already then), or when they never get there.
-  const due = events.filter((e) => !view.holdEvent(e));
-  const shown = new Set<SimEvent>();
-  for (const { e, handled } of view.heldEvents()) {
-    due.push(e);
-    if (handled) shown.add(e);
-  }
-  for (const e of due) {
-    if (!shown.has(e)) view.machineAt(e);
-    const volume = 1 / (1 + length(sub(e.pos, listener)) / 4);
-    if (e.kind === 'trip') {
-      sfx.oof(volume, voicePitch(e.playerId));
-      if (mine(e)) notice('Down you go!');
-    } else if (e.kind === 'ouch') {
-      sfx.scream(volume, voicePitch(e.playerId));
-      // Whatever they yell into their microphone now carries further.
-      if (e.playerId !== undefined) screams.set(e.playerId, gameNow() + SCREAM_MS);
-      if (mine(e)) notice('Ouch! You stepped on a brick. Limping for a while.');
-    } else if (e.kind === 'catapult') {
-      sfx.catapult(volume);
-      view.fireCatapult();
-      if (mine(e)) notice('Wheee!');
-    } else if (e.kind === 'bark') sfx.bark(volume);
-    else if (e.kind === 'pat') sfx.whine(volume);
-    else if (e.kind === 'yelp') {
-      sfx.yelp(volume);
-      if (mine(e)) notice('You grabbed its collar: the dog let go of the page.');
-    } else if (e.kind === 'crunch') {
-      sfx.crunch(volume);
-      if (mine(e)) notice('The dog loves you. It follows you for a while.');
-    } else if (e.kind === 'treat') {
-      sfx.treats(volume);
-      if (mine(e)) notice('You took a dog treat. The dog will come for it.');
-    } else if (
-      e.kind === 'swap' ||
-      e.kind === 'forge' ||
-      e.kind === 'hide' ||
-      e.kind === 'tamper'
-    ) {
-      // A saboteur tell: only sent to players close enough to notice.
-      view.puff(e.pos);
-      sfx.rustle(volume);
-    } else if (e.kind === 'powerOut') {
-      // The whole house goes dark: everyone hears it, wherever they are.
-      sfx.powerOut();
-      notice(
-        game?.mode === 'gear'
-          ? 'The power is out for good. Find the headlamp to read inside the house.'
-          : 'The power is out, and the machines with it! Fix the electrical panel in the basement.',
-      );
-    } else if (e.kind === 'gearOn') {
-      sfx.pickUp(volume);
-      if (mine(e) && e.gear) {
-        const n = GEAR_IDS.indexOf(e.gear) + 1;
-        notice([
-          inline(
-            `You put on the ${gearName(e.gear).toLowerCase()}. `,
-            { gear: n },
-            ': take it off for someone else.',
-          ),
-        ]);
-      }
-    } else if (e.kind === 'gearOff') sfx.drop(volume, 1, 2);
-    else if (e.kind === 'locked') {
-      sfx.click(volume);
-      if (mine(e)) notice('Padlocked. The key ring opens it.');
-    } else if (e.kind === 'unlock') sfx.pin(volume);
-    else if (e.kind === 'leash') {
-      // The dog barks on its own as the leash goes on.
-      notice('The dog is on its leash: no more stolen pages or wrecked builds.');
-    } else if (e.kind === 'tug') {
-      sfx.thump(volume * 0.6);
-      if (e.fromId === game?.myId)
-        notice(`${game?.nameOf(e.playerId ?? 0)} is tugging at the build you carry!`);
-    } else if (e.kind === 'tugged') {
-      sfx.pickUp(volume, 2);
-      if (mine(e)) notice(`You tugged the build out of ${game?.nameOf(e.fromId ?? 0)}'s hands.`);
-      else if (e.fromId === game?.myId)
-        notice(`${game?.nameOf(e.playerId ?? 0)} tugged the build out of your hands!`);
-    } else if (e.kind === 'pick') {
-      sfx.page(volume * 0.5);
-      if (e.fromId === game?.myId)
-        notice(`${game?.nameOf(e.playerId ?? 0)} is going for the page in your pocket!`);
-    } else if (e.kind === 'picked') {
-      sfx.page(volume);
-      if (mine(e)) notice(`You picked the page out of ${game?.nameOf(e.fromId ?? 0)}'s pocket.`);
-      else if (e.fromId === game?.myId)
-        notice(`${game?.nameOf(e.playerId ?? 0)} picked the page out of your pocket!`);
-    } else if (e.kind === 'tired') {
-      sfx.oof(volume * 0.6, voicePitch(e.playerId));
-      if (mine(e)) notice('Your arms are too tired to carry a build. Rest a while first.');
-    } else if (e.kind === 'heavy') {
-      sfx.oof(volume, voicePitch(e.playerId));
-      if (mine(e)) {
-        notice([
-          inline('Too heavy! ', 'careful', ' to lift it carefully, or find the back brace.'),
-        ]);
-      }
-    } else if (e.kind === 'fixing') sfx.thump(volume * 0.7);
-    else if (e.kind === 'breakdown') {
-      sfx.breakdown(volume);
-      if (length(sub(e.pos, listener)) < 12)
-        notice([inline('A machine broke down! ', 'use', ' it and stay there to clear the jam.')]);
-    } else if (e.kind === 'unjammed') {
-      sfx.button(volume);
-      if (mine(e)) notice('You cleared the jam: the machine works again.');
-    } else if (e.kind === 'powerOn') {
-      sfx.powerOn();
-      notice(mine(e) ? 'You fixed the panel: the lights are back on.' : 'The lights are back on.');
-    } else if (e.kind === 'meeting') sfx.bell();
-    else if (e.kind === 'sentHome') sfx.sentHome();
-    else if (e.kind === 'open' || e.kind === 'close') {
-      const def = game?.sim.level.hideouts.find((h) => h.id === e.hideoutId);
-      if (def) sfx.hideout(def.kind, e.kind === 'open', HIDEOUT_TRAVEL, volume);
-      else sfx.thump(volume * 0.8);
-    } else if (e.kind === 'pin') sfx.pin(volume);
-    else if (e.kind === 'snap') sfx.snap(volume);
-    else if (e.kind === 'page') sfx.page(volume);
-    else if (e.kind === 'button') sfx.button(volume);
-    else if (e.kind === 'grab') sfx.pickUp(volume, e.count);
-    else if (e.kind === 'break') sfx.crash(volume, e.count);
-    else if (e.kind === 'anchor') sfx.anchor(volume, e.count);
-    else if (e.kind === 'handIn') sfx.anchor(volume);
-    else if (e.kind === 'vacuumUp') {
-      sfx.vacuumUp(volume);
-      if (mine(e)) {
-        notice([
-          inline(
-            'You took the vacuum. ',
-            'holdTheClick',
-            ` to suck up loose bricks where you aim; it holds ${VACUUM_CAPACITY}, then empty it at a rubbish bin.`,
-          ),
-        ]);
-      }
-    } else if (e.kind === 'vacuumDown') sfx.vacuumDown(volume);
-    else if (e.kind === 'suck') {
-      view.vacuum.sucked();
-      sfx.suck(volume, e.count);
-    } else if (e.kind === 'vacuumFull') {
-      sfx.vacuumFull(volume);
-      if (mine(e)) notice('The vacuum is full. Empty it at a rubbish bin.');
-    } else if (e.kind === 'drop') sfx.drop(volume, e.count, e.speed);
-    else if (e.kind === 'toolUp') sfx.pickUp(volume, 2);
-    else if (e.kind === 'dispense') sfx.dispense(volume);
-    else if (e.kind === 'ready') sfx.ready(volume);
-    else if (e.kind === 'toolDown') sfx.binDrop(volume);
-    else if (e.kind === 'mouldIn') sfx.mouldIn(volume);
-    else if (e.kind === 'pour' || e.kind === 'fill') sfx.pour(volume);
-    else if (e.kind === 'moulded') sfx.moulded(volume);
-    else if (e.kind === 'printerIn') sfx.snap(volume);
-    else if (e.kind === 'print') sfx.print(volume);
-    else if (e.kind === 'binned') {
-      sfx.binDrop(volume);
-      view.furniture.binned(e);
-    }
-  }
-}
-
-let shownPage: string | null = null;
-function updatePocket(g: ClientGame, me: Player): void {
-  // Redraw when the pocket changes or the page in it is reprinted (forged).
-  const key = me.page === null ? null : `${me.page}:${g.sim.pages.get(me.page)?.version}`;
-  if (key === shownPage) return;
-  shownPage = key;
-  const page = me.page === null ? undefined : g.sim.pages.get(me.page);
-  pocketEl.classList.toggle('hidden', !page);
-  if (readerShown === 'pocket') {
-    if (page) openReader(pageArt(page.printed));
-    else closeReader();
-  }
-  if (!page) return;
-  const art = pageArt(page.printed);
-  pocketEl.querySelector('.title')!.textContent = !page.printed
-    ? 'A page (only the reader can read it)'
-    : page.step < 0
-      ? 'Master index'
-      : `Page ${pageNumber(page.printed)} of ${roundTarget().steps.length}`;
-  pocketEl.querySelector('canvas')!.getContext('2d')!.drawImage(art, 0, 0, 90, 126);
-}
-
-let shownAt = 0;
-/** Someone held up a page for us: show it for a while. */
-function updateShown(g: ClientGame): void {
-  const s = g.shown;
-  if (s && s.at !== shownAt) {
-    shownAt = s.at;
-    const what = pageName(s.printed);
-    if (g.me && !canRead(g, g.me.body.translation())) {
-      notice(`${g.nameOf(s.from)} shows you ${what}, but it is too dark to see it.`);
-      return;
-    }
-    openReader(pageArt(s.printed), `${g.nameOf(s.from)} shows you ${what}`);
-    readerShown = 'shown';
-  }
-  if (readerShown === 'shown' && s && gameNow() - s.at > SHOWN_MS) closeReader();
-}
-const SHOWN_MS = 10000;
-
-let shownReport: InspectionReport | null = null;
-let shownReportKey: string | null = null;
-/** The inspector's full report, shown near the inspector or when pinned with I. */
-function updateReport(g: ClientGame, me: Player): void {
-  const report = g.myInspector?.report ?? null;
-  const pad = g.sim.sites[g.mySite]!.inspector.pos;
-  const p = me.body.translation();
-  const near = Math.hypot(p.x - pad.x, p.z - pad.z) < 4.5;
-  reportEl.classList.toggle(
-    'hidden',
-    !report || !(near || reportPinned) || g.round?.phase !== 'building',
-  );
-  const reportKey = report && `${g.colourBlind}`;
-  if (!report || (report === shownReport && reportKey === shownReportKey)) return;
-  shownReport = report;
-  shownReportKey = reportKey;
-  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const rows = report.steps.map((s, i) => {
-    const head =
-      s.verdict === 'empty'
-        ? `<span class="muted">not started</span>`
-        : `<span class="${s.verdict}">${s.correct} of ${s.total} correct</span>`;
-    const text = (t: string) => esc(g.colourBlind ? withoutColours(t) : t);
-    const lines = s.lines.map((l) => `<li class="${l.kind}">${text(l.text)}</li>`).join('');
-    return `<h4>Step ${i + 1} · ${head}</h4>${lines ? `<ul>${lines}</ul>` : ''}`;
-  });
-  if (report.extras.length) {
-    rows.push(
-      `<h4>Not in the plans</h4><ul>${report.extras.map((l) => `<li class="extra">${esc(g.colourBlind ? withoutColours(l.text) : l.text)}</li>`).join('')}</ul>`,
-    );
-  }
-  reportEl.innerHTML =
-    `<h3>Inspection report: ${report.correct} of ${report.total} bricks correct</h3>` +
-    `<p class="muted">Problems are marked on the build until you fix them. I: pin this list.</p>` +
-    rows.join('');
-}
-
 function updateTimer(g: ClientGame): void {
   // A free build has no time limit.
   timerEl.classList.toggle('hidden', !g.round || g.mode === 'free');
@@ -1392,8 +629,8 @@ function frame(now: number): void {
     if (g) view.setLevel(g.sim.level);
     view.reset();
     results.hide();
-    shownReport = null;
-    shownPage = null;
+    report.forget();
+    reader.forget();
     shownGame = g;
     shownWorld = g?.worldVersion ?? -1;
   }
@@ -1422,14 +659,13 @@ function frame(now: number): void {
   lobbyPanel.update();
   if (demo.active) demo.update();
   dock.update();
-  updateBoxArt();
+  boxArt.update(g);
   if (!g) social.update(now);
   profiler.end();
 
   if (!g) {
-    voiceFor(null);
+    voiceChat.stop();
     sfx.vacuumMotor(0, 0, false);
-    micEl.classList.add('hidden');
     // The editor moves the camera and draws the view itself, on its own map.
     if (editorOpen) {
       perf.done();
@@ -1478,8 +714,7 @@ function frame(now: number): void {
     // The goggles went on or came off: everything printed in colour prints again.
     view.setColourBlind(g.colourBlind);
     indexArt.clear();
-    shownPage = null;
-    if (readerShown) closeReader();
+    reader.redraw();
   }
 
   profiler.begin('logic.rules');
@@ -1499,7 +734,7 @@ function frame(now: number): void {
   profiler.begin('logic.ui');
   if (g.round?.phase === 'results' && !results.visible && g.round.result) {
     input.freeMouse();
-    closeReader();
+    reader.close();
     const ending = g.ending && {
       winner: g.ending.winner,
       roles: [...g.ending.roles].map(([id, role]) => ({
@@ -1586,11 +821,8 @@ function frame(now: number): void {
   if (build) view.showInspectionMarks(inspector.report, build);
   profiler.next('logic.audio');
   sfx.future = !!g.sim.level.scenery;
-  listener = eye;
-  playEvents(g.takeEvents(), eye);
-  playVacuum(eye);
-  for (const at of view.ratchets) sfx.ratchet(1 / (1 + length(sub(at, listener)) / 4));
-  updateVoice(g, eye, alpha);
+  gameEvents.update(g.takeEvents(), eye);
+  voiceChat.update(g, eye, alpha);
   profiler.next('scene.effects');
   view.updateEffects(elapsed);
   profiler.next('scene.props');
@@ -1602,18 +834,12 @@ function frame(now: number): void {
   view.furniture.setPower(g.sim.power.on);
   view.animatePanel(elapsed, g.sim.power.on, g.sim.power.fixer !== null);
   profiler.next('logic.ui');
-  updateShown(g);
-  // A page open in the reader shuts when the dark closes in (the lamp wearer walked off).
-  if (me && readerShown && readerShown !== 'shown' && !canRead(g, me.body.translation())) {
-    closeReader();
-    notice(TOO_DARK);
-  }
+  reader.update(g);
   if (now > noticeUntil) noticeEl.classList.add('hidden');
   social.update(gameNow());
   updateTimer(g);
   if (me) {
-    updateReport(g, me);
-    updatePocket(g, me);
+    report.update(g, me);
   }
 
   const aim = me ? g.sim.sight.aim(me) : null;
@@ -1639,7 +865,7 @@ function frame(now: number): void {
       flip: !!part && canFlip(part.type),
       page: me?.page != null,
       others: !solo && g.lobby.players.filter((p) => p.connected).length > 1,
-      talk: !!voice && voice.micMode === 'push',
+      talk: voiceChat.voice?.micMode === 'push',
     });
   }
   const where = demo.active

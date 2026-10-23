@@ -16,7 +16,6 @@ import {
   partQuat,
   parseBuildFile,
   stringifyBuildFile,
-  stringifyBuildFileWithMap,
   snapLayer,
   spinSnap,
   attachOrder,
@@ -25,7 +24,6 @@ import {
   validateBuild,
 } from '@sar/shared';
 import type {
-  BrickTypeId,
   ColourId,
   PlacedBrick,
   Placement,
@@ -37,21 +35,10 @@ import type {
 import { baseplateMarker, brickGeometry, brickMaterial } from './render/bricks.ts';
 import { addBrickMesh, addGhostMesh } from './render/pages.ts';
 import { view } from './worldView.ts';
-import { brickThumb, clearBrickThumbs } from './ui/brickThumbs.ts';
-import {
-  BRICK_KINDS,
-  COLOUR_GROUPS,
-  HEIGHTS,
-  allSizes,
-  brickShown,
-  catalogueOrder,
-  colourShown,
-  isHeight,
-  loadFavourites,
-  saveFavourites,
-} from './ui/brickFinder.ts';
-import type { BrickFilter, ColourFilter } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
+import { BuildFilePane } from './editor/buildFilePane.ts';
+import { History } from './editor/history.ts';
+import { Pickers, colourName } from './editor/pickers.ts';
 
 /**
  * In-browser editor for target builds, opened from the main menu. Uses the same grid, aiming and
@@ -63,8 +50,6 @@ import { brickName, createBrickViewer } from './ui/brickViewer.ts';
 type EditorBrick = PlacedBrick & { step: number };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const typeList = $('ed-types');
-const colourList = $('ed-colours');
 const stepEl = $('ed-step');
 const onlyStep = $<HTMLInputElement>('ed-only-step');
 const withPrints = $<HTMLInputElement>('ed-with-prints');
@@ -74,283 +59,11 @@ const nameInput = $<HTMLInputElement>('ed-name');
 
 // ------------------------------------------------------------------ pickers
 
-/** The brick and colour new bricks are placed in. */
-let type: BrickTypeId = '2x4';
+const pickers = new Pickers(() => {
+  if (flip) setFlip(false);
+});
 /** The part to place goes on by its other hole (a headlight brick's back, see `canFlip`). */
 let flip = false;
-let colour: ColourId = 'red';
-
-const colourName = (c: ColourId) => c.replaceAll('-', ' ');
-
-/** One picture button in a picker list. */
-function pickerItem(list: HTMLElement, label: string, onPick: () => void): HTMLButtonElement {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.setAttribute('role', 'option');
-  b.title = label;
-  b.setAttribute('aria-label', label);
-  b.append(document.createElement('img'));
-  b.addEventListener('click', onPick);
-  list.append(b);
-  return b;
-}
-
-// Every brick type, drawn in the chosen colour.
-const typeItems = new Map<BrickTypeId, HTMLButtonElement>();
-for (const id of catalogueOrder()) {
-  if (BRICK_TYPES[id].fixture) continue;
-  typeItems.set(
-    id,
-    pickerItem(typeList, brickName(id), () => setType(id)),
-  );
-}
-// Every colour, as a 2x2 brick in it, so see-through ones look see-through.
-const colourItems = new Map<ColourId, HTMLButtonElement>();
-for (const c of Object.values(COLOURS)) {
-  colourItems.set(
-    c.id,
-    pickerItem(colourList, colourName(c.id), () => setColour(c.id)),
-  );
-}
-
-function markChosen<K>(items: Map<K, HTMLButtonElement>, chosen: K): void {
-  for (const [k, b] of items) b.setAttribute('aria-selected', String(k === chosen));
-  const b = items.get(chosen);
-  if (b && !b.hidden) scrollListTo(b);
-}
-
-/**
- * Scrolls the list a picker item is in just far enough to show it. Only the list: the
- * browser's scrollIntoView also scrolls the panel around it (and the sheet it is in on a phone).
- */
-function scrollListTo(item: HTMLElement): void {
-  const list = item.parentElement!;
-  const box = list.getBoundingClientRect();
-  const at = item.getBoundingClientRect();
-  if (at.top < box.top) list.scrollTop -= box.top - at.top;
-  else if (at.bottom > box.bottom) list.scrollTop += at.bottom - box.bottom;
-}
-
-function setType(t: BrickTypeId): void {
-  // A part picked goes on by its bottom.
-  if (t !== type && flip) setFlip(false);
-  type = t;
-  $('ed-type-name').textContent = brickName(t);
-  markChosen(typeItems, t);
-  showFavourite(typeFav, favourites.bricks.has(t));
-}
-
-function setColour(c: ColourId): void {
-  colour = c;
-  $('ed-colour-name').textContent = colourName(c);
-  markChosen(colourItems, c);
-  showFavourite(colourFav, favourites.colours.has(c));
-  drawTypeThumbs();
-}
-
-/**
- * Pictures of the bricks in the list now, in the chosen colour; the rest wait until shown. None
- * while the editor is closed: opening it draws them all afresh.
- */
-function drawTypeThumbs(): void {
-  if ($('editor').classList.contains('hidden')) return;
-  for (const [t, b] of typeItems) {
-    if (b.hidden) continue;
-    const src = brickThumb(t, colour);
-    const img = b.querySelector('img')!;
-    if (img.getAttribute('src') !== src) img.src = src;
-  }
-}
-
-/** Draws every picture afresh, from the brick materials as they are now. */
-function drawPickers(): void {
-  clearBrickThumbs();
-  for (const [c, b] of colourItems) b.querySelector('img')!.src = brickThumb('2x2', c, 64);
-  setColour(colour);
-  setType(type);
-}
-
-// ------------------------------------------------------------------ finding
-
-const favourites = loadFavourites();
-const typeFav = $<HTMLButtonElement>('ed-type-fav');
-const colourFav = $<HTMLButtonElement>('ed-colour-fav');
-const typeSearch = $<HTMLInputElement>('ed-type-search');
-const colourSearch = $<HTMLInputElement>('ed-colour-search');
-const sizeSel = $<HTMLSelectElement>('ed-type-size');
-const heightSel = $<HTMLSelectElement>('ed-type-height');
-const brickFilter: BrickFilter = {
-  query: '',
-  kind: null,
-  size: null,
-  height: null,
-  favouritesOnly: false,
-};
-const colourFilter: ColourFilter = { query: '', group: null, favouritesOnly: false };
-
-function showFavourite(btn: HTMLButtonElement, on: boolean): void {
-  btn.textContent = on ? '★' : '☆';
-  btn.setAttribute('aria-pressed', String(on));
-  const what = btn === typeFav ? 'brick' : 'colour';
-  btn.title = on
-    ? `Take this ${what} out of your favourites`
-    : `Add this ${what} to your favourites`;
-  btn.setAttribute('aria-label', btn.title);
-}
-
-/**
- * A row of toggle chips: the first is Favourites, on its own; the others pick one of `options`
- * (pressing the one that is on again turns it off).
- */
-function chipRow<K extends string>(
-  row: HTMLElement,
-  options: { id: K; label: string }[],
-  onChange: (favouritesOnly: boolean, picked: K | null) => void,
-): void {
-  let favouritesOnly = false;
-  let picked: K | null = null;
-  const chip = (label: string, title?: string) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'chip';
-    b.textContent = label;
-    b.setAttribute('aria-pressed', 'false');
-    if (title) {
-      b.title = title;
-      b.setAttribute('aria-label', title);
-    }
-    row.append(b);
-    return b;
-  };
-  const fav = chip('★', 'Favourites only');
-  fav.classList.add('fav-chip');
-  const chips = options.map((o) => ({ id: o.id, b: chip(o.label) }));
-  const show = () => {
-    fav.setAttribute('aria-pressed', String(favouritesOnly));
-    for (const c of chips) c.b.setAttribute('aria-pressed', String(c.id === picked));
-    onChange(favouritesOnly, picked);
-  };
-  fav.addEventListener('click', () => {
-    favouritesOnly = !favouritesOnly;
-    show();
-  });
-  for (const c of chips) {
-    c.b.addEventListener('click', () => {
-      picked = picked === c.id ? null : c.id;
-      show();
-    });
-  }
-}
-
-/**
- * Shows the items the filter lets through, favourites first, each favourite starred. `none`
- * says so when nothing is left.
- */
-function applyFilter<K extends string>(
-  items: Map<K, HTMLButtonElement>,
-  list: HTMLElement,
-  starred: ReadonlySet<string>,
-  shown: (k: K) => boolean,
-  none: HTMLElement,
-): void {
-  let any = false;
-  const order = [...items.keys()];
-  // Favourites first, the rest in catalogue order.
-  for (const k of [
-    ...order.filter((k) => starred.has(k)),
-    ...order.filter((k) => !starred.has(k)),
-  ]) {
-    const b = items.get(k)!;
-    b.hidden = !shown(k);
-    b.classList.toggle('starred', starred.has(k));
-    any ||= !b.hidden;
-    list.append(b);
-  }
-  none.hidden = any;
-  list.hidden = !any;
-}
-
-function filterTypes(): void {
-  applyFilter(
-    typeItems,
-    typeList,
-    favourites.bricks,
-    (t) => brickShown(t, brickName(t), brickFilter, favourites.bricks),
-    $('ed-types-none'),
-  );
-  drawTypeThumbs();
-}
-
-function filterColours(): void {
-  applyFilter(
-    colourItems,
-    colourList,
-    favourites.colours,
-    (c) => colourShown(c, colourFilter, favourites.colours),
-    $('ed-colours-none'),
-  );
-}
-
-chipRow($('ed-type-kinds'), BRICK_KINDS, (favouritesOnly, kind) => {
-  brickFilter.favouritesOnly = favouritesOnly;
-  brickFilter.kind = kind;
-  filterTypes();
-});
-chipRow($('ed-colour-groups'), COLOUR_GROUPS, (favouritesOnly, group) => {
-  colourFilter.favouritesOnly = favouritesOnly;
-  colourFilter.group = group;
-  filterColours();
-});
-for (const s of allSizes([...typeItems.keys()])) sizeSel.add(new Option(s, s));
-for (const h of HEIGHTS) heightSel.add(new Option(h.label, h.id));
-sizeSel.addEventListener('change', () => {
-  brickFilter.size = sizeSel.value || null;
-  filterTypes();
-});
-heightSel.addEventListener('change', () => {
-  brickFilter.height = isHeight(heightSel.value) ? heightSel.value : null;
-  filterTypes();
-});
-typeSearch.addEventListener('input', () => {
-  brickFilter.query = typeSearch.value;
-  filterTypes();
-});
-colourSearch.addEventListener('input', () => {
-  colourFilter.query = colourSearch.value;
-  filterColours();
-});
-/** The match Enter picks: one named just what was typed, or else the first in the list. */
-function bestMatch<K>(items: Map<K, HTMLButtonElement>, query: string): K | undefined {
-  const typed = query.trim().toLowerCase().replaceAll('x', '×');
-  const shown = [...items].filter(([, b]) => !b.hidden);
-  const named = (b: HTMLButtonElement) => b.title.toLowerCase();
-  return (shown.find(([, b]) => named(b) === typed) ??
-    shown.find(([, b]) => named(b).startsWith(typed)) ??
-    shown[0])?.[0];
-}
-typeSearch.addEventListener('keydown', (e) => {
-  const t = e.key === 'Enter' && bestMatch(typeItems, typeSearch.value);
-  if (t) setType(t);
-});
-colourSearch.addEventListener('keydown', (e) => {
-  const c = e.key === 'Enter' && bestMatch(colourItems, colourSearch.value.replaceAll('-', ' '));
-  if (c) setColour(c);
-});
-
-typeFav.addEventListener('click', () => {
-  if (!favourites.bricks.delete(type)) favourites.bricks.add(type);
-  saveFavourites(favourites);
-  showFavourite(typeFav, favourites.bricks.has(type));
-  filterTypes();
-});
-colourFav.addEventListener('click', () => {
-  if (!favourites.colours.delete(colour)) favourites.colours.add(colour);
-  saveFavourites(favourites);
-  showFavourite(colourFav, favourites.colours.has(colour));
-  filterColours();
-});
-filterTypes();
-filterColours();
 
 // ------------------------------------------------------------------ state
 
@@ -390,12 +103,6 @@ type Snapshot = {
   name: string;
 };
 
-const HISTORY = 200;
-const undoStack: Snapshot[] = [];
-const redoStack: Snapshot[] = [];
-const undoBtn = $<HTMLButtonElement>('ed-undo');
-const redoBtn = $<HTMLButtonElement>('ed-redo');
-
 /** Bricks are never changed in place, only swapped, so the snapshot can share them. */
 function snapshot(): Snapshot {
   return {
@@ -422,34 +129,12 @@ function restore(s: Snapshot): void {
   redraw();
 }
 
-/** Remembers the build as it was before a change, so the change can be undone. */
-function record(before: Snapshot = snapshot()): void {
-  undoStack.push(before);
-  if (undoStack.length > HISTORY) undoStack.shift();
-  redoStack.length = 0;
-  updateHistoryButtons();
-}
-
-function undo(): void {
-  const s = undoStack.pop();
-  if (!s) return;
-  redoStack.push(snapshot());
-  restore(s);
-  updateHistoryButtons();
-}
-
-function redo(): void {
-  const s = redoStack.pop();
-  if (!s) return;
-  undoStack.push(snapshot());
-  restore(s);
-  updateHistoryButtons();
-}
-
-function updateHistoryButtons(): void {
-  undoBtn.disabled = undoStack.length === 0;
-  redoBtn.disabled = redoStack.length === 0;
-}
+const undoBtn = $<HTMLButtonElement>('ed-undo');
+const redoBtn = $<HTMLButtonElement>('ed-redo');
+const undoHistory = new History(snapshot, restore, () => {
+  undoBtn.disabled = !undoHistory.canUndo;
+  redoBtn.disabled = !undoHistory.canRedo;
+});
 
 // ------------------------------------------------------------------ scene
 
@@ -592,7 +277,7 @@ function redraw(): void {
   }
   stepEl.textContent = String(step + 1);
   updateSummary();
-  syncCode();
+  buildFile.sync();
 }
 
 /**
@@ -664,7 +349,7 @@ function updateSummary(): void {
 
 /** Loads a build in place of this one. It can be undone, like any other change. */
 function load(build: TargetBuild): void {
-  record();
+  undoHistory.record();
   replaceBuild(build);
   step = Math.max(0, build.steps.length - 1);
   redraw();
@@ -752,18 +437,18 @@ function preview(e: MouseEvent, eighths = eighth): (Placement & { colour: Colour
   else if (lock) {
     // Keep to the locked layer for as long as the brick still clutches something there.
     const { origin, direction } = raycaster.ray;
-    const one = [{ type, rot: 0 as Rotation, x: 0, y: 0, z: 0 }];
+    const one = [{ type: pickers.type, rot: 0 as Rotation, x: 0, y: 0, z: 0 }];
     const p = computeLayerSnap(grid, origin, direction, one, rot, lock)?.[0];
-    if (p) return { ...p, colour };
+    if (p) return { ...p, colour: pickers.colour };
   }
   const frame = hit ? grid.bricks.get(hit.brickId)?.frame : undefined;
   const point = hit && (frame ? unframeMetres(frame, hit.point) : hit.point);
   const normal = hit && (frame ? unframeTurn(frame, hit.normal) : hit.normal);
-  let p = point && normal && computeSnap(grid, point, normal, type, rot, flip, frame);
+  let p = point && normal && computeSnap(grid, point, normal, pickers.type, rot, flip, frame);
   if (p && eighths) p = spinSnap(grid, p) ?? p;
   if (shift && !lock && !flip && !frame && hit && p && !p.frame)
     lock = snapLayer(hit.point, hit.normal);
-  return p ? { ...p, colour } : null;
+  return p ? { ...p, colour: pickers.colour } : null;
 }
 
 let downAt: { x: number; y: number } | null = null;
@@ -820,7 +505,7 @@ function showHover(id: number | undefined, placing: Omit<PlacedBrick, 'id'> | nu
   }
   if (placing) parts.push(`places ${brickName(placing.type)} at ${at(placing)}`);
   hoverEl.textContent = parts.join('   →   ');
-  if (codeOpen()) showCodeLine(b?.id);
+  if (buildFile.isOpen) buildFile.showLine(b?.id);
 }
 
 // Left drag orbits by hand so a click (no drag) can place bricks. Right or middle drag pans,
@@ -918,12 +603,12 @@ container.addEventListener('pointerup', (e) => {
       return;
     }
     steps.set(id, step);
-    record(before);
+    undoHistory.record(before);
     redraw();
   } else if (e.button === 2 || (e.button === 0 && removing)) {
     const hit = pick(e);
     if (hit?.brickId === undefined || hit.brickId === PLATE.id) return;
-    record();
+    undoHistory.record();
     grid.remove(hit.brickId);
     steps.delete(hit.brickId);
     redraw();
@@ -936,12 +621,12 @@ window.addEventListener('keydown', (e) => {
   // Ctrl+Z (Cmd+Z on a Mac) undoes; with Shift, or Ctrl+Y, redoes.
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) {
     e.preventDefault();
-    if (e.code === 'KeyY' || e.shiftKey) redo();
-    else undo();
+    if (e.code === 'KeyY' || e.shiftKey) undoHistory.redo();
+    else undoHistory.undo();
     return;
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
-  if (e.code === 'KeyE' && !e.ctrlKey && !e.metaKey && canFlip(type)) setFlip(!flip);
+  if (e.code === 'KeyE' && !e.ctrlKey && !e.metaKey && canFlip(pickers.type)) setFlip(!flip);
   if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey) fitView();
   if (e.code === 'Escape' && pipette) setPipette(false);
 });
@@ -1031,8 +716,8 @@ function showPicking(alt: boolean): void {
 function pickBrick(id: number | undefined): void {
   const b = id === undefined ? undefined : grid.bricks.get(id);
   if (!b || BRICK_TYPES[b.type].fixture) return;
-  setColour(b.colour);
-  setType(b.type);
+  pickers.setColour(b.colour);
+  pickers.setType(b.type);
   rot = b.rot;
   pickedEl.textContent = `Picked: ${brickName(b.type)} in ${colourName(b.colour)}`;
   pickedEl.hidden = false;
@@ -1077,7 +762,7 @@ removeBtn.addEventListener('click', () => {
   setPipette(false);
 });
 $('ed-rotate').addEventListener('click', rotate);
-$('ed-flip').addEventListener('click', () => canFlip(type) && setFlip(!flip));
+$('ed-flip').addEventListener('click', () => canFlip(pickers.type) && setFlip(!flip));
 $('ed-fit').addEventListener('click', fitView);
 layerBtn.addEventListener('click', () => {
   sameLayer = !sameLayer;
@@ -1102,10 +787,10 @@ nameInput.addEventListener('change', () => {
   if (nameInput.value === name) return;
   const before = snapshot();
   name = nameInput.value;
-  record(before);
+  undoHistory.record(before);
 });
-undoBtn.addEventListener('click', undo);
-redoBtn.addEventListener('click', redo);
+undoBtn.addEventListener('click', () => undoHistory.undo());
+redoBtn.addEventListener('click', () => undoHistory.redo());
 $('ed-export').addEventListener('click', () => {
   json.value = stringifyBuildFile(currentBuild());
   json.select();
@@ -1162,176 +847,37 @@ $('ed-clear').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ live build file
 
-const codePane = $('ed-code');
-const code = $<HTMLTextAreaElement>('ed-code-text');
-const codeStatus = $('ed-code-status');
-const codeOpenBtn = $<HTMLButtonElement>('ed-code-open');
-/** The brick id on each brick line of the text, in order. */
-let codeIds: number[] = [];
-/** The build those bricks belong to: the text's, as last written or read. */
-let codeBuild: TargetBuild | null = null;
-/** The line (from 0) each of those bricks is on in the text, or -1 where it is not found. */
-let codeLines: number[] = [];
-/** An edit in the text box is the one change undo knows about until the box is left. */
-let codeRecorded = false;
-let codeTimer = 0;
-/** Typed in since the build last took the text in. */
-let codeDirty = false;
-
-const codeOpen = () => !codePane.classList.contains('hidden');
-
-function setCodeOpen(on: boolean): void {
-  codePane.classList.toggle('hidden', !on);
-  codeOpenBtn.setAttribute('aria-pressed', String(on));
-  codeOpenBtn.classList.toggle('on', on);
-  if (!on) marked.visible = false;
-  syncCode();
-}
-
-/** Writes the build into the text box, unless it is being typed in. */
-function syncCode(): void {
-  if (!codeOpen() || document.activeElement === code) return;
-  const order: number[] = [];
-  codeBuild = currentBuild(order);
-  const { text, brickLines } = stringifyBuildFileWithMap(codeBuild);
-  code.value = text;
-  codeIds = order;
-  codeLines = brickLines;
-  showCodeStatus([]);
-}
-
-function showCodeStatus(problems: string[], bad = false): void {
-  codeStatus.classList.toggle('bad', bad);
-  codeStatus.textContent = problems.length
-    ? (bad ? '' : '⚠ ') + problems.slice(0, 3).join(' · ')
-    : '✓ The build matches the file.';
-}
-
-/** Builds what the text box says, as far as it can be read. */
-function applyCode(): void {
-  clearTimeout(codeTimer);
-  codeDirty = false;
-  const r = parseBuildFile(code.value, allBins());
-  const build = r.ok ? r.build : looseBuild(code.value);
-  if (!build) {
-    let why: string;
-    try {
-      JSON.parse(code.value);
-      why = 'Not a build file: it needs manual.pages with bricks.';
-    } catch (err) {
-      why = `Not readable JSON: ${(err as Error).message}`;
-    }
-    showCodeStatus([why], true);
-    return;
-  }
-  if (!codeRecorded) {
-    record();
-    codeRecorded = true;
-  }
-  codeIds = replaceBuild(build);
-  codeBuild = build;
-  codeLines = brickLinesIn(code.value, build);
-  step = Math.min(step, Math.max(0, build.steps.length - 1));
-  redraw();
-  showCodeStatus(r.ok ? [] : r.problems);
-  markCodeBrick();
-}
-
-/**
- * Where the bricks of a build read from `text` are in it: the line (from 0) of each, in file
- * order, or -1 for one not found. Typed text need not be laid out as the editor writes it, so
- * each brick's line as the editor would write it is looked for, from the last one found on.
- */
-function brickLinesIn(text: string, build: TargetBuild): number[] {
-  const own = stringifyBuildFileWithMap(build);
-  const ownLines = own.text.split('\n');
-  const lines = text.split('\n').map((l) => l.trim());
-  let from = 0;
-  return own.brickLines.map((at) => {
-    const row = lines.indexOf(ownLines[at]!.trim(), from);
-    if (row >= 0) from = row + 1;
-    return row;
-  });
-}
-
-/** The index of the brick whose line the cursor is on, if it is on one. */
-function brickLineAt(pos: number): number {
-  const row = code.value.slice(0, pos).split('\n').length - 1;
-  return codeLines.indexOf(row);
-}
-
-/** Marks in the view the brick whose line the cursor is on, while typing there. */
-function markCodeBrick(): void {
-  const i = document.activeElement === code ? brickLineAt(code.selectionStart) : -1;
-  const b = i < 0 ? undefined : grid.bricks.get(codeIds[i] ?? -1);
-  marked.visible = b !== undefined;
-  if (b) cover(marked, b);
-}
-
-const codeLine = $('ed-code-line');
-/** The row lit behind the text box, as a line number, or -1. */
-let litRow = -1;
-
-/** Scrolls the text box to a brick's line and lights it, while the box is not in use. */
-function showCodeLine(id: number | undefined): void {
-  if (document.activeElement === code) return;
-  const i = id === undefined ? -1 : codeIds.indexOf(id);
-  litRow = i < 0 ? -1 : (codeLines[i] ?? -1);
-  if (litRow >= 0) {
-    const lh = lineHeight();
-    const top = litRow * lh;
-    if (top < code.scrollTop || top + lh > code.scrollTop + code.clientHeight - lh) {
-      code.scrollTop = Math.max(0, top - code.clientHeight / 2);
-    }
-  }
-  placeCodeLine();
-}
-
-const lineHeight = () => parseFloat(getComputedStyle(code).lineHeight) || 16;
-
-function placeCodeLine(): void {
-  const lh = lineHeight();
-  const style = getComputedStyle(code);
-  const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
-  const top = pad + litRow * lh - code.scrollTop;
-  // Only while the line is in sight in the box.
-  codeLine.hidden = litRow < 0 || top < pad || top + lh > code.clientHeight;
-  codeLine.style.top = `${top}px`;
-  codeLine.style.height = `${lh}px`;
-}
-code.addEventListener('scroll', placeCodeLine);
-
-code.addEventListener('input', () => {
-  // The lines move as they are typed in; the build takes the text in a moment later.
-  if (codeBuild) codeLines = brickLinesIn(code.value, codeBuild);
-  codeDirty = true;
-  clearTimeout(codeTimer);
-  codeTimer = window.setTimeout(applyCode, 300);
+const buildFile = new BuildFilePane({
+  current: (order) => currentBuild(order),
+  read: (text) => {
+    const r = parseBuildFile(text, allBins());
+    return r.ok
+      ? { build: r.build, problems: [] }
+      : { build: looseBuild(text), problems: r.problems };
+  },
+  replace: (build) => {
+    const ids = replaceBuild(build);
+    step = Math.min(step, Math.max(0, build.steps.length - 1));
+    return ids;
+  },
+  record: () => undoHistory.record(),
+  redraw,
+  mark: (id) => {
+    const b = id === undefined ? undefined : grid.bricks.get(id);
+    marked.visible = b !== undefined;
+    if (b) cover(marked, b);
+  },
 });
-code.addEventListener('focus', () => {
-  codeRecorded = false;
-  litRow = -1;
-  placeCodeLine();
-});
-code.addEventListener('blur', () => {
-  if (codeDirty) applyCode();
-  // Unreadable text stays as typed, to be fixed. Otherwise it is tidied into the file's layout.
-  if (!codeStatus.classList.contains('bad')) syncCode();
-});
-for (const ev of ['keyup', 'click', 'select'] as const) code.addEventListener(ev, markCodeBrick);
-codeOpenBtn.addEventListener('click', () => setCodeOpen(!codeOpen()));
-$('ed-code-close').addEventListener('click', () => setCodeOpen(false));
 
 const viewer = createBrickViewer({
   onUse(t, c) {
-    setColour(c);
-    setType(t);
+    pickers.setColour(c);
+    pickers.setType(t);
   },
 });
-$('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
+$('ed-view-bricks').addEventListener('click', () => viewer.show(pickers.type, pickers.colour));
 
 redraw();
-updateHistoryButtons();
 
 /** The element the game's canvas goes back into when the editor shuts. */
 let canvasHome: HTMLElement | null = null;
@@ -1347,7 +893,7 @@ export function showEditor(): void {
   controls.enabled = true;
   controls.update();
   resize();
-  drawPickers();
+  pickers.draw();
   renderer.setAnimationLoop(draw);
 }
 
