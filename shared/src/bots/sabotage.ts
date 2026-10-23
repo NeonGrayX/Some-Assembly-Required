@@ -209,7 +209,7 @@ export class Sabotage {
   /** Spills a few bricks on the busy way between the brick works and the build. */
   private *trap(): Job {
     const sim = this.bot.squad.game.sim;
-    const presses = this.bot
+    const presses = this.bot.making
       .machinesOf('press')
       .map((id) => machineFront(sim.machines.get(id)!.def));
     if (!presses.length) return false;
@@ -237,10 +237,12 @@ export class Sabotage {
     if (panel) {
       target = { key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' };
     } else {
-      const presses = this.bot.machinesOf('press').filter((id) => !sim.machines.get(id)!.jammed);
+      const presses = this.bot.making
+        .machinesOf('press')
+        .filter((id) => !sim.machines.get(id)!.jammed);
       const id = presses[Math.floor(this.bot.random() * presses.length)];
       if (id === undefined) return false;
-      target = this.bot.machineTarget(id);
+      target = this.bot.making.machineTarget(id);
     }
     const at = target.point()!;
     const goals = this.bot.stands(at, target.ok);
