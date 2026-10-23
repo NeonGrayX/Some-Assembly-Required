@@ -537,7 +537,7 @@ export class Building {
       return false;
     }
     // Away from the build with it.
-    yield* this.bot.throwAway();
+    yield* this.bot.chores.throwAway();
     return true;
   }
 

@@ -35,7 +35,7 @@ export class BrickMaking {
   /** Gets this part into its hands: one lying about, or out of the brick works. */
   *fetch(type: BrickTypeId, colour: ColourId, prints?: Prints): Job {
     if (this.bot.building.holds(type, colour, prints)) return true;
-    if (this.bot.me()!.holding) yield* this.bot.throwAway();
+    if (this.bot.me()!.holding) yield* this.bot.chores.throwAway();
     const sim = this.bot.squad.game.sim;
     // A loose one close by (off a broken build, say).
     const me = this.bot.feet();
@@ -235,7 +235,7 @@ export class BrickMaking {
       // Things change while it waits.
       if (!able()) return false;
       // A moulding machine takes a mould or a bucket in hand instead of making a part.
-      if (wanted.kind === 'part' && this.bot.me()?.tool) yield* this.bot.putAway();
+      if (wanted.kind === 'part' && this.bot.me()?.tool) yield* this.bot.chores.putAway();
       if (!(yield* this.bot.use(front, order))) return false;
       const job = m.making;
       // It would not make it (no power, say).
@@ -295,9 +295,9 @@ export class BrickMaking {
   private *takeOut(id: number, slot: number): Job {
     const made = this.bot.squad.game.sim.machines.get(id)?.out[slot];
     if (!made) return false;
-    if (this.bot.me()?.holding) yield* this.bot.letGo();
+    if (this.bot.me()?.holding) yield* this.bot.chores.letGo();
     const tool = this.bot.me()?.tool;
-    if (tool && (made.kind === 'part' || tool.kind !== made.kind)) yield* this.bot.putAway();
+    if (tool && (made.kind === 'part' || tool.kind !== made.kind)) yield* this.bot.chores.putAway();
     if (!(yield* this.bot.use(this.outputTarget(id, slot), { kind: 'grab', output: true }))) {
       return false;
     }
@@ -309,7 +309,7 @@ export class BrickMaking {
    * a part it sets down on the floor, turned away from the machine, for anyone to use.
    */
   private *discard(m: MachineState): Job {
-    if (this.bot.me()?.tool) return yield* this.bot.putAway();
+    if (this.bot.me()?.tool) return yield* this.bot.chores.putAway();
     if (!this.bot.me()?.holding) return true;
     const out = rotate(yawQuat(m.def.facing), v3(0, 0, 1));
     const yaw = Math.atan2(-out.x, -out.z);

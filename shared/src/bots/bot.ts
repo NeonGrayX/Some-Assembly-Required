@@ -18,6 +18,7 @@ import type { PathCosts, Plate, Waypoint } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
 import type { Squad, Team } from './squad.ts';
 import type { Errand, Heard } from './talk.ts';
+import { Chores } from './chores.ts';
 import { PageJobs } from './pageJobs.ts';
 import { Building } from './building.ts';
 import { JUMP_LIFT, MAX_PITCH, REACH, brickKey } from './common.ts';
@@ -107,6 +108,8 @@ export class Bot {
   private wanderAt = 0;
   /** Nodes something is in the way of, with the tick to try them again. */
   private readonly blocked = new Map<number, number>();
+  /** Small jobs (see `Chores`). */
+  readonly chores: Chores;
   /** Finding and reading the pages (see `PageJobs`). */
   readonly pageJobs: PageJobs;
   /** Putting bricks on the build (see `Building`). */
@@ -124,6 +127,7 @@ export class Bot {
     seed: number,
   ) {
     this.random = makeRng(seed * 7919 + id);
+    this.chores = new Chores(this);
     this.pageJobs = new PageJobs(this);
     this.building = new Building(this);
     this.making = new BrickMaking(this);
@@ -510,10 +514,10 @@ export class Bot {
     if (!e || this.squad.tick > e.until) return null;
     switch (e.what) {
       case 'dog':
-        return this.named('feed the dog', this.onDuty('dogBy', this.feedDog()));
+        return this.named('feed the dog', this.onDuty('dogBy', this.chores.feedDog()));
       case 'panel':
         if (!this.squad.game.sim.panel) return null;
-        return this.named('fix the panel', this.onDuty('panelBy', this.fixPanel()));
+        return this.named('fix the panel', this.onDuty('panelBy', this.chores.fixPanel()));
       case 'search':
         return this.pageJobs.search();
       case 'bell':
@@ -748,14 +752,14 @@ export class Bot {
     const p = this.me()!;
     const sim = this.squad.game.sim;
     const round = this.squad.game.round!;
-    if (p.tool) return this.named('put the tool away', this.putAway());
+    if (p.tool) return this.named('put the tool away', this.chores.putAway());
     if (p.holding && !this.squad.claims.has(this.id)) {
       // Still holding a part after a meeting, say: put it on if it goes on now.
       const fits = this.saboteur
         ? undefined
         : this.plan().ready.find((b) => this.building.holds(b.type, b.colour, b.prints));
       if (fits) return this.named('build', this.building.buildOne(fits));
-      return this.named('let go', this.letGo());
+      return this.named('let go', this.chores.letGo());
     }
     const errand = this.runErrand();
     if (errand) return errand;
@@ -765,7 +769,7 @@ export class Bot {
       const job = this.sabotage.mischief();
       if (job) return job;
     }
-    if (p.page !== null) return this.named('read the page', this.pocketPage());
+    if (p.page !== null) return this.named('read the page', this.chores.pocketPage());
     // The lights went out: someone has to fix the panel (one bot is enough).
     if (
       !sim.power.on &&
@@ -774,7 +778,7 @@ export class Bot {
       round.mode !== 'gear' &&
       this.squad.panelBy === null
     )
-      return this.named('fix the panel', this.onDuty('panelBy', this.fixPanel()));
+      return this.named('fix the panel', this.onDuty('panelBy', this.chores.fixPanel()));
     // A machine somebody tampered with: one builder clears the jam.
     const jammed = this.saboteur
       ? undefined
@@ -782,7 +786,7 @@ export class Bot {
           (m) => m.jammed && m.fixer === null && sim.mayUse(p, machinePose(m.def).centre),
         );
     if (jammed && this.squad.jamBy === null)
-      return this.named('clear a jam', this.onDuty('jamBy', this.clearJam(jammed.def.id)));
+      return this.named('clear a jam', this.onDuty('jamBy', this.chores.clearJam(jammed.def.id)));
     // The dog goes for the build after three minutes without a treat: one bot feeds it first.
     if (
       !this.saboteur &&
@@ -790,7 +794,7 @@ export class Bot {
       sim.dog.ticksHungry > DOG_FEED_SECONDS * 60 &&
       this.squad.dogBy === null
     )
-      return this.named('feed the dog', this.onDuty('dogBy', this.feedDog()));
+      return this.named('feed the dog', this.onDuty('dogBy', this.chores.feedDog()));
     if (!this.saboteur && this.mayAccuse())
       return this.named('ring the bell', this.onDuty('bellBy', this.ringBell()));
     const plan = this.plan();
@@ -799,8 +803,8 @@ export class Bot {
     if (!p.handsOff && plan.fix !== null)
       return this.named('fix a brick', this.building.fixBrick(plan.fix));
     // Bricks knocked off lying on the baseplate: in the way of putting anything on there.
-    const debris = p.handsOff || this.saboteur ? null : this.debris();
-    if (debris !== null) return this.named('clear the build', this.clearDebris(debris));
+    const debris = p.handsOff || this.saboteur ? null : this.chores.debris();
+    if (debris !== null) return this.named('clear the build', this.chores.clearDebris(debris));
     const searching = this.shouldSearch(plan.work, plan.unknown + plan.lost);
     if (searching || p.handsOff) {
       const job = this.pageJobs.search();
@@ -861,7 +865,7 @@ export class Bot {
    * many steps nobody has read, which page to read next and whether everything is in place come
    * from the board, as the team read it.
    */
-  private plan(): {
+  plan(): {
     ready: Wanted[];
     /** A brick in the build to take off (wrong, or wanted nowhere), by id. */
     fix: number | null;
@@ -994,7 +998,7 @@ export class Bot {
    * Whether it sees a page's stamp is wrong: only once it knows the real one, and then as
    * sharp-eyed as it is (decided once a page, however often it reads it).
    */
-  private spotted(page: PrintedPage): boolean {
+  spotted(page: PrintedPage): boolean {
     const real = this.team.realStamp;
     if (this.saboteur || !real || page.stamp === real || page.step < 0) return false;
     const key = `${page.step}|${page.stamp}`;
@@ -1568,208 +1572,6 @@ export class Bot {
   }
 
   // ---------------------------------------------------------------- jobs: small ones
-
-  *putAway(): Job {
-    yield* this.free();
-    this.act({ kind: 'drop' });
-    yield;
-    yield;
-    return true;
-  }
-
-  /**
-   * A loose piece lying on (or right by) the baseplate, the nearest no other bot is seeing to.
-   * Two bots at most clear at once, so the rest go on building.
-   */
-  private debris(): number | null {
-    const sim = this.squad.game.sim;
-    const clearing = this.squad.clearing;
-    const others = [...clearing].filter(([b]) => b !== this.id);
-    if (others.length >= 2) return null;
-    const taken = new Set(others.map(([, a]) => a));
-    const me = this.feet();
-    let best: { id: number; d: number } | null = null;
-    for (const a of sim.assemblies.values()) {
-      if (a.heldBy !== null || a.frozen || a.anchored || sim.isBuild(a.id) || taken.has(a.id))
-        continue;
-      if (this.avoided(`debris|${a.id}`)) continue;
-      const at = a.body.worldCom();
-      if (!this.overPlate(at.x, at.y, at.z)) continue;
-      const d = length(sub(at, me));
-      if (!best || d < best.d) best = { id: a.id, d };
-    }
-    return best?.id ?? null;
-  }
-
-  /** Picks a piece up off the baseplate and puts it on if it goes on now, else takes it off. */
-  private *clearDebris(id: number): Job {
-    const sim = this.squad.game.sim;
-    this.squad.clearing.set(this.id, id);
-    try {
-      if (this.me()!.holding) yield* this.throwAway();
-      const ok = yield* this.use(
-        {
-          key: `debris|${id}`,
-          point: () => {
-            const a = sim.assemblies.get(id);
-            return a && a.heldBy === null ? a.body.worldCom() : null;
-          },
-          ok: (o) => o.kind === 'brick' && o.assemblyId === id,
-        },
-        { kind: 'grab' },
-        0.9,
-      );
-      if (!ok || this.me()?.holding?.assemblyId !== id) {
-        this.failed(`debris|${id}`, 20);
-        return false;
-      }
-    } finally {
-      this.squad.clearing.delete(this.id);
-    }
-    const fits = this.plan().ready.find((b) => this.building.holds(b.type, b.colour, b.prints));
-    if (fits) return yield* this.building.buildOne(fits);
-    yield* this.throwAway();
-    return true;
-  }
-
-  /** Puts down whatever is in hand, away from the build so nobody steps on it there. */
-  *letGo(): Job {
-    yield* this.free();
-    const p = this.me()!;
-    const sim = this.squad.game.sim;
-    const held = p.holding ? sim.assemblies.get(p.holding.assemblyId) : undefined;
-    if (held && sim.isBuild(held.id)) {
-      // A build in the arms: set it down where it can be worked on.
-      this.act({ kind: 'drop' });
-      for (let k = 0; k < 90 && this.me()?.holding; k++) yield;
-      return true;
-    }
-    yield* this.throwAway();
-    return true;
-  }
-
-  /** Throws what it holds away, well clear of the build and facing away from it. */
-  *throwAway(): Job {
-    const sim = this.squad.game.sim;
-    const nav = this.squad.nav;
-    const centre = sim.buildCentre(sim.build(this.site));
-    const flat = (x: number, z: number): number => Math.hypot(x - centre.x, z - centre.z);
-    let me = this.feet();
-    if (flat(me.x, me.z) < 3.4) {
-      const spots = nav
-        .around(centre, 5, 1, 1)
-        .filter((n) => flat(nav.xs[n]!, nav.zs[n]!) > 3.6)
-        .sort(
-          (a, b) =>
-            Math.hypot(nav.xs[a]! - me.x, nav.zs[a]! - me.z) -
-            Math.hypot(nav.xs[b]! - me.x, nav.zs[b]! - me.z),
-        );
-      if (spots.length) yield* this.walk(spots.slice(0, 4), undefined, 15);
-      me = this.feet();
-    }
-    this.halt();
-    yield;
-    // Turn away from the build first, smoothly (a sudden turn swings what is in hand, and it
-    // would fly off sideways, into the build as like as not), then throw.
-    const yaw = Math.atan2(-(me.x - centre.x), -(me.z - centre.z));
-    yield* this.face(yaw, 0.3);
-    this.act({ kind: 'throw' }, yaw, 0.3);
-    yield;
-    yield;
-    return true;
-  }
-
-  /** Takes a treat from the nearest jar and gives it to the dog. */
-  private *feedDog(): Job {
-    const sim = this.squad.game.sim;
-    const me = this.feet();
-    const jars = [sim.level.dog.treatJar, ...(sim.level.dog.treatJars ?? [])].sort(
-      (a, b) => length(sub(a, me)) - length(sub(b, me)),
-    );
-    for (const jar of jars) {
-      if (this.me()?.treat) break;
-      const at = add(jar, v3(0, 0.09, 0));
-      yield* this.use(
-        { key: `treats|${jar.x}|${jar.z}`, point: () => at, ok: (o) => o.kind === 'treats' },
-        { kind: 'grab' },
-      );
-    }
-    if (!this.me()?.treat) return false;
-    for (let tries = 0; tries < 4 && this.me()?.treat; tries++) {
-      yield* this.use(
-        {
-          key: 'dog',
-          point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
-          ok: (o) => o.kind === 'dog',
-        },
-        { kind: 'grab' },
-        0.9,
-      );
-    }
-    return !this.me()?.treat;
-  }
-
-  private *fixPanel(): Job {
-    const sim = this.squad.game.sim;
-    const panel = sim.panel!;
-    const ok = yield* this.use(
-      { key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' },
-      { kind: 'grab' },
-    );
-    if (ok) {
-      // Stays on the job until the lights come on.
-      for (let k = 0; k < 5 * 60 && !sim.power.on; k++) yield;
-      if (sim.power.on) this.say('Power is back on.');
-    }
-    return ok;
-  }
-
-  /** Clears the jam in a machine a saboteur tampered with, staying on it until it is done. */
-  private *clearJam(id: number): Job {
-    const m = this.squad.game.sim.machines.get(id)!;
-    const ok = yield* this.use(this.making.machineTarget(id), { kind: 'grab' });
-    if (!ok) return false;
-    for (let k = 0; k < 6 * 60 && m.jammed && m.fixer === this.id; k++) yield;
-    if (!m.jammed) this.say('Cleared the jam, the machine works again.');
-    return !m.jammed;
-  }
-
-  /** The page in its pocket: reads it, tells the others, and pins it on the board. */
-  *pocketPage(): Job {
-    const sim = this.squad.game.sim;
-    const round = this.squad.game.round!;
-    const p = this.me()!;
-    const page = p.page === null ? undefined : sim.pages.get(p.page);
-    if (!page) return false;
-    const printed = round.canRead(this.id) ? page.printed : null;
-    if (printed) this.remember(printed);
-    if (printed && !this.saboteur) {
-      const doubted = this.spotted(printed);
-      this.team.tell(printed, this.id, doubted);
-      if (doubted) {
-        this.say(`Page ${printed.step + 1} has the wrong stamp: it is forged.`);
-      }
-    }
-    if (printed && this.saboteur && !round.partners(this.id).length)
-      this.team.tell(printed, this.id);
-    // Pin it where everyone can read it.
-    const boards = levelBoards(sim.level).filter((b) => b.site === this.site);
-    for (const b of boards) {
-      const ok = yield* this.use(
-        {
-          key: `board|${b.pos.x}|${b.pos.z}`,
-          point: () => add(b.pos, v3(0, -0.15, 0)),
-          ok: (o) => o.kind === 'board',
-        },
-        { kind: 'grab' },
-        1.2,
-      );
-      if (ok && this.me()?.page === null) return true;
-    }
-    this.act({ kind: 'dropPage' });
-    yield;
-    return false;
-  }
 
   // ---------------------------------------------------------------- jobs: pages
 

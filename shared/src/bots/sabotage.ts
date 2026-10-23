@@ -142,7 +142,7 @@ export class Sabotage {
     const page = p.page === null ? undefined : this.bot.squad.game.sim.pages.get(p.page);
     // Tells the others what the forgery says, as if it were the real page.
     if (page?.printed) this.bot.team.tell(page.printed, this.bot.id);
-    return yield* this.bot.pocketPage();
+    return yield* this.bot.chores.pocketPage();
   }
 
   /** Swaps a brick of the build for its look-alike while nobody is watching. */
