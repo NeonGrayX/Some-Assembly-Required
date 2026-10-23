@@ -34,7 +34,7 @@ export class BrickMaking {
 
   /** Gets this part into its hands: one lying about, or out of the brick works. */
   *fetch(type: BrickTypeId, colour: ColourId, prints?: Prints): Job {
-    if (this.bot.holds(type, colour, prints)) return true;
+    if (this.bot.building.holds(type, colour, prints)) return true;
     if (this.bot.me()!.holding) yield* this.bot.throwAway();
     const sim = this.bot.squad.game.sim;
     // A loose one close by (off a broken build, say).
@@ -67,7 +67,7 @@ export class BrickMaking {
         { kind: 'grab' },
         0.9,
       );
-      if (ok && this.bot.holds(type, colour, prints)) return true;
+      if (ok && this.bot.building.holds(type, colour, prints)) return true;
       this.bot.failed(`loose|${id}`, 30);
     }
     if (prints) {
@@ -117,7 +117,8 @@ export class BrickMaking {
     };
     for (const m of presses()) {
       const slot = this.lying(m, part);
-      if (slot >= 0 && (yield* this.takeOut(m.def.id, slot))) return this.bot.holds(type, colour);
+      if (slot >= 0 && (yield* this.takeOut(m.def.id, slot)))
+        return this.bot.building.holds(type, colour);
     }
     const makes = (m: MachineState): boolean =>
       m.mould === type && m.colour === colour && m.shots > 0;
@@ -367,7 +368,7 @@ export class BrickMaking {
 
   /** Whether it has this in hand: the mould or the bucket, or the part. */
   private has(made: Made): boolean {
-    if (made.kind === 'part') return this.bot.holds(made.type, made.colour);
+    if (made.kind === 'part') return this.bot.building.holds(made.type, made.colour);
     const tool = this.bot.me()?.tool;
     return !!tool && sameMade(tool, made);
   }
@@ -387,7 +388,7 @@ export class BrickMaking {
     if (!printer.part) return false;
     yield* this.bot.use(this.machineTarget(id), { kind: 'print', job });
     // It takes the part off the bed once it is printed.
-    for (let k = 0; k < 10 * 60 && printer.part && !this.bot.holdingBrick(); k++) yield;
-    return !!this.bot.holdingBrick();
+    for (let k = 0; k < 10 * 60 && printer.part && !this.bot.building.holdingBrick(); k++) yield;
+    return !!this.bot.building.holdingBrick();
   }
 }
