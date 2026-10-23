@@ -1,3 +1,4 @@
+import { CHEVRON_HALF } from '@sar/shared';
 import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { HOUSE_DOOR } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
@@ -21,8 +22,8 @@ import { BUS } from './bus.ts';
  * stop, and a hoarding along its south edge, where a rival team's lot meets it.
  */
 
-/** Half the map's side. */
-export const CHEVRON_HALF = 16;
+/** Half the map's side: the level's (see `chevronLayout`). */
+export { CHEVRON_HALF };
 
 /** How wide the gateway in the south hoarding is: the rival teams' gate (see `RIVAL_WALL`). */
 const GATEWAY = 3.2;

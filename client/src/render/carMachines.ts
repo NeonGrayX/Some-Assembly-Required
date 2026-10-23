@@ -32,7 +32,7 @@ import {
 } from './brickworks.ts';
 import type { Job, MachineEvent } from './brickworks.ts';
 import { brickMaterial } from './bricks.ts';
-import { HANDLED, HOPPER_STEP_SIZE } from './operate.ts';
+import { HANDLED, HATCH_MOULD, HOPPER_STEP_SIZE } from './operate.ts';
 import type { MachineControls } from './operate.ts';
 
 /**
@@ -171,29 +171,21 @@ export class CarMachineView extends MachineLook {
 
   /**
    * The car model of `def`'s kind, standing where `def` says and turned its way, on its pad
-   * (unless `pad` is false), its still parts baked together; or `model`, the scene's own model of
-   * it, as it stands, to work as it is (car-test.html's).
+   * (unless `pad` is false), its still parts baked together.
    */
-  constructor(def: MachineDef, model?: THREE.Object3D, pad = true) {
-    super(def, (model as THREE.Group | undefined) ?? new THREE.Group());
-    if (model) {
-      // Worked by one view at a time: whatever an earlier one drew in it goes.
-      this.model = model;
-      for (const old of model.children.filter((o) => o.name === 'fx' || o.name === 'contents'))
-        old.removeFromParent();
-    } else {
-      this.group.name = def.kind;
-      this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
-      this.group.rotation.y = def.facing;
-      this.model = MACHINE_MODELS[def.kind]();
-      this.group.add(this.model);
-      if (pad) {
-        // Sunk into the ground all but a centimetre, so that players stand on it as on the
-        // ground round it.
-        const p = machinePad(def.size);
-        p.position.y = PAD_RISE - PAD;
-        this.group.add(p);
-      }
+  constructor(def: MachineDef, pad = true) {
+    super(def);
+    this.group.name = def.kind;
+    this.group.position.set(def.pos.x, def.pos.y, def.pos.z);
+    this.group.rotation.y = def.facing;
+    this.model = MACHINE_MODELS[def.kind]();
+    this.group.add(this.model);
+    if (pad) {
+      // Sunk into the ground all but a centimetre, so that players stand on it as on the
+      // ground round it.
+      const p = machinePad(def.size);
+      p.position.y = PAD_RISE - PAD;
+      this.group.add(p);
     }
     // Its lights its own, so they go on and off with it alone.
     const owned = new Map<THREE.Material, Glow>();
@@ -203,10 +195,7 @@ export class CarMachineView extends MachineLook {
       if (!m.emissive || (m.emissive.getHex() === 0 && o.name !== 'buttonCap')) return;
       let own = owned.get(m);
       if (!own) {
-        // (Its glow at rest kept with it, should another view take the model over.)
-        const rest = (m.userData.glowRest as number | undefined) ?? m.emissiveIntensity;
-        own = { material: m.clone(), rest };
-        own.material.userData.glowRest = rest;
+        own = { material: m.clone(), rest: m.emissiveIntensity };
         owned.set(m, own);
         this.glows.push(own);
       }
@@ -239,8 +228,8 @@ export class CarMachineView extends MachineLook {
         stack.add(b);
       }
     }
-    // A draw call per material for what stays still; the scene's own model is baked with it.
-    if (!model) batchStatic(this.model, (o) => LIVE_PARTS.includes(o.name));
+    // A draw call per material for what stays still.
+    batchStatic(this.model, (o) => LIVE_PARTS.includes(o.name));
     this.addLayers();
     this.apply();
   }
@@ -491,7 +480,7 @@ export class CarMachineView extends MachineLook {
     carried.position.set(0, 0, (-0.4 * PICKED) / 2);
     group.add(held);
     const mould = mouldBlock(type);
-    mould.scale.setScalar(HATCH_MOULD_SCALE);
+    mould.scale.setScalar(HATCH_MOULD);
     group.add(mould);
     const hatch = this.restAt(slot);
     const top = hatch.clone().add(new THREE.Vector3(0, 0.26, 0));
@@ -532,7 +521,7 @@ export class CarMachineView extends MachineLook {
   private returnJob(type: BrickTypeId, handled: boolean): Omit<Job, 'start'> {
     const group = this.jobGroup();
     const mould = mouldBlock(type);
-    mould.scale.setScalar(HATCH_MOULD_SCALE);
+    mould.scale.setScalar(HATCH_MOULD);
     group.add(mould);
     const hatch = this.restAt(0);
     // Pushed in from where the hands bring it (see `HANDLED.return`), or by itself.
@@ -927,8 +916,6 @@ function platenGap(): number {
 const STACK_STEP = 0.04;
 /** How far the pad stands up out of the ground under a car machine. */
 const PAD_RISE = 0.012;
-/** How big a mould is in the vendor's hatch, to its size in a player's hands (see `madeModel`). */
-const HATCH_MOULD_SCALE = 0.5;
 
 /** The stack light's lamps unlit: their glass dull. */
 const DIM_LAMPS = STACK_LAMPS.map((c) =>

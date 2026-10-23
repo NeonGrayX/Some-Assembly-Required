@@ -45,17 +45,10 @@ const PRINT_MAX_PX = 1024;
 
 /** Goes up whenever a print finishes loading, so pictures printed before it can be redone. */
 let loaded = 0;
-let loading = 0;
-const loadWaiters: (() => void)[] = [];
 
 /** Changes when a print has finished loading since this was last read. */
 export function printsVersion(): number {
   return loaded;
-}
-
-/** Resolves once every print asked for so far has loaded (or failed to). */
-export function printsReady(): Promise<void> {
-  return loading ? new Promise((resolve) => loadWaiters.push(resolve)) : Promise.resolve();
 }
 
 /**
@@ -79,11 +72,8 @@ function svgTexture(svg: string, w: number, h: number): THREE.CanvasTexture {
     const img = new Image();
     const done = (): void => {
       URL.revokeObjectURL(url);
-      loading--;
       loaded++;
-      if (!loading) loadWaiters.splice(0).forEach((resolve) => resolve());
     };
-    loading++;
     img.onload = () => {
       c.getContext('2d')!.drawImage(img, 0, 0, w, h);
       const t = textures.get(`svg:${w}x${h}:${svg}`);

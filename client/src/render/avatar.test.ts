@@ -336,7 +336,7 @@ describe('jumping and blending', () => {
       prev = a.legs[0].rotation.x;
     }
     // Going into and out of the limp, the legs move no faster than they do limping along.
-    // (Over a whole stride of the limp, at car-test's slower cadence.)
+    // (Over a whole stride of the limp, at its slower cadence.)
     const steady = Math.max(...change.slice(130, 218));
     const into = Math.max(...change.slice(98, 130));
     const outOf = Math.max(...change.slice(218, 250));
@@ -401,7 +401,7 @@ describe('on a slope', () => {
     for (const ahead of [0.45, -0.45]) {
       const reaching = tread({ ahead, right: 0 }, 3.5);
       const not = tread({ ahead, right: 0 }, 3.5, false);
-      // No deeper into it than a foot stands sunk into a floor (walking on the flat, car-test's
+      // No deeper into it than a foot stands sunk into a floor (walking on the flat, the walk's
       // bob carries both feet over it), nor further over it than on one at any point of a
       // stride; not reaching for it, the foot ahead went into the ground going up.
       expect(lowest(reaching)).toBeGreaterThan(Math.min(lowest(flat), -0.015) - 0.005);

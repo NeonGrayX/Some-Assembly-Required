@@ -11,7 +11,7 @@ import { gameNow } from '../clock.ts';
  * The sky can also light a scene (see `bakeLight`; the model gallery's and the island test's):
  * the light its picture gives, with the ground under it, from above and from below, goes into the
  * hemisphere light, so shade takes the sky's blue and glossy things reflect its colours. The
- * game's levels are lit as car-test.html lights its scene instead (see `View`).
+ * game's levels are lit as the car scene is instead (see `CarLook` and `View`).
  */
 
 /** How the sky looks at one time of day; the horizon is the fog's colour. */

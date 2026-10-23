@@ -216,7 +216,7 @@ function fights(root: THREE.Object3D): Fight[] {
   return found.sort((x, y) => y.area - x.area);
 }
 
-describe('the car test map', () => {
+describe('the car scene, as the reference picture lays it out', () => {
   it('has no faces of different materials fighting in the same plane', () => {
     const restore = noteWhereAdded();
     const root = buildCarScene().root;

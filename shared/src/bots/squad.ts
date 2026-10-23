@@ -1,5 +1,4 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { BRICK_TYPES } from '../bricks.ts';
 import type { BrickTypeId, ColourId } from '../bricks.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import { matchBuild } from '../builds/match.ts';
@@ -516,9 +515,4 @@ export function partsOf(bricks: TargetBrick[]): PartCount[] {
     else out.push({ ...part, count: 1 });
   }
   return out;
-}
-
-/** Whether a placed or target brick is a part of the baseplate kind (never fetched). */
-export function isFixture(type: TargetBrick['type']): boolean {
-  return !!BRICK_TYPES[type].fixture;
 }

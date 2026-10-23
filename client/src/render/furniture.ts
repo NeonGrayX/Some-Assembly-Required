@@ -975,7 +975,7 @@ export function lightIndoors(root: THREE.Object3D, level: LevelDef): Map<THREE.M
     split.set(wall, [...(split.get(wall) ?? []), sheet]);
   }
   // Meshes of one material lit the same way share one lit copy of it, so they can still be
-  // drawn together (see `mergeAlike`).
+  // drawn together (see `mergeStatic`).
   const copies = new Map<THREE.Material, Map<string, THREE.MeshStandardMaterial>>();
   const litCopy = (m: THREE.MeshStandardMaterial, how: 'outside' | 'room' | 'underground') => {
     let byHow = copies.get(m);

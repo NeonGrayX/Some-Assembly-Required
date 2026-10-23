@@ -121,8 +121,8 @@ export const EYE_OFFSET = 0.6;
 /** The gap the character controller keeps between a player and what they stand on or touch. */
 export const CONTROLLER_OFFSET = 0.02;
 /**
- * How players move, as they walk about car-test.html: at once at the pace asked for, on the
- * ground and in the air alike (m/s).
+ * How fast players move: at once at the pace asked for, on the ground and in the air alike
+ * (m/s).
  */
 export const WALK_SPEED = 4.2;
 const SPRINT_SPEED = 7.5;

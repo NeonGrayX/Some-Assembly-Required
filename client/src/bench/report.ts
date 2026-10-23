@@ -1,5 +1,6 @@
 import { mapById } from '@sar/shared';
 import type { BenchResult } from './bench.ts';
+import { download, stamp } from './sheet.ts';
 import { STUTTER_MS, buckets, histogram, percentile, summarize } from './stats.ts';
 import type { FrameSample, Summary } from './stats.ts';
 
@@ -1039,11 +1040,10 @@ export class BenchReport {
       }
       text = rows.join('\n');
     }
-    const blob = new Blob([text], { type: kind === 'json' ? 'application/json' : 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `sar-benchmark-${r.date.slice(0, 19).replace(/[:T]/g, '-')}.${kind}`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    download(
+      text,
+      `sar-benchmark-${stamp(r.date)}.${kind}`,
+      kind === 'json' ? 'application/json' : 'text/csv',
+    );
   }
 }

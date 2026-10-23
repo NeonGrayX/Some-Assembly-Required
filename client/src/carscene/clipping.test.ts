@@ -99,7 +99,7 @@ function clashes(root: THREE.Object3D): string[] {
   return [...found.values()];
 }
 
-describe('the car test map', () => {
+describe('the car scene, as the reference picture lays it out', () => {
   it('opens its doors, lids and levers without passing through anything', () => {
     const restore = noteWhereAdded();
     const root = buildCarScene().root;

@@ -169,8 +169,8 @@ function hidingPlaces(scene: CarScene): ChevronScene['hideouts'] {
 
 /**
  * The scene's other things a click works (see `clickables`), each handle's box as it starts and
- * once it has been clicked (an oven's door down), each at least a few centimetres every way, as
- * car-test.html aims at them.
+ * once it has been clicked (an oven's door down), each at least a few centimetres every way, so
+ * the crosshair can find them.
  */
 function clickBoxes(scene: CarScene): ChevronScene['gadgets'] {
   const out: ChevronScene['gadgets'] = [];
