@@ -30,7 +30,8 @@ describe('the town round Chevron Street', () => {
         (n, m) => n + (m.geometry.index?.count ?? m.geometry.attributes.position!.count) / 3,
         0,
       );
-      expect(meshes.length).toBeLessThan(name === 'rival' ? 200 : 120);
+      // (A draw call for each material: the houses', the street furniture's, the ground's.)
+      expect(meshes.length).toBeLessThan(name === 'rival' ? 220 : 160);
       expect(triangles).toBeLessThan(name === 'rival' ? 900_000 : 600_000);
     });
 

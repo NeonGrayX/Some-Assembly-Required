@@ -13,8 +13,17 @@ import { hash, paintedOnce, rng } from './kit.ts';
 import { BAY, FACADE } from './paint.ts';
 import type { Rect } from './paint.ts';
 import { WATER_BARRIER, waterBarrier } from './roadworks.ts';
-import { buildStreet, lampSpot, plainLamp } from './street.ts';
-import type { StreetPlan } from './street.ts';
+import { BUS } from './bus.ts';
+import {
+  buildStreet,
+  lampSpot,
+  pieceSpot,
+  plainLamp,
+  plainPiece,
+  streetLamp,
+  streetPiece,
+} from './street.ts';
+import type { Side, StreetPiece, StreetPlan } from './street.ts';
 import { BACKDROP, SWEEP_GLSL } from './studio.ts';
 
 /**
@@ -156,14 +165,21 @@ function finish(root: THREE.Object3D, stamped = new Stamper()): void {
   const toRoot = root.matrixWorld.clone().invert();
   const spots: THREE.Object3D[] = [];
   root.traverse((o) => {
-    if (o.name === LAMP) spots.push(o);
+    if (o.name === LAMP || o.name === FINE_LAMP || o.name === PIECE) spots.push(o);
   });
   for (const o of spots) {
     const g = new THREE.Group();
-    stamped.stamp(
-      model('lamp', () => (plainLamp(g), g)),
-      toRoot.clone().multiply(o.matrixWorld),
-    );
+    const piece = o.userData.piece as Piece | undefined;
+    const m =
+      o.name === LAMP
+        ? model('lamp', () => (plainLamp(g), g))
+        : o.name === FINE_LAMP
+          ? model('fine lamp', () => (streetLamp(g), g))
+          : model(`piece ${JSON.stringify(piece)}`, () => {
+              (piece!.plain ? plainPiece : streetPiece)(g, piece!);
+              return g;
+            });
+    stamped.stamp(m, toRoot.clone().multiply(o.matrixWorld));
     o.removeFromParent();
   }
   stamped.build(root);
@@ -208,7 +224,8 @@ function flatten(root: THREE.Object3D): Model {
   const parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    // (Nor what is hidden till it is switched on, as a charging post's bar.)
+    if (!mesh.isMesh || !mesh.visible || Array.isArray(mesh.material)) return;
     const g = normalised(mesh.geometry).applyMatrix4(mesh.matrixWorld);
     mesh.geometry.dispose();
     const list = parts.get(mesh.material) ?? [];
@@ -302,12 +319,26 @@ function placed(x: number, z: number, heading: number, stretch = 1): THREE.Matri
 // ---------------------------------------------------------------------------------------------
 // The near streets.
 
-/** Marks where a street's lamp stands, to be stamped there (see `finish`). */
+/**
+ * Marks where a street's lamp stands, to be stamped there (see `finish`): the plain lamp, or
+ * where the street is painted finely enough to be seen close to, the map's own.
+ */
 const LAMP = 'town lamp';
+const FINE_LAMP = 'town lamp, fine';
+/** Marks where a piece of street furniture stands (its `Piece` in its `userData.piece`). */
+const PIECE = 'town furniture';
+/** A piece of street furniture as a street of the town's has it: plain, if seen from afar. */
+type Piece = Pick<StreetPiece, 'kind' | 'colour' | 'seed'> & { plain: boolean };
+/**
+ * How finely (pixels a metre) a street is painted that is seen close to, and fitted out so: with
+ * the map's own furniture out to `NEARBY` from the map's middle along x, plain past it.
+ */
+const CLOSE = 64;
+const NEARBY = 28;
 
 /**
  * A street of the town's: no crossing, nothing in it to click, painted coarser further off; its
- * lamps marked, to be stamped.
+ * lamps and furniture marked, to be stamped.
  */
 function townStreet(o: Partial<StreetPlan> & Pick<StreetPlan, 'x0' | 'x1' | 'north' | 'south'>) {
   const plan: StreetPlan = {
@@ -323,13 +354,57 @@ function townStreet(o: Partial<StreetPlan> & Pick<StreetPlan, 'x0' | 'x1' | 'nor
     plain: true,
     ...o,
   };
-  const street = buildStreet({ ...plan, lamps: [] });
+  const street = buildStreet({ ...plan, lamps: [], furniture: [] });
+  const close = (plan.detail ?? 100) >= CLOSE;
   for (const l of plan.lamps) {
     const spot = lampSpot(plan, l);
-    spot.name = LAMP;
+    spot.name = close ? FINE_LAMP : LAMP;
+    street.add(spot);
+  }
+  for (const f of plan.furniture) {
+    const spot = pieceSpot(plan, f);
+    spot.name = PIECE;
+    const piece: Piece = { kind: f.kind, plain: !close || Math.abs(f.x) > NEARBY };
+    if (f.colour !== undefined) piece.colour = f.colour;
+    if (f.kind === 'planter') piece.seed = f.seed ?? 41;
+    spot.userData.piece = piece;
     street.add(spot);
   }
   return street;
+}
+
+/**
+ * Furniture strewn along a street seen from further off, from `x0` to `x1`: a bin, a planter, a
+ * bench and so on in turn every ten metres or so, on one pavement or the other, clear of its
+ * lamps and of the side streets coming in (`gaps`).
+ */
+function strewn(
+  x0: number,
+  x1: number,
+  lamps: { x: number }[],
+  gaps: { x0: number; x1: number }[],
+  seed: number,
+): StreetPiece[] {
+  const kinds = ['bin', 'planter', 'bench', 'bin', 'planter', 'hydrant'] as const;
+  const rand = rng(seed);
+  const out: StreetPiece[] = [];
+  let i = 0;
+  for (let x = x0 + 2 + rand() * 5; x < x1 - 2; x += 8 + rand() * 6) {
+    if (lamps.some((l) => Math.abs(l.x - x) < 1.8)) continue;
+    if (gaps.some((g) => x > g.x0 - 1.6 && x < g.x1 + 1.6)) continue;
+    const kind = kinds[i++ % kinds.length]!;
+    const side: Side = rand() < 0.5 ? 'north' : 'south';
+    out.push({
+      kind,
+      x,
+      side,
+      back: { bin: 1.7, planter: 1.4, bench: 1.6, hydrant: 1.5 }[kind],
+      toRoad: kind === 'bin' || kind === 'bench',
+      ...(kind === 'bin' && rand() < 0.3 ? { colour: BUS.yellow } : {}),
+      seed: 41 + (i % 3),
+    });
+  }
+  return out;
 }
 
 /** The terraced houses' widths: a few, so that a few models serve the whole town. */
@@ -349,6 +424,8 @@ interface Row {
   shops?: ('first' | 'last')[];
   /** How many storeys a house `along` metres down the row has, if not as `storeys` would. */
   tall?: (along: number) => number | undefined;
+  /** Seen close to, from the map: its houses built finer (see `TerraceHouse.fine`). */
+  fine?: boolean;
 }
 
 const colour = new THREE.Color();
@@ -388,6 +465,7 @@ function row(st: Stamper, r: Row): void {
       shop: (ends.left && r.shops?.includes('first')) || (ends.right && r.shops?.includes('last')),
       chimney: kind > 1,
       seed: storeys % 2,
+      ...(r.fine ? { fine: true, garden: GARDEN } : {}),
     };
     const p = new THREE.Vector3(r.x, 0, r.z)
       .addScaledVector(along, mid)
@@ -417,6 +495,30 @@ const NEAR = CHEVRON_HALF + 0.6;
 const FAR = CROSS - HALF_ROAD - PAVE - 0.4;
 
 /**
+ * The furniture along the east carrying on of the map's street (the west's the same turned
+ * about): bins, benches and planters, a hydrant, a charging post, and bollards at the corner.
+ */
+const ALONG: StreetPiece[] = [
+  { kind: 'bin', x: 18.6, side: 'north', back: 1.7, toRoad: true },
+  { kind: 'bench', x: 21.6, side: 'north', back: 1.6, toRoad: true },
+  { kind: 'planter', x: 23.4, side: 'north', back: 1.4, seed: 42 },
+  { kind: 'hydrant', x: 30.2, side: 'north', back: 1.5 },
+  { kind: 'bin', x: 33.6, side: 'north', back: 1.7, toRoad: true, colour: BUS.yellow },
+  { kind: 'planter', x: 36.8, side: 'north', back: 1.4, seed: 43 },
+  { kind: 'charger', x: 41.2, side: 'north', back: 1.8, toRoad: true },
+  { kind: 'bollard', x: 43.4, side: 'north', back: 0.42 },
+  { kind: 'bollard', x: 44.1, side: 'north', back: 0.42 },
+  { kind: 'planter', x: 19.4, side: 'south', back: 1.4, seed: 41 },
+  { kind: 'bench', x: 22.2, side: 'south', back: 1.6, toRoad: true },
+  { kind: 'bin', x: 24.4, side: 'south', back: 1.75, toRoad: true },
+  { kind: 'bin', x: 25.0, side: 'south', back: 1.75, toRoad: true, colour: BUS.yellow },
+  { kind: 'hydrant', x: 34.0, side: 'south', back: 1.5 },
+  { kind: 'planter', x: 42.0, side: 'south', back: 1.4, seed: 43 },
+  { kind: 'bollard', x: 43.4, side: 'south', back: 0.42 },
+  { kind: 'bollard', x: 44.1, side: 'south', back: 0.42 },
+];
+
+/**
  * The half of the town round the map's first copy: its street carried on to the cross streets,
  * the rows along it, the back lane and the gardens behind the map, and the street behind them.
  */
@@ -426,27 +528,31 @@ function nearHalf(): THREE.Group {
   const st = new Stamper();
 
   // The street carried on each way, closed just past the map with water barriers, side streets'
-  // pavements stopping short of the cross street's.
+  // pavements stopping short of the cross street's: painted as finely as the map's own, and
+  // fitted out as it is, with the map's lamps, bins, benches, planters and the rest.
   const corner = CROSS - HALF_ROAD - PAVE;
   for (const s of [-1, 1]) {
     const [x0, x1] =
       s > 0 ? [CHEVRON_HALF, CROSS - HALF_ROAD] : [-CROSS + HALF_ROAD, -CHEVRON_HALF];
     const gap = s > 0 ? { x0: corner, x1 } : { x0, x1: -corner };
+    // The west's the east's turned about, its pavements swapped.
+    const side = (east: Side): Side => (s > 0 ? east : east === 'north' ? 'south' : 'north');
     root.add(
       townStreet({
         x0,
         x1,
         ...ROAD,
         open: true,
-        detail: 50,
+        detail: 100,
         openings: [
           { side: 'north', ...gap },
           { side: 'south', ...gap },
         ],
         lamps: [
-          { x: s * 26, side: s > 0 ? 'north' : 'south' },
-          { x: s * 39, side: s > 0 ? 'south' : 'north' },
+          { x: s * 26, side: side('north') },
+          { x: s * 39, side: side('south') },
         ],
+        furniture: ALONG.map((f) => ({ ...f, x: s * f.x, side: side(f.side) })),
       }),
     );
     const { length } = WATER_BARRIER;
@@ -461,23 +567,35 @@ function nearHalf(): THREE.Group {
     }
   }
 
-  // The street behind, the whole width of the town.
+  // The street behind, the whole width of the town: between the cross streets (seen down the
+  // alley and over the gardens) painted finer than past them.
   const behind = [-CROSS, CROSS].flatMap((c) =>
     (['north', 'south'] as const).map((side) => ({ side, x0: c - HALF_ROAD, x1: c + HALF_ROAD })),
   );
-  root.add(
-    townStreet({
-      x0: -REACH,
-      x1: REACH,
-      ...NORTH,
-      detail: 20,
-      openings: behind,
-      lamps: [-75, -38, -12, 14, 38, 75].map((x, i) => ({
-        x,
-        side: i % 2 ? 'north' : 'south',
-      })),
-    }),
-  );
+  const lamps = [-75, -38, -12, 14, 38, 75].map((x, i) => ({
+    x,
+    side: (i % 2 ? 'north' : 'south') as Side,
+  }));
+  const pieces = strewn(-REACH, REACH, lamps, behind, 71);
+  for (const [x0, x1, detail] of [
+    [-REACH, -CROSS + HALF_ROAD, 24],
+    [-CROSS + HALF_ROAD, CROSS - HALF_ROAD, 40],
+    [CROSS - HALF_ROAD, REACH, 24],
+  ] as const) {
+    const within = <T extends { x: number }>(list: T[]) => list.filter((o) => o.x > x0 && o.x < x1);
+    root.add(
+      townStreet({
+        x0,
+        x1,
+        ...NORTH,
+        open: true,
+        detail,
+        openings: behind,
+        lamps: within(lamps),
+        furniture: within(pieces),
+      }),
+    );
+  }
 
   // Along the street's continuations: houses facing it on both sides, from beside the map out
   // to the cross street, a shop on each corner there.
@@ -492,6 +610,7 @@ function nearHalf(): THREE.Group {
       storeys: [2, 3],
       seed: 11 + n,
       shops: [s > 0 ? 'first' : 'last'],
+      fine: true,
     });
     // South side, facing +z: toward +x.
     row(st, {
@@ -502,6 +621,7 @@ function nearHalf(): THREE.Group {
       storeys: [2, 3],
       seed: 21 + n,
       shops: [s > 0 ? 'last' : 'first'],
+      fine: true,
     });
   }
 
@@ -513,7 +633,7 @@ function nearHalf(): THREE.Group {
     [-FAR, FAR - 1.4, 31],
     [1.4, FAR - 1.4, 32],
   ] as const)
-    row(st, { x, z: nearSide, heading: TO.south, length, storeys: [2, 3], seed });
+    row(st, { x, z: nearSide, heading: TO.south, length, storeys: [2, 3], seed, fine: true });
   for (const [x, length, seed] of [
     [FAR, FAR - 1.4, 41],
     [-1.4, FAR - 1.4, 42],
@@ -574,17 +694,15 @@ function nearHalf(): THREE.Group {
 
   // The ground: the back lane's gravel, lawns in the gardens behind and beside the map, behind
   // the rows along the cross streets and behind the far side of the street behind, slabs before
-  // the houses.
+  // the houses. What lies round the map painted finely, what is seen only from further off less.
   const back = CROSS + PITCH - 4;
-  const cover: GroundCover = {
+  const close: GroundCover = {
     gravel: { ...patch(-NEAR, LANE.z0, NEAR, LANE.z1), tracks: [] },
     lawns: [
       patch(-FAR - 0.4, LANE.z1, FAR + 0.4, nearSide - TERRACE_DEPTH),
-      patch(-REACH, farSide + TERRACE_DEPTH, REACH, (NORTH.south + NORTH.north) / 2 + PITCH - 4),
       ...[-1, 1].flatMap((s) => [
         patch(s * NEAR, CHEVRON_HALF + 1, s * (FAR + 0.4), LANE.z1),
         patch(s * (NEAR + 0.8), -CHEVRON_HALF, s * (FAR + 0.4), FRONT.south - TERRACE_DEPTH),
-        patch(s * (crossFront + TERRACE_DEPTH), -CHEVRON_HALF, s * back, nearSide),
       ]),
     ],
     paths: [
@@ -593,11 +711,27 @@ function nearHalf(): THREE.Group {
         rectOf(s * CHEVRON_HALF, FRONT.south, s * corner, ROAD.south - PAVE),
         rectOf(s * (crossFront - GARDEN), -CHEVRON_HALF, s * crossFront, NORTH.south - PAVE),
       ]),
-      rectOf(-corner, nearSide, corner, NORTH.south - PAVE),
-      rectOf(-REACH, NORTH.north + PAVE, REACH, farSide),
     ],
   };
-  root.add(townGround(cover));
+  root.add(townGround(close, 32, 64));
+  root.add(
+    townGround(
+      { lawns: [], paths: [rectOf(-corner, nearSide, corner, NORTH.south - PAVE)] },
+      32,
+      40,
+    ),
+  );
+  root.add(
+    townGround({
+      lawns: [
+        patch(-REACH, farSide + TERRACE_DEPTH, REACH, (NORTH.south + NORTH.north) / 2 + PITCH - 4),
+        ...[-1, 1].map((s) =>
+          patch(s * (crossFront + TERRACE_DEPTH), -CHEVRON_HALF, s * back, nearSide),
+        ),
+      ],
+      paths: [rectOf(-REACH, NORTH.north + PAVE, REACH, farSide)],
+    }),
+  );
 
   finish(root, st);
   return root;
@@ -614,11 +748,11 @@ function patch(x0: number, z0: number, x1: number, z1: number) {
 }
 
 /**
- * The town's ground cover, coarsely painted, laid under the map's, so that the map's brushed
- * edges lie over it where they meet.
+ * The town's ground cover, laid under the map's, so that the map's brushed edges lie over it
+ * where they meet: its lot and lawns painted `perMetre` pixels a metre, its paths' slabs `slabs`.
  */
-function townGround(cover: GroundCover): THREE.Group {
-  const g = coverGround(cover, { perMetre: 12, slabs: 16, haze: true });
+function townGround(cover: Parameters<typeof coverGround>[0], perMetre = 12, slabs = 20) {
+  const g = coverGround(cover, { perMetre, slabs, haze: true });
   g.traverse((o) => (o.renderOrder -= 0.1));
   return g;
 }
@@ -653,22 +787,26 @@ function crossStreets(z0: number, z1: number, streets: number[], throughs: numbe
     // side is toward the map on the east street, its south side on the west.
     const inner = s > 0 ? 'north' : 'south';
     const gap = (z: number) => ({ x0: z - HALF_ROAD, x1: z + HALF_ROAD });
+    const openings = [
+      ...streets.map((z) => ({ side: inner, ...gap(z) }) as const),
+      ...throughs.flatMap((z) =>
+        (['north', 'south'] as const).map((side) => ({ side, ...gap(z) })),
+      ),
+    ];
+    const lamps = Array.from({ length: Math.floor((z1 - z0) / 28) }, (_, i) => ({
+      x: z0 + 14 + i * 28,
+      side: (i % 2 ? 'north' : 'south') as Side,
+    }));
     const street = townStreet({
       x0: z0,
       x1: z1,
       north: HALF_ROAD,
       south: -HALF_ROAD,
-      detail: 14,
-      openings: [
-        ...streets.map((z) => ({ side: inner, ...gap(z) }) as const),
-        ...throughs.flatMap((z) =>
-          (['north', 'south'] as const).map((side) => ({ side, ...gap(z) })),
-        ),
-      ],
-      lamps: Array.from({ length: Math.floor((z1 - z0) / 28) }, (_, i) => ({
-        x: z0 + 14 + i * 28,
-        side: i % 2 ? 'north' : 'south',
-      })),
+      // As fine as a texture as long as the street (and its broken-off ends) can be.
+      detail: Math.min(28, Math.floor(4096 / (z1 - z0 + 5))),
+      openings,
+      lamps,
+      furniture: strewn(z0, z1, lamps, openings, 81 + s),
     });
     street.rotation.y = -Math.PI / 2;
     street.position.x = s * CROSS;

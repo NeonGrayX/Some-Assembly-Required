@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CAR } from './car.ts';
-import { doorRed, plinthMat, roofMat, steel, trim, zinc } from './house.ts';
+import { doorRed, plinthMat, roofMat, seam, steel, trim, zinc } from './house.ts';
 import { glow, mat, pbox, put, rng } from './kit.ts';
 import { AT_NIGHT } from '../render/daynight.ts';
 
@@ -82,6 +82,14 @@ export interface TerraceHouse {
   chimney?: boolean;
   /** Which of its windows are lit at night. */
   seed: number;
+  /**
+   * Built to be seen close to, from the map: its windows framed all round with a lintel over
+   * them, seams down its walls between the bays, a downpipe front and back, standing seams up its
+   * roof, a letterbox and handle on its door; and before it (if it has a front garden `garden`
+   * deep) a low wall along the pavement with a gap at its gate.
+   */
+  fine?: boolean;
+  garden?: number;
 }
 
 /** The roof's pitch, and how far the roof stands out over the walls at the eaves. */
@@ -103,6 +111,7 @@ export function terraceHouse(o: TerraceHouse): THREE.Group {
   const eave = PLINTH + storeys * STOREY + 0.25;
   const lit = rng(o.seed);
   const pane = () => (lit() < 0.45 ? litGlass() : glass());
+  const fine = o.fine ?? false;
 
   pbox(g, plinthMat(), 0, PLINTH / 2, 0, W, PLINTH, D + 0.06);
   pbox(g, townWall(), 0, (PLINTH + eave) / 2, 0, W, eave - PLINTH, D);
@@ -130,14 +139,36 @@ export function terraceHouse(o: TerraceHouse): THREE.Group {
   for (let k = 0; k < storeys; k++) {
     const y = PLINTH + k * STOREY + 1.55;
     for (let i = 0; i < bays; i++) {
-      if (k > 0 || (!o.shop && i !== doorBay)) windowAt(front, bayX(i), y, 1.0, 1.3, pane());
+      if (k > 0 || (!o.shop && i !== doorBay)) windowAt(front, bayX(i), y, 1.0, 1.3, pane(), fine);
       // At the back, the ground floor's door where the front's is (as seen from behind).
-      if (k > 0 || i !== bays - 1 - doorBay) windowAt(back, bayX(i), y, 1.0, 1.3, pane());
+      if (k > 0 || i !== bays - 1 - doorBay) windowAt(back, bayX(i), y, 1.0, 1.3, pane(), fine);
     }
   }
   if (o.shop) shopfront(front, W, o.door);
-  else doorway(front, bayX(doorBay), doorRed());
-  doorway(back, bayX(bays - 1 - doorBay), trim(), false);
+  else doorway(front, bayX(doorBay), doorRed(), true, fine);
+  doorway(back, bayX(bays - 1 - doorBay), trim(), false, fine);
+  if (fine) {
+    for (const face of [front, back]) {
+      // Seams down the wall between the bays, and a downpipe from the gutter by the right party
+      // wall (as seen from before that wall) to a shoe on the plinth.
+      for (let i = 1; i < bays; i++)
+        pbox(
+          face,
+          seam(),
+          -W / 2 + (i * W) / bays,
+          (PLINTH + eave) / 2,
+          0.006,
+          0.03,
+          eave - PLINTH,
+          0.012,
+        );
+      const px = W / 2 - 0.22;
+      const pipe = new THREE.CylinderGeometry(0.045, 0.045, eave - PLINTH - 0.25, 10, 1, true);
+      put(face, pipe, zinc(), px, (PLINTH + eave - 0.25) / 2 + 0.1, 0.08);
+      pbox(face, zinc(), px, PLINTH + 0.12, 0.11, 0.12, 0.08, 0.16);
+    }
+    if (o.garden && !o.shop) gardenWall(front, W, o.garden, bayX(doorBay));
+  }
 
   // A window in each storey of a gable wall that ends a row.
   for (const [end, s] of [
@@ -150,10 +181,10 @@ export function terraceHouse(o: TerraceHouse): THREE.Group {
     side.rotation.y = (s * Math.PI) / 2;
     g.add(side);
     for (let k = 0; k < storeys; k++)
-      windowAt(side, 0, PLINTH + k * STOREY + 1.55, 0.9, 1.2, pane());
+      windowAt(side, 0, PLINTH + k * STOREY + 1.55, 0.9, 1.2, pane(), fine);
   }
 
-  roof(g, W, D, eave, o.ends);
+  roof(g, W, D, eave, o.ends, fine);
   if (o.chimney) {
     const ridge = eave + (D / 2) * Math.tan(PITCH);
     pbox(g, plinthMat(), -W / 2 + 0.45, ridge + 0.2, -0.6, 0.7, 1.4, 0.9);
@@ -165,7 +196,8 @@ export function terraceHouse(o: TerraceHouse): THREE.Group {
 /**
  * A window `w × h` with its middle at (`x`, `y`) on the wall `parent`'s origin is on, the wall
  * facing +z: a charcoal frame standing out of the wall, the glass in it, a bar across near its
- * top, and a steel sill under it.
+ * top, and a steel sill under it; and if `fine` (seen close to), the frame's edge standing proud
+ * all round the glass, a bar down it too, and a lintel of the plinth's stone over it.
  */
 function windowAt(
   parent: THREE.Object3D,
@@ -174,6 +206,7 @@ function windowAt(
   w: number,
   h: number,
   pane: THREE.Material,
+  fine = false,
 ): void {
   // The frame a charcoal board behind the glass, standing out round it: four parts fewer than
   // a frame round it, which no one sees from the street.
@@ -182,18 +215,56 @@ function windowAt(
   pbox(parent, pane, x, y, 0.05, w, h, 0.02);
   pbox(parent, trim(), x, y + h * 0.18, 0.065, w, 0.04, 0.01);
   pbox(parent, steel(), x, y - h / 2 - f - 0.025, 0.08, w + 0.24, 0.05, 0.16);
+  if (!fine) return;
+  for (const s of [-1, 1]) {
+    pbox(parent, trim(), x + (s * (w + f)) / 2, y, 0.07, f, h + 2 * f, 0.06);
+    pbox(parent, trim(), x, y + (s * (h + f)) / 2, 0.07, w, f, 0.06);
+  }
+  pbox(parent, trim(), x, y, 0.065, 0.04, h, 0.01);
+  pbox(parent, plinthMat(), x, y + h / 2 + f + 0.08, 0.04, w + 0.4, 0.16, 0.08);
+}
+
+/**
+ * A low wall `W` long along the back of the pavement before a house's front garden, `garden`
+ * deep, a charcoal coping on it, broken by its gate at `gate`.
+ */
+function gardenWall(front: THREE.Object3D, W: number, garden: number, gate: number): void {
+  const z = garden - 0.12;
+  const pieces = [
+    [-W / 2, gate - 0.6],
+    [gate + 0.6, W / 2],
+  ];
+  for (const [x0, x1] of pieces) {
+    if (x1! - x0! < 0.2) continue;
+    pbox(front, plinthMat(), (x0! + x1!) / 2, 0.25, z, x1! - x0!, 0.5, 0.2);
+    pbox(front, trim(), (x0! + x1!) / 2, 0.53, z, x1! - x0!, 0.06, 0.26);
+  }
+  // The gate posts.
+  for (const s of [-1, 1]) pbox(front, trim(), gate + s * 0.66, 0.36, z, 0.14, 0.72, 0.24);
 }
 
 /**
  * A doorway at `x` in the ground floor of the wall `parent`'s origin is on: a door of `leaf` in a
  * charcoal frame, a step before it, and (at the front) a canopy over it lit cyan underneath.
  */
-function doorway(parent: THREE.Object3D, x: number, leaf: THREE.Material, canopy = true): void {
+function doorway(
+  parent: THREE.Object3D,
+  x: number,
+  leaf: THREE.Material,
+  canopy = true,
+  fine = false,
+): void {
   const [w, h] = [1.0, 2.15];
   const y = PLINTH + h / 2;
   pbox(parent, leaf, x, y, 0.02, w, h, 0.04);
   pbox(parent, glass(), x, y + 0.3, 0.045, 0.22, 1.0, 0.01);
   pbox(parent, steel(), x, PLINTH + 0.1, 0.045, w - 0.1, 0.16, 0.01);
+  if (fine) {
+    // A letterbox under the glass, a pull beside it, and its number lit cyan over it.
+    pbox(parent, steel(), x, y - 0.35, 0.045, 0.32, 0.07, 0.012);
+    pbox(parent, steel(), x + w / 2 - 0.14, y, 0.07, 0.03, 0.42, 0.04);
+    pbox(parent, glow(CAR.blue, 1.6), x, y + h / 2 - 0.12, 0.045, 0.16, 0.08, 0.01);
+  }
   pbox(parent, trim(), x, y + h / 2 + 0.05, 0.04, w + 0.2, 0.1, 0.08);
   for (const s of [-1, 1]) pbox(parent, trim(), x + s * (w / 2 + 0.05), y, 0.04, 0.1, h, 0.08);
   pbox(parent, plinthMat(), x, PLINTH / 2, 0.25, w + 0.5, PLINTH, 0.5);
@@ -235,6 +306,7 @@ function roof(
   D: number,
   eave: number,
   ends: { left: boolean; right: boolean },
+  fine = false,
 ): void {
   const rise = (D / 2) * Math.tan(PITCH);
   const slope = (D / 2 + EAVES) / Math.cos(PITCH);
@@ -247,6 +319,20 @@ function roof(
     const zc = s * (D / 2 + EAVES - (slope / 2) * Math.cos(PITCH));
     const yc = eave + rise - (slope / 2) * Math.sin(PITCH) + 0.06;
     pbox(g, roofMat(), mid, yc, zc, len, 0.12, slope, [s * PITCH, 0, 0]);
+    // Seen close to, standing seams down it, on its top face.
+    if (fine)
+      for (let x = x0 + 0.3; x < x1 - 0.2; x += 0.46)
+        pbox(
+          g,
+          ribs(),
+          x,
+          yc + 0.07 * Math.cos(PITCH),
+          zc + s * 0.07 * Math.sin(PITCH),
+          0.03,
+          0.03,
+          slope - 0.1,
+          [s * PITCH, 0, 0],
+        );
     pbox(
       g,
       zinc(),
@@ -355,6 +441,10 @@ export function workshop(o: Workshop): THREE.Group {
   return g;
 }
 
+/** The roofs' standing seams. */
+const ribs = () =>
+  mat(0x4b5257, { mottle: 'metal', roughness: 0.32, metalness: 0.6, envMapIntensity: 1.8 });
+
 /** Bark, and the trees' leaves in two greens. */
 const bark = () => mat(0x5a4636, { mottle: 'plastic', roughness: 0.9 });
 const leaves = [
@@ -363,24 +453,40 @@ const leaves = [
 ];
 
 /**
- * A street tree `size` metres tall, as a toy's: a tapering trunk forking at the top, and a crown
- * of a few round lumps of leaves in two greens, set by `seed`.
+ * A street tree `size` metres tall, as a toy's: a tapering trunk running up into a crown of a
+ * few round lumps of leaves in two greens, each side lump held on a limb, set by `seed`.
  */
 export function streetTree(size: number, seed: number): THREE.Group {
   const g = new THREE.Group();
   const rand = rng(seed);
   const trunkH = size * 0.42;
-  const trunk = new THREE.CylinderGeometry(size * 0.022, size * 0.035, trunkH, 8);
-  put(g, trunk, bark(), 0, trunkH / 2);
+  const crown = trunkH + size * 0.25;
+  // The trunk runs on up into the middle of the crown; the limbs fork from it below the leaves.
+  limb(g, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, crown, 0), size * 0.036, size * 0.012);
+  const fork = new THREE.Vector3(0, trunkH * 0.82, 0);
   const lumps = 4 + Math.floor(rand() * 3);
   for (let i = 0; i < lumps; i++) {
     const a = (i / lumps) * Math.PI * 2 + rand();
-    const out = i === 0 ? 0 : size * (0.12 + rand() * 0.1);
+    const out = i === 0 ? 0 : size * (0.13 + rand() * 0.09);
     const r = size * (i === 0 ? 0.27 : 0.17 + rand() * 0.06);
-    const geo = new THREE.IcosahedronGeometry(r, 1);
+    const y = i === 0 ? crown : trunkH + size * (0.1 + rand() * 0.18);
+    const geo = new THREE.IcosahedronGeometry(r, 2);
     geo.scale(1, 0.85, 1);
-    const y = trunkH + size * (i === 0 ? 0.25 : 0.12 + rand() * 0.2);
-    put(g, geo, leaves[i % 2]!(), Math.cos(a) * out, y, Math.sin(a) * out);
+    const centre = new THREE.Vector3(Math.cos(a) * out, y, Math.sin(a) * out);
+    put(g, geo, leaves[i % 2]!(), centre.x, centre.y, centre.z);
+    // Every lump out to the side hangs on a limb that ends inside it.
+    if (i > 0) limb(g, fork, centre, size * 0.016, size * 0.007);
   }
   return g;
+}
+
+/** A tapering branch of bark from `from` to `to`, `r0` thick at its foot and `r1` at its tip. */
+function limb(g: THREE.Group, from: THREE.Vector3, to: THREE.Vector3, r0: number, r1: number) {
+  const run = to.clone().sub(from);
+  const geo = new THREE.CylinderGeometry(r1, r0, run.length(), 10, 1, true);
+  geo.translate(0, run.length() / 2, 0);
+  geo.applyQuaternion(
+    new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), run.normalize()),
+  );
+  put(g, geo, bark(), from.x, from.y, from.z);
 }

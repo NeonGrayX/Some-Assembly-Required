@@ -431,7 +431,7 @@ function foot(g: THREE.Object3D, w: number, h: number): void {
  * ground, an arm curving out over the road (+x) to a long charcoal pod glowing white underneath
  * and edged in cyan.
  */
-function streetLamp(parent: THREE.Object3D): void {
+export function streetLamp(parent: THREE.Object3D): void {
   const g = new THREE.Group();
   parent.add(g);
   foot(g, 0.42, 0.42);
@@ -965,13 +965,7 @@ export interface StreetBin {
 export function streetBin(parent: THREE.Object3D, colour = TEAL): StreetBin {
   const g = new THREE.Group();
   parent.add(g);
-  const body = mat(colour, {
-    mottle: 'paint',
-    roughness: 0.42,
-    metalness: 0.15,
-    clearcoat: 0.8,
-    clearcoatRoughness: 0.25,
-  });
+  const body = binPaint(colour);
   rbox(g, charcoal(), 0, 0.04, 0, 0.5, 0.08, 0.46, 0.02);
   // The body: rounded walls round a hollow, on its own floor, open at the front where the
   // scoop is, a hair's gap between them.
@@ -1099,6 +1093,16 @@ export function streetBin(parent: THREE.Object3D, colour = TEAL): StreetBin {
   }
   return { front: p, scoop: leaf, tip: (k) => (p.rotation.z = -tilt * k) };
 }
+
+/** A street bin's body, in `colour`. */
+const binPaint = (colour: number) =>
+  mat(colour, {
+    mottle: 'paint',
+    roughness: 0.42,
+    metalness: 0.15,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.25,
+  });
 
 /** A bin on the street, a click on it tipping its front out and another shutting it. */
 function bin(parent: THREE.Object3D, colour = TEAL): void {
@@ -1438,13 +1442,81 @@ export function buildStreet(plan: StreetPlan = STREET): THREE.Group {
   for (const r of plan.railings) railing(at(root, r.x, kerb(r.side, 0.3), 0), r.length);
 
   for (const f of plan.furniture) {
-    const g = at(root, f.x, kerb(f.side, f.back), f.toRoad ? TO_ROAD[f.side] : 0);
-    if (f.kind === 'hydrant') hydrant(g);
-    else if (f.kind === 'bin') bin(g, f.colour ?? TEAL);
-    else if (f.kind === 'charger') charger(g);
-    else if (f.kind === 'bench') bench(g);
-    else if (f.kind === 'planter') planter(g, f.seed ?? 41);
-    else bollard(g);
+    const g = pieceSpot(plan, f);
+    root.add(g);
+    streetPiece(g, f);
   }
   return root;
+}
+
+/** Where `f`, a piece of `plan`'s furniture, stands: on its pavement, turned as it says. */
+export function pieceSpot(plan: StreetPlan, f: StreetPiece): THREE.Object3D {
+  const g = new THREE.Group();
+  g.name = 'prop';
+  const z = f.side === 'north' ? plan.north + f.back : plan.south - f.back;
+  g.position.set(f.x, PAVE, z);
+  g.rotation.y = f.toRoad ? TO_ROAD[f.side] : 0;
+  return g;
+}
+
+/** Builds `f`, a piece of street furniture, in `parent` (where it stands; see `pieceSpot`). */
+export function streetPiece(
+  parent: THREE.Object3D,
+  f: Pick<StreetPiece, 'kind' | 'colour' | 'seed'>,
+): void {
+  if (f.kind === 'hydrant') hydrant(parent);
+  else if (f.kind === 'bin') bin(parent, f.colour ?? TEAL);
+  else if (f.kind === 'charger') charger(parent);
+  else if (f.kind === 'bench') bench(parent);
+  else if (f.kind === 'planter') planter(parent, f.seed ?? 41);
+  else bollard(parent);
+}
+
+/**
+ * `f` for a street seen only from afar (see `StreetPlan.detail`): a bin, a bench or a planter
+ * in plain boxes, a few dozen triangles where the near one has thousands; anything else as near.
+ */
+export function plainPiece(
+  parent: THREE.Object3D,
+  f: Pick<StreetPiece, 'kind' | 'colour' | 'seed'>,
+): void {
+  const g = new THREE.Group();
+  parent.add(g);
+  if (f.kind === 'bin') {
+    pbox(g, charcoal(), 0, 0.04, 0, 0.5, 0.08, 0.46);
+    pbox(g, binPaint(f.colour ?? TEAL), 0, 0.5, 0, 0.5, 0.86, 0.46);
+    pbox(g, charcoal(), 0, 0.97, 0, 0.56, 0.07, 0.52);
+    pbox(g, dark(), 0.255, 0.86, 0, 0.012, 0.08, 0.3);
+    pbox(g, glow(CAR.blue, 1.8), 0.256, 0.72, 0, 0.012, 0.02, 0.3);
+  } else if (f.kind === 'bench') {
+    const len = 1.9;
+    for (const z of [-len / 2 + 0.15, len / 2 - 0.15]) {
+      pbox(g, charcoal(), 0.05, 0.23, z, 0.5, 0.46, 0.06);
+      pbox(g, charcoal(), -0.3, 0.72, z, 0.06, 0.5, 0.06, [0, 0, 0.32]);
+    }
+    pbox(g, paint(), 0.08, 0.49, 0, 0.48, 0.045, len);
+    pbox(g, paint(), -0.32, 0.76, 0, 0.045, 0.3, len, [0, 0, 0.32]);
+    pbox(g, glow(CAR.blue, 1.4), 0.1, 0.455, 0, 0.012, 0.01, len - 0.4);
+  } else if (f.kind === 'planter') {
+    const [l, w, top, earth] = [0.6, 1.4, 0.48, 0.42];
+    pbox(g, charcoal(), 0, earth / 2, 0, l, earth, w);
+    for (const s of [-1, 1]) {
+      pbox(g, charcoal(), (s * (l - 0.06)) / 2, (top + earth) / 2, 0, 0.06, top - earth, w);
+      pbox(g, charcoal(), 0, (top + earth) / 2, (s * (w - 0.06)) / 2, l, top - earth, 0.06);
+    }
+    pbox(g, soil(), 0, earth + 0.005, 0, l - 0.12, 0.01, w - 0.12);
+    pbox(g, glow(CAR.blue, 1.4), l / 2 + 0.001, 0.4, 0, 0.004, 0.012, w - 0.2);
+    const grass = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.7,
+      side: THREE.DoubleSide,
+    });
+    const rand = rng(f.seed ?? 41);
+    for (let i = 0; i < 5; i++) {
+      const t = new THREE.Mesh(tuft(900 + (f.seed ?? 41) + i, 0.35 + rand() * 0.15, true), grass);
+      t.position.set((rand() - 0.5) * (l - 0.2), earth, (i / 4 - 0.5) * (w - 0.3));
+      t.rotation.y = rand() * Math.PI * 2;
+      g.add(t);
+    }
+  } else streetPiece(g, f);
 }
