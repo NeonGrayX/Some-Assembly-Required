@@ -184,7 +184,7 @@ export function doneButton(): THREE.Group {
   under.rotateX(Math.PI / 2);
   put(press, under, charcoal(), 0, top + 0.099);
   // A press: down and up again, the ring flashing a moment after.
-  addGadget(
+  const done = addGadget(
     g,
     new Press(
       [press],
@@ -197,6 +197,7 @@ export function doneButton(): THREE.Group {
       'ready',
     ),
   );
+  done.role = 'done';
   return g;
 }
 
@@ -251,7 +252,7 @@ export function meetingBell(): THREE.Group {
   const beacon = glow(CAR.amber, 2.4).clone();
   put(g, lamp, beacon, 0, top + 0.17, -0.2);
   // A ring: the plunger down and up, and the beacon flashing a while, a meeting called.
-  addGadget(
+  const bell = addGadget(
     g,
     new Press(
       [plunger, dome],
@@ -264,6 +265,7 @@ export function meetingBell(): THREE.Group {
       'bell',
     ),
   );
+  bell.role = 'bell';
   const lid = new THREE.SphereGeometry(0.028, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   put(g, lid, charcoal(), 0, top + 0.2, -0.2);
   return g;

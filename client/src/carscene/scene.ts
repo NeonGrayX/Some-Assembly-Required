@@ -2,17 +2,15 @@ import * as THREE from 'three';
 import { BUS_LOW, buildBus } from './bus.ts';
 import { HOVER, buildCar } from './car.ts';
 import type { Car } from './car.ts';
-import { buildCone, fallenCone } from './cone.ts';
+import { buildCone } from './cone.ts';
 import { buildGround, cobblePatch, coverGround } from './ground.ts';
 import { buildHouse } from './house.ts';
 import { buildBrickWorks } from './machines.ts';
 import type { MachinePlace } from './machines.ts';
-import { buildRoad } from './road.ts';
-import type { RoadLayout } from './road.ts';
 import { SPORT_LOW, buildSportsCar } from './sportscar.ts';
-import { STREET, buildStreet } from './street.ts';
+import { buildStreet } from './street.ts';
 import type { StreetPlan } from './street.ts';
-import { BIG_HOUSE_BODY, buildBigHouse } from './bighouse.ts';
+import { buildBigHouse } from './bighouse.ts';
 import { buildInspector } from './inspector.ts';
 import { buildLadder } from './ladder.ts';
 import { closedSign, hedge, hoarding, roadBarrier } from './edges.ts';
@@ -26,89 +24,10 @@ import type { Ground, GroundCover, GroundLayout } from './ground.ts';
 import { poweredIn } from './gadgets.ts';
 
 /**
- * The car scene, laid out as the reference picture shows it: the car on a patch of mossy cobbles
- * in a pale studio, warning cones round it (one knocked over), and the camera where the picture
- * was taken from. The car faces +x; the picture looks at its nose and its left side (-z).
+ * The car scene: the vehicles, the two houses, the street, the brick works' models and the
+ * fittings round a job site, built where a layout stands them (see `CHEVRON_LAYOUT`). Its look
+ * and its patch of mossy cobbles come from the reference picture it was first modelled after.
  */
-
-/** The camera of the reference picture. */
-export const REFERENCE_VIEW = {
-  position: new THREE.Vector3(7.24, 3.95, -7.76),
-  target: new THREE.Vector3(0.167, 0.959, -0.071),
-  fov: 29,
-};
-
-/**
- * Where the red sports car is parked: beside the off-roader, on the picture's camera side and a
- * little behind it, parallel to it, so from the picture's camera the two stand side by side.
- */
-export const SPORTS_PLACE = { x: -2.9, z: -3.9, heading: 0 };
-
-/**
- * The stretch of road under the sports car: running along x with it, the car astride its dashed
- * middle, its near edge running in under the cobble patch's rim, a kerb along its far side.
- */
-export const ROAD: RoadLayout = {
-  outline: [
-    [-6.9, -2.55],
-    [-5.0, -2.48],
-    [-3.0, -2.52],
-    [-1.2, -2.5],
-    [0.3, -2.58],
-    [0.85, -2.9],
-    [1.05, -3.6],
-    [0.8, -4.3],
-    [0.95, -5.0],
-    [0.6, -5.72],
-    [-1.5, -5.78],
-    [-4.0, -5.74],
-    [-6.5, -5.8],
-    [-7.15, -5.2],
-    [-7.0, -4.1],
-    [-7.3, -3.3],
-  ],
-  middle: SPORTS_PLACE.z,
-  edges: [-2.8, -5.45],
-  kerb: { x0: -6.3, x1: 0.4, z: -5.84 },
-};
-
-/**
- * Where the school bus is parked: out beyond the sports car's kerb, on a stretch of road of its
- * own, parallel to the cars, level with the picture's camera, so it stays out of the picture.
- */
-export const BUS_PLACE = { x: -2.6, z: -8.3, heading: 0 };
-
-/** The bus's road: no middle line, its near edge running up to the sports car's kerb. */
-export const BUS_ROAD: RoadLayout = {
-  outline: [
-    [-8.6, -6.1],
-    [-6.0, -6.04],
-    [-3.5, -6.08],
-    [-1.0, -6.05],
-    [1.4, -6.1],
-    [2.3, -6.4],
-    [2.6, -7.3],
-    [2.4, -8.3],
-    [2.7, -9.3],
-    [2.3, -10.35],
-    [0.2, -10.5],
-    [-2.5, -10.42],
-    [-5.0, -10.5],
-    [-7.6, -10.45],
-    [-8.7, -9.8],
-    [-8.5, -8.6],
-    [-8.9, -7.4],
-    [-8.7, -6.6],
-  ],
-  edges: [-6.4, -10.2],
-};
-
-/**
- * Where the small house stands: behind the cars' tails, its door's gable toward them, its path
- * running out toward the sports car's road; square to the street, as the game's maps stand
- * their walls. Out of the picture, as the bus is.
- */
-export const HOUSE_PLACE = { x: -12.8, z: -4.4, heading: 0 };
 
 /**
  * The house's yard: a patch of mossy cobbles as the off-roader's, round the house and out before
@@ -132,9 +51,6 @@ const HOUSE_YARD_OUTLINE: [number, number][] = [
   [-2.45, 0.2],
   [-2.8, -1.0],
 ];
-
-/** Where the big house stands: across the street from the cars, its front to the road. */
-export const BIG_HOUSE_PLACE = { x: -5.0, z: -26.6, heading: 0 };
 
 /**
  * The big house's yard: mossy cobbles round it, out to the street's pavement before it, given
@@ -226,123 +142,8 @@ export const LAYOUT: GroundLayout = {
   ].map(([x, z, size]) => ({ x: x!, z: z!, size: size! })),
 };
 
-/** Where the cones stand: two upright, one knocked over, its tip pointing away from the car. */
-export const CONES = {
-  upright: [
-    { x: 2.92, z: -2.1 },
-    { x: -2.79, z: -1.95 },
-  ],
-  fallen: { x: 2.86, z: 1.3, heading: -0.53 },
-};
-
-/**
- * The job site, between the cars and the brick works: the baseplate on its pad, the Done button
- * and the bell on its south side (toward the street), the corkboards on its north side, and a
- * cone at each of the pad's corners.
- */
-export const JOB_SITE = { x: 6.6, z: -3.4, heading: Math.PI / 2 };
-
-/**
- * The brick works, round the job site as the game stands its machines: apart, each on a pad of
- * its own and turned to face the baseplate, so every trip between them passes the build. The
- * silo north-east of it, the two presses east and south-east, the mould vendor south and the UV
- * printer south-west, by the bus's nose.
- */
-export const BRICK_WORKS: MachinePlace[] = (
-  [
-    ['silo', 10.2, 0.6],
-    ['press', 11.5, -2.7],
-    ['press', 10.7, -7.5],
-    ['dispenser', 6.6, -8.7],
-    ['printer', 4.3, -7.7],
-  ] as const
-).map(([kind, x, z]) => ({
-  kind,
-  x,
-  z,
-  facing: Math.atan2(JOB_SITE.x - x, JOB_SITE.z - z),
-}));
-
-/**
- * The quality inspector, out before the small house: a build is carried in to it from the east,
- * from the job site past the cars' tails, its screen and its short wall on the house's side.
- */
-export const INSPECTOR = { x: -8.3, z: 0.9, heading: 0 };
-
-/**
- * The power cabinet, the map's electrical panel: round the back of the small house, out of sight
- * of the job site, standing free at the yard's edge, its doors turned away from the house.
- */
-export const POWER_CABINET = { x: -17.3, z: -2.6, heading: Math.PI };
-
-/**
- * The ladder up the big house's back wall to its eaves, between the windows, held off the wall
- * past its gutter.
- */
-const BIG_LADDER = {
-  x: BIG_HOUSE_PLACE.x + 1.3,
-  z: BIG_HOUSE_PLACE.z - BIG_HOUSE_BODY.half - 0.62,
-  // Its back (its -z) to the wall.
-  heading: Math.PI,
-  standoff: 0.53,
-  height: BIG_HOUSE_BODY.eave + 0.05,
-};
-
-/**
- * What closes the map in: barriers and a road-closed sign across each end of the street, a
- * hoarding behind the brick works, and a hedge along the north past the inspector.
- */
-export const EDGES = {
-  barriers: { inset: 0.45, length: 2.6, gap: 0.7 },
-  hoarding: { x: 13.6, z0: 2.6, z1: -10.0 },
-  hedge: { z: 4.4, x0: -14.2, x1: -4.0 },
-};
-
-/**
- * The floodlight masts, for playing after dark: two by the hoarding's ends lighting the brick
- * works and the job site, one at the hedge's end lighting the inspector and the cars; each turned
- * to what it lights.
- */
-const FLOODLIGHTS = [
-  { x: 12.6, z: 2.2, at: JOB_SITE },
-  { x: 12.6, z: -10.6, at: JOB_SITE },
-  { x: -3.3, z: 4.4, at: INSPECTOR },
-].map(({ x, z, at }) => ({ x, z, heading: Math.atan2(-(at.z - z), at.x - x) }));
-
-/**
- * The bus stop, on the bus's door side by its nose: the shelter's open front to the bus, its
- * flag at the end the bus comes in from.
- */
-export const BUS_STOP = { x: 1.75, z: -4.9, heading: Math.PI / 2 };
-
-/**
- * The lot's dressing: the pellets' pallets west of the silo, by the job site's boards; the skip
- * and the portaloo south of the brick works, toward the street's end.
- */
-export const DRESSING = {
-  pallets: [
-    { x: 6.9, z: 1.7, heading: 0.1, seed: 1 },
-    { x: 6.8, z: 3.1, heading: -0.06, seed: 4 },
-  ],
-  stack: { x: 8.3, z: 3.3, heading: 0.3 },
-  skip: { x: 8.4, z: -11.8, heading: Math.PI / 2 },
-  portaloo: { x: 11.4, z: -12.6, heading: -Math.PI / 2 },
-};
-
-/**
- * Road works in the street's south lane, east of the crossing, round its manhole there: water
- * barriers along the lane's middle and across its west end, the sign and the signal out before
- * them facing the traffic, a plate over the trench and the heap dug out of it.
- */
-const ROAD_WORKS: RoadWorks = {
-  z: -16.8,
-  x0: -1.9,
-  x1: 2.6,
-  sign: { x: -3.1, z: -18.6 },
-  signal: { x: -2.6, z: -19.1 },
-  plate: { x: 0.2, z: -17.7 },
-  heap: { x: 1.2, z: -18.85 },
-};
+/** The barriers closing each end of the street, either side of its road-closed sign. */
+const BARRIERS = { inset: 0.45, length: 2.6, gap: 0.7 };
 
 /**
  * Road works dug in a lane, the lane's kerb toward -z: the barriers' line along the lane at `z`,
@@ -372,23 +173,18 @@ export interface Run extends Place {
 }
 
 /**
- * Where everything in the car scene stands: as the reference picture has it (`PICTURE`), or as
- * a map lays it out (see `CHEVRON_LAYOUT`).
+ * Where everything in the car scene stands, as a map lays it out (see `CHEVRON_LAYOUT`).
  */
 export interface CarSceneLayout {
   /** Where the picture's patch of cobbles, its stones and its grass are moved to. */
   patch: { x: number; z: number };
-  /** The stretches of road under parked vehicles, past the street's. */
-  roads: RoadLayout[];
   /** The open ground covered round the street and the yards, where not the studio's floor. */
   cover: GroundCover | null;
-  /** Where the vehicles park, where not as the picture has them. */
+  /** Where the vehicles park. */
   parked: Parking[];
   house: Place;
   bigHouse: Place;
   street: StreetPlan;
-  /** The cones standing about, and the one knocked over. */
-  cones: { upright: Place[]; fallen: Place | null };
   jobSite: Place;
   brickWorks: MachinePlace[];
   inspector: Place;
@@ -412,57 +208,6 @@ export interface CarSceneLayout {
   /** Where the player starts. */
   start: Place;
 }
-
-/** The car scene as the reference picture has it, the rest of it round about. */
-export const PICTURE: CarSceneLayout = {
-  patch: { x: 0, z: 0 },
-  roads: [ROAD, BUS_ROAD],
-  cover: null,
-  parked: [],
-  house: HOUSE_PLACE,
-  bigHouse: BIG_HOUSE_PLACE,
-  street: STREET,
-  cones: {
-    // One of each one's floating signs turned to the picture's camera, as there.
-    upright: CONES.upright.map((p) => ({
-      ...p,
-      heading: Math.atan2(REFERENCE_VIEW.position.x - p.x, REFERENCE_VIEW.position.z - p.z),
-    })),
-    fallen: CONES.fallen,
-  },
-  jobSite: JOB_SITE,
-  brickWorks: BRICK_WORKS,
-  inspector: INSPECTOR,
-  powerCabinet: POWER_CABINET,
-  ladder: BIG_LADDER,
-  hoardings: [
-    {
-      x: EDGES.hoarding.x,
-      z: (EDGES.hoarding.z0 + EDGES.hoarding.z1) / 2,
-      length: EDGES.hoarding.z0 - EDGES.hoarding.z1,
-      heading: Math.PI,
-    },
-  ],
-  hedges: [
-    {
-      x: (EDGES.hedge.x0 + EDGES.hedge.x1) / 2,
-      z: EDGES.hedge.z,
-      length: EDGES.hedge.x1 - EDGES.hedge.x0,
-      heading: Math.PI / 2,
-    },
-  ],
-  floodlights: FLOODLIGHTS,
-  busStop: BUS_STOP,
-  dressing: {
-    pallets: DRESSING.pallets,
-    stacks: [DRESSING.stack],
-    skips: [DRESSING.skip],
-    portaloos: [DRESSING.portaloo],
-  },
-  roadWorks: ROAD_WORKS,
-  bake: { x: -3.0, z: -9.5, size: 42 },
-  start: { x: 3.0, z: -12.3, heading: 0.2 },
-};
 
 export interface CarScene {
   root: THREE.Group;
@@ -499,9 +244,9 @@ export interface Parking {
 
 /** How the game's map lays the scene out for a round (see `chevronLayout`). */
 export interface CarSceneOptions {
-  /** Where everything stands: as the picture has it unless given. */
-  layout?: CarSceneLayout;
-  /** Where the vehicles park, where not as the picture has them. */
+  /** Where everything stands. */
+  layout: CarSceneLayout;
+  /** Where the vehicles park, where not as the layout has them. */
   parked?: readonly Parking[];
   /** Whether to leave out the brick works' models: the game draws its own machines there. */
   noWorks?: boolean;
@@ -510,8 +255,8 @@ export interface CarSceneOptions {
 /** How long a parking bay for a car is, and one for the bus. */
 export const BAY = { short: 5.5, long: 9 };
 
-export function buildCarScene(options: CarSceneOptions = {}): CarScene {
-  const L = options.layout ?? PICTURE;
+export function buildCarScene(options: CarSceneOptions): CarScene {
+  const L = options.layout;
   const root = new THREE.Group();
   const { x: px, z: pz } = L.patch;
   const ground = buildGround({
@@ -521,7 +266,6 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   });
   root.add(ground.root);
   if (L.cover) root.add(coverGround(L.cover));
-  for (const r of L.roads) root.add(buildRoad(r));
   root.add(cobblePatch(placed(HOUSE_YARD_OUTLINE, L.house), 41).root);
   root.add(cobblePatch(placed(BIG_HOUSE_YARD_OUTLINE, L.bigHouse), 53).root);
   // The vehicles hover a little, their wheels clear of the ground.
@@ -529,12 +273,10 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   car.root.position.y = HOVER;
   root.add(car.root);
   const sports = buildSportsCar();
-  sports.root.position.set(SPORTS_PLACE.x, HOVER - SPORT_LOW, SPORTS_PLACE.z);
-  sports.root.rotation.y = SPORTS_PLACE.heading;
+  sports.root.position.y = HOVER - SPORT_LOW;
   root.add(sports.root);
   const bus = buildBus();
-  bus.root.position.set(BUS_PLACE.x, HOVER - BUS_LOW, BUS_PLACE.z);
-  bus.root.rotation.y = BUS_PLACE.heading;
+  bus.root.position.y = HOVER - BUS_LOW;
   root.add(bus.root);
   // Parked for the round: turned end for end or not, its middle where the bay's is.
   const vehicles = { car, sports, bus };
@@ -559,19 +301,6 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   const machines = options.noWorks ? new THREE.Group() : buildBrickWorks(L.brickWorks);
   root.add(machines);
   const cones: THREE.Group[] = [];
-  for (const p of L.cones.upright) {
-    const c = buildCone();
-    c.position.set(p.x, 0, p.z);
-    c.rotation.y = p.heading;
-    root.add(c);
-    cones.push(c);
-  }
-  if (L.cones.fallen) {
-    const f = fallenCone(L.cones.fallen.heading);
-    f.position.set(L.cones.fallen.x, 0, L.cones.fallen.z);
-    root.add(f);
-    cones.push(f);
-  }
   const site = new THREE.Group();
   site.name = 'site';
   root.add(site);
@@ -598,7 +327,7 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
   const lad = L.ladder;
   fitting(buildLadder(lad.height, lad.standoff, 4), lad);
   // The street's ends closed: two barriers across the road, the sign between them.
-  const { length, gap, inset } = EDGES.barriers;
+  const { length, gap, inset } = BARRIERS;
   const st = L.street;
   const mid = (st.north + st.south) / 2;
   for (const x of [st.x0 + inset, st.x1 - inset]) {
@@ -645,7 +374,6 @@ export function buildCarScene(options: CarSceneOptions = {}): CarScene {
     cone.position.set(js.x + a! * c, 0, js.z + b! * c);
     cone.rotation.y = i * 1.3;
     root.add(cone);
-    // Ahead of the others, so the knocked-over one stays last.
     cones.unshift(cone);
   }
   // The power cabinet's switch feeds the map's lights and signals (see `powered`).

@@ -27,27 +27,15 @@ export function hidingToggles(root: THREE.Object3D): { toggle: Toggle; kind: Hid
 }
 
 /**
- * What a click does on what the game has its own of (its bins, bell and Done button, and the
- * power cabinet, which is its electrical panel), which the scene's are not clicked in place of.
- */
-const THE_GAMES = new Set([
-  'open the bin',
-  'ring the bell',
-  'press Done',
-  'open the power cabinet',
-  'switch off the power',
-]);
-
-/**
  * The rest of the scene's things a click works (the lamps, the taps, the hob, the oven, the
- * screens, the crossing's buttons, the power cabinet…), in the order Chevron Street numbers
- * them (the first is #1): those with something to click, but for the hiding places and what the
- * game has its own of. Taken as the scene is built, before anything has been clicked.
+ * screens, the crossing's buttons…), in the order Chevron Street numbers them (the first is #1):
+ * those with something to click, but for the hiding places and what the game has its own of
+ * (see `GameRole`; the power cabinet is its electrical panel). Taken as the scene is built, before anything has been clicked.
  */
 export function clickables(root: THREE.Object3D): Gadget[] {
   const hiding = new Set<Gadget>(hidingToggles(root).map((h) => h.toggle));
   return gadgetsIn(root).filter((g) => {
     const says = g.hint();
-    return g.handles.length > 0 && says !== null && !THE_GAMES.has(says) && !hiding.has(g);
+    return g.handles.length > 0 && says !== null && !g.role && !hiding.has(g);
   });
 }

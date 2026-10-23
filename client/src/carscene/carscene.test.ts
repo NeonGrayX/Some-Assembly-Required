@@ -3,14 +3,30 @@ import { describe, expect, it } from 'vitest';
 import { BIG_HOUSE_BODY, BIG_WINDOWS } from './bighouse.ts';
 import { MACHINE_SIZE } from '@sar/shared';
 import { BODY, HOVER, SQUASH } from './car.ts';
-import { HEIGHT } from '../testmap/walk.ts';
+import { HEIGHT } from './solids.ts';
 import { type Face, HOUSE_BODY, HOUSE_WINDOWS, type Opening } from './house.ts';
+import { CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
 
-const scene = buildCarScene();
+const scene = buildCarScene({ layout: CHEVRON_LAYOUT });
 scene.root.updateMatrixWorld(true);
 
 const boxOf = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+
+/** The world bounds of each of `o`'s meshes, tighter than one box round the lot. */
+function partsOf(o: THREE.Object3D): THREE.Box3[] {
+  const out: THREE.Box3[] = [];
+  o.traverse((m) => {
+    if ((m as THREE.Mesh).isMesh) out.push(new THREE.Box3().setFromObject(m));
+  });
+  return out;
+}
+
+/** Whether any mesh of `a` overlaps any mesh of `b`. */
+const clash = (a: THREE.Object3D, b: THREE.Object3D) => {
+  const bs = partsOf(b);
+  return partsOf(a).some((x) => bs.some((y) => x.intersectsBox(y)));
+};
 
 /** `o`'s bounds in `frame`'s own axes, exact whatever way `frame` is turned. */
 function boxIn(o: THREE.Object3D, frame: THREE.Object3D): THREE.Box3 {
@@ -76,7 +92,7 @@ function framesOf(body: typeof HOUSE_BODY, windows: Record<Face, Opening[]>, mar
   });
 }
 
-describe('the car scene, as the reference picture lays it out', () => {
+describe('the car scene, as Chevron Street lays it out', () => {
   it('builds every mesh with sound geometry', () => {
     const broken: string[] = [];
     scene.root.traverse((o) => {
@@ -98,21 +114,21 @@ describe('the car scene, as the reference picture lays it out', () => {
   it('hovers the sports car beside the off-roader, clear of it', () => {
     for (const w of scene.sports.wheels) expect(boxOf(w).min.y).toBeCloseTo(HOVER, 3);
     expect(boxOf(scene.sports.root).min.y).toBeGreaterThan(HOVER - 0.005);
-    expect(boxOf(scene.sports.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
+    expect(clash(scene.sports.root, scene.car.root)).toBe(false);
   });
 
   it('hovers the bus beyond the sports car, clear of both cars', () => {
     for (const w of scene.bus.wheels) expect(boxOf(w).min.y).toBeCloseTo(HOVER, 3);
     expect(boxOf(scene.bus.root).min.y).toBeGreaterThan(HOVER - 0.005);
-    expect(boxOf(scene.bus.root).intersectsBox(boxOf(scene.sports.root))).toBe(false);
-    expect(boxOf(scene.bus.root).intersectsBox(boxOf(scene.car.root))).toBe(false);
+    expect(clash(scene.bus.root, scene.sports.root)).toBe(false);
+    expect(clash(scene.bus.root, scene.car.root)).toBe(false);
   });
 
   it('stands the house on the ground behind the cars, clear of them all', () => {
     expect(boxOf(scene.house).min.y).toBeGreaterThan(-0.01);
     expect(boxOf(scene.house).min.y).toBeLessThan(0.01);
     for (const v of [scene.car, scene.sports, scene.bus])
-      expect(boxOf(scene.house).intersectsBox(boxOf(v.root))).toBe(false);
+      expect(clash(scene.house, v.root)).toBe(false);
   });
 
   it('stands the big house on the ground across the street, clear of everything', () => {
@@ -120,10 +136,10 @@ describe('the car scene, as the reference picture lays it out', () => {
     expect(big.min.y).toBeGreaterThan(-0.01);
     expect(big.min.y).toBeLessThan(0.01);
     for (const v of [scene.car, scene.sports, scene.bus])
-      expect(big.intersectsBox(boxOf(v.root))).toBe(false);
-    expect(big.intersectsBox(boxOf(scene.house))).toBe(false);
+      expect(clash(scene.bigHouse, v.root)).toBe(false);
+    expect(clash(scene.bigHouse, scene.house)).toBe(false);
     for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
-      expect(big.intersectsBox(boxOf(prop))).toBe(false);
+      expect(clash(scene.bigHouse, prop)).toBe(false);
   });
 
   it("keeps both houses' furniture inside their walls, standing on their floors", () => {
@@ -240,11 +256,10 @@ describe('the car scene, as the reference picture lays it out', () => {
       expect(box.max.x - box.min.x).toBeLessThan(size.x + 0.12);
       expect(box.max.y - box.min.y).toBeLessThan(size.y + 0.25);
       expect(box.max.z - box.min.z).toBeLessThan(size.z + 0.25);
-      const world = boxOf(m);
       for (const o of [...others, ...machines.filter((n) => n !== m)])
-        expect(world.intersectsBox(boxOf(o))).toBe(false);
+        expect(clash(m, o)).toBe(false);
       for (const prop of scene.street.children.filter((c) => c.name === 'prop'))
-        expect(world.intersectsBox(boxOf(prop))).toBe(false);
+        expect(clash(m, prop)).toBe(false);
     }
   });
 
@@ -255,9 +270,8 @@ describe('the car scene, as the reference picture lays it out', () => {
     expect(props.length).toBeGreaterThan(15);
     for (const prop of props) {
       expect(boxOf(prop).min.y).toBeCloseTo(prop.position.y, 2);
-      for (const v of [scene.car, scene.sports, scene.bus])
-        expect(boxOf(prop).intersectsBox(boxOf(v.root))).toBe(false);
-      expect(boxOf(prop).intersectsBox(boxOf(scene.house))).toBe(false);
+      for (const v of [scene.car, scene.sports, scene.bus]) expect(clash(prop, v.root)).toBe(false);
+      expect(clash(prop, scene.house)).toBe(false);
     }
   });
 
@@ -267,14 +281,13 @@ describe('the car scene, as the reference picture lays it out', () => {
     const props = scene.street.children.filter((c) => c.name === 'prop');
     for (const f of fittings) {
       expect(boxOf(f).min.y).toBeCloseTo(0, 2);
-      for (const v of [scene.car, scene.sports, scene.bus])
-        expect(boxOf(f).intersectsBox(boxOf(v.root))).toBe(false);
-      for (const p of props) expect(boxOf(f).intersectsBox(boxOf(p))).toBe(false);
+      for (const v of [scene.car, scene.sports, scene.bus]) expect(clash(f, v.root)).toBe(false);
+      for (const p of props) expect(clash(f, p)).toBe(false);
     }
-    // The ladder is held to the big house's back wall; everything else is clear of both houses.
-    for (const g of scene.site.children.filter((g) => g.name !== 'ladder'))
-      for (const h of [scene.house, scene.bigHouse])
-        expect(boxOf(g).intersectsBox(boxOf(h))).toBe(false);
+    // The ladder is held to the big house's back wall and the hedges are planted against the
+    // houses; everything else is clear of both.
+    for (const g of scene.site.children.filter((g) => !['ladder', 'hedge'].includes(g.name)))
+      for (const h of [scene.house, scene.bigHouse]) expect(clash(g, h)).toBe(false);
   });
 
   it('clamps the bus stop’s flag to its post, by its edge', () => {
@@ -302,11 +315,8 @@ describe('the car scene, as the reference picture lays it out', () => {
     expect(rack.min.y).toBeLessThan(roof + 0.03);
   });
 
-  it('stands the cones on the ground, the knocked-over one lying on its side', () => {
+  it('stands the cones on the ground', () => {
+    expect(scene.cones.length).toBeGreaterThan(0);
     for (const cone of scene.cones) expect(boxOf(cone).min.y).toBeCloseTo(0, 2);
-    const fallen = boxOf(scene.cones[scene.cones.length - 1]!);
-    const size = fallen.getSize(new THREE.Vector3());
-    // Longer along the ground than it is tall.
-    expect(Math.max(size.x, size.z)).toBeGreaterThan(size.y * 1.5);
   });
 });

@@ -203,22 +203,3 @@ export function buildCone(): THREE.Group {
   g.scale.setScalar(SCALE);
   return g;
 }
-
-/**
- * A cone knocked over: lying on its side along `heading` (the way its tip points), its foot
- * resting on its rim.
- */
-export function fallenCone(heading: number): THREE.Group {
-  const holder = new THREE.Group();
-  const cone = buildCone();
-  // Laid over until the rim of its foot and the lip of its tip both touch the ground.
-  const lean = Math.PI / 2 + Math.atan2(CONE.foot - CONE.tip, CONE.height);
-  cone.rotation.z = -lean;
-  cone.scale.setScalar(SCALE);
-  holder.add(cone);
-  holder.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(cone);
-  cone.position.y = -box.min.y;
-  holder.rotation.y = heading;
-  return holder;
-}

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { describe, expect, it } from 'vitest';
+import { CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
 import { noteWhereAdded, where } from './whereAdded.ts';
 
@@ -173,6 +174,14 @@ function fights(root: THREE.Object3D): Fight[] {
         const patch = clip(flat[i]!, flat[j]!);
         const area = patch.length > 2 ? Math.abs(signedArea(patch)) : 0;
         if (area < 1e-7) continue;
+        // Faces turned a hair apart part as they run on from where they cross: only where they
+        // stay within a step of each other over the whole patch do they fight.
+        const gap = (q: Pt) => {
+          const at = u.clone().multiplyScalar(q[0]).addScaledVector(v, q[1]);
+          const lift = (f: typeof s) => (f.d - f.n.dot(at)) / f.n.dot(n);
+          return Math.abs(lift(s) - lift(t));
+        };
+        if (Math.max(...patch.map(gap)) > SAME_PLANE) continue;
         const [cx, cy] = patch.reduce(
           (m, p) => [m[0] + p[0] / patch.length, m[1] + p[1] / patch.length],
           [0, 0],
@@ -216,10 +225,10 @@ function fights(root: THREE.Object3D): Fight[] {
   return found.sort((x, y) => y.area - x.area);
 }
 
-describe('the car scene, as the reference picture lays it out', () => {
+describe('the car scene, as Chevron Street lays it out', () => {
   it('has no faces of different materials fighting in the same plane', () => {
     const restore = noteWhereAdded();
-    const root = buildCarScene().root;
+    const root = buildCarScene({ layout: CHEVRON_LAYOUT }).root;
     restore();
     const found = fights(root);
     const v = (x: THREE.Vector3) => `${x.x.toFixed(2)} ${x.y.toFixed(2)} ${x.z.toFixed(2)}`;

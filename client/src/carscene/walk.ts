@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Solids } from '../testmap/walk.ts';
+import { Solids } from './solids.ts';
 import {
   BALCONY,
   BALCONY_DOOR,

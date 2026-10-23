@@ -309,7 +309,7 @@ function gamesOwn(scene: CarScene): Set<THREE.Object3D> {
   const own = new Set<THREE.Object3D>();
   for (const g of gadgetsIn(scene.root)) {
     const prop = g.handles[0] && ancestor(g.handles[0], (a) => a.name === 'prop');
-    if (g.hint() === 'open the bin' && prop) own.add(prop);
+    if (g.role === 'bin' && prop) own.add(prop);
   }
   for (const f of scene.site.children) {
     if (f.name === 'jobSite') for (const c of f.children) if (c.name !== 'pad') own.add(c);
@@ -427,7 +427,7 @@ function chevronScene(): { scene: ChevronScene; mesh: ChevronMesh } {
     const handle = g.handles[0];
     if (!handle) continue;
     const prop = ancestor(handle, (a) => a.name === 'prop');
-    if (g.hint() === 'open the bin' && prop) {
+    if (g.role === 'bin' && prop) {
       // Its front is its +x, the way it is turned.
       const n = new THREE.Vector3(1, 0, 0).applyQuaternion(
         prop.getWorldQuaternion(new THREE.Quaternion()),

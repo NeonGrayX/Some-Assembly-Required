@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { describe, expect, it } from 'vitest';
 import { MOVING, Press, Toggle, gadgetsIn } from './gadgets.ts';
+import { CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
 import { noteWhereAdded, where } from './whereAdded.ts';
 
@@ -99,10 +100,10 @@ function clashes(root: THREE.Object3D): string[] {
   return [...found.values()];
 }
 
-describe('the car scene, as the reference picture lays it out', () => {
+describe('the car scene, as Chevron Street lays it out', () => {
   it('opens its doors, lids and levers without passing through anything', () => {
     const restore = noteWhereAdded();
-    const root = buildCarScene().root;
+    const root = buildCarScene({ layout: CHEVRON_LAYOUT }).root;
     restore();
     expect(clashes(root)).toEqual([]);
   }, 300_000);

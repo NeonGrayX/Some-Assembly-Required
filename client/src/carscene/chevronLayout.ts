@@ -3,7 +3,7 @@ import { BIG_HOUSE_BODY } from './bighouse.ts';
 import { HOUSE_DOOR } from './house.ts';
 import { INSPECTOR_PAD } from './inspector.ts';
 import type { Rect } from './paint.ts';
-import { BAY, BRICK_WORKS } from './scene.ts';
+import { BAY } from './scene.ts';
 import type { GroundCover } from './ground.ts';
 import type { CarSceneLayout, Place, RoadWorks } from './scene.ts';
 import type { StreetPlan } from './street.ts';
@@ -192,12 +192,12 @@ const facing = (x: number, z: number, at: Place) => Math.atan2(at.x - x, at.z - 
 /** Turned from (`x`, `z`) to light `at` (a mast's lamps look along its +x). */
 const lighting = (x: number, z: number, at: Place) => Math.atan2(-(at.z - z), at.x - x);
 
-const KINDS = BRICK_WORKS.map((m) => m.kind);
+/** The brick works' machines, in the order the plan stands them. */
+const KINDS = ['silo', 'press', 'press', 'dispenser', 'printer'] as const;
 
 const PLAN: CarSceneLayout = {
   // The picture's patch of mossy cobbles where the lot meets the street, by the crossing.
   patch: { x: 0, z: 5.6 },
-  roads: [],
   cover: COVER,
   // Parked as the bays first take them; a round parks them afresh (see `chevronLayout`). The
   // bus with its door to the kerb.
@@ -209,7 +209,6 @@ const PLAN: CarSceneLayout = {
   house: OFFICE,
   bigHouse: BIG_HOUSE,
   street: STREET,
-  cones: { upright: [], fallen: null },
   jobSite: JOB_SITE,
   // The silo and the mould vendor west of the job site, the presses east, the printer south,
   // beside the gateway.
@@ -360,7 +359,7 @@ function halfTurn(L: CarSceneLayout): CarSceneLayout {
 }
 
 /**
- * The car scene's road works (see `PICTURE`), in place of cones and barriers in the empty bays:
+ * The car scene's road works, in place of cones and barriers in the empty bays:
  * dug in the lot's lane between the crossing and the short bay at the lane's end, the water
  * barriers along the lane's middle (a little toward the kerb, clear of a bus parked across the
  * middle line) and across its end by the crossing, the signal out before them (no sign), the

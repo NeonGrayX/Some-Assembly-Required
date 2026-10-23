@@ -5,7 +5,7 @@ import { batchStatic } from '../carscene/batch.ts';
 import { vacuumDock } from '../carscene/dock.ts';
 import { CAR_DOOR, CarDoors, doorsIn, houseDoors } from '../carscene/doors.ts';
 import type { Swing } from '../carscene/doors.ts';
-import { Clockwork, MOVING, Press, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
+import { Clockwork, MOVING, Toggle, gadgetsIn } from '../carscene/gadgets.ts';
 import type { Gadget } from '../carscene/gadgets.ts';
 import { clickables, hidingToggles } from '../carscene/hiding.ts';
 import { INSPECTOR_FACE, INSPECTOR_SCREEN } from '../carscene/inspector.ts';
@@ -82,12 +82,6 @@ class ToggleHideout implements HideoutView {
   setLocked(): void {}
 }
 
-/** What a click does on the scene's own bins, which the game's take the place of. */
-const BIN = 'open the bin';
-
-/** What a click does on the power cabinet's switch, as the scene starts. */
-const MAINS = 'switch off the power';
-
 /** One of the scene's things a click works: as it started, and whether the game has used it. */
 interface Clickable {
   gadget: Gadget;
@@ -149,19 +143,19 @@ export function buildScenery(level: LevelDef, def: SceneryDef): SceneryView {
       if (ids.has(id)) hideouts.set(id, new ToggleHideout(toggle));
     });
     for (const g of gadgetsIn(copy)) {
-      if (g instanceof Toggle && g.hint() === BIN) {
+      if (g.role === 'bin') {
         let prop: THREE.Object3D | null = g.handles[0] ?? null;
         while (prop && prop.name !== 'prop') prop = prop.parent;
         prop?.removeFromParent();
       }
-      if (g instanceof Clockwork) clocks.push(g);
-      if (g instanceof Toggle && g.hint() === MAINS) mains.push(g);
+      if (g instanceof Toggle && g.role === 'mains') mains.push(g);
       // The bell: hidden in the modes without meetings.
-      if (g instanceof Press && g.hint() === 'ring the bell') {
+      if (g.role === 'bell') {
         let bell: THREE.Object3D | null = g.handles[0] ?? null;
         while (bell && bell.name !== 'prop') bell = bell.parent;
         if (bell) bells.push(bell);
       }
+      if (g instanceof Clockwork) clocks.push(g);
     }
     // The houses' sliding doors, as the level numbers them.
     for (const d of houseDoors(copy)) {

@@ -59,9 +59,17 @@ export function sound(noise: Noise, o: THREE.Object3D): void {
   hearing.play(noise, o.getWorldPosition(new THREE.Vector3()));
 }
 
+/**
+ * What the game has its own of, drawn and worked in place of the scene's (see `clickables`): the
+ * street's bins, the bell, the Done button, the power cabinet's doors and its switch.
+ */
+export type GameRole = 'bin' | 'bell' | 'done' | 'power cabinet' | 'mains';
+
 export interface Gadget {
   /** The parts aimed at to use it, each aimed at within its bounds. */
   readonly handles: THREE.Object3D[];
+  /** Which of the game's own things this is the scene's of, if it is one. */
+  readonly role?: GameRole;
   /** What a click on it does now, or null if nothing. */
   hint(): string | null;
   /** A click on it. */
@@ -100,6 +108,7 @@ export class Toggle implements Gadget {
   who: THREE.Vector3 | null = null;
   /** What a click on it sounds like from each state, as `says` says what it does (none if null). */
   noise: [Noise | null, Noise | null] = ['click', 'click'];
+  role?: GameRole;
 
   constructor(
     readonly handles: THREE.Object3D[],
@@ -138,6 +147,7 @@ export class Toggle implements Gadget {
  */
 export class Press implements Gadget {
   since = Infinity;
+  role?: GameRole;
 
   constructor(
     readonly handles: THREE.Object3D[],
