@@ -1,8 +1,8 @@
 # 08: Map themes
 
-Three more maps to follow the house and yard. Each is a theme first: what the place is, where the stations go, where pages hide, and which part of it gets rearranged every round so that nobody can learn the map by heart. The engine work each one needs is listed at the end of its section, and the shared pieces at the end of the document.
+The maps beyond the house and yard. Maps 2 to 4 were designed here before they were built (what was built differs a little; see [As built](#as-built)), and maps 5 and 6 are written up as built. Each is a theme first: what the place is, where the stations go, where pages hide, and which part of it gets rearranged every round so that nobody can learn the map by heart. The engine work each one needs is listed at the end of its section, and the shared pieces at the end of the document.
 
-The order suggested is the builders' merchant, then the sleeper train, then the lakeside camp: the first fits the systems we have almost as they are, the second needs the layout generator to shuffle a structure's parts rather than furniture, and the third needs water.
+The order suggested for the first three was the builders' merchant, then the sleeper train, then the lakeside camp: the first fits the systems we have almost as they are, the second needs the layout generator to shuffle a structure's parts rather than furniture, and the third needs water.
 
 ---
 
@@ -300,19 +300,19 @@ The car scene's street, closed at both ends for the build: the small house (the 
 
 ### How it is made
 
-What is solid, where the hiding places are and where the stations stand are worked out from the models themselves by `client/src/carscene/chevron.test.ts` and kept in `shared/src/content/maps/chevronScene.ts`, in the scene's own axes; that test fails when the file is out of date with the models (`CHEVRON=write npx vitest run client/src/carscene/chevron.test.ts` writes it afresh). `chevron.ts` lays the map out from it: every collider invisible (`model: 'collider'`), the houses' walls tagged as walls, the big house roofed by two tilted slabs, and four unseen walls round the edge. The client builds the car scene where the level says (`render/chevron.ts`), takes its baseplate away, stands the houses' and the bus's doors open (the simulation has none there) and the bins' lids up, and lets the game open and shut the scene's own cupboards, fridges, wardrobes, letterboxes, portaloo and manhole as its hiding places. The report is laid on the inspector's own screen.
+What is solid, where the hiding places are and where the stations stand are worked out from the models themselves by `client/src/carscene/chevron.test.ts` and kept in `shared/src/content/maps/chevronScene.ts`, in the scene's own axes; that test fails when the file is out of date with the models (`CHEVRON=write npx vitest run client/src/carscene/chevron.test.ts` writes it afresh). `chevron.ts` lays the map out from it: every collider invisible (`model: 'collider'`), the houses' walls tagged as walls, the big house roofed by two tilted slabs, and four unseen walls round the edge. The client builds the car scene where the level says (`render/chevron.ts`) and takes its baseplate away. The houses' sliding doors slide open as anyone comes near and the vehicles' doors, bonnets and boots open with a click, both in the simulation too; the lamps, taps and the rest a click works there work in the game; and the game opens and shuts the scene's own cupboards, fridges, wardrobes, letterboxes, portaloo and manholes as its hiding places. The report is laid on the inspector's own screen.
 
 ### What rearranges every round
 
-The parking shuffle: the off-roader and the sports car each take one of four bays (on the cobbles, on the road beside them, and in the street's north lane either side of the crossing), facing one way or the other, and road works (a barrier and a line of cones) close the two left empty. The bus has only its own bay, the one long enough, and parks facing either way. A manhole a car parks over hides nothing that round, and three of the cupboards are left empty.
+The parking shuffle: the bus parks in one of the street's two long bays with its door to the kerb, and the off-roader and the sports car each take one of the three short ones, facing one way or the other; the bays left over stand empty. A manhole a vehicle parks over hides nothing that round, and three of the cupboards are left empty.
 
 ### Hiding places
 
-Twenty-three, from the scene's own doors and lids: the kitchens' cupboards, fridges and freezers (as cabinets and fridges), the wardrobes (lockers), both letterboxes, the portaloo and the manhole (as a rug). Cupboards side by side have hiding places a little narrower than their doors, away from the hinge, so each swings clear of the next.
+Twenty-four, from the scene's own doors and lids: the kitchens' cupboards, fridges and freezers (as cabinets and fridges), the wardrobes (lockers), both letterboxes, the portaloo and the two manholes (as rugs). Cupboards side by side have hiding places a little narrower than their doors, away from the hinge, so each swings clear of the next.
 
-### Stand-ins
+### Machines, bins and meetings
 
-The machines, the wheelie and pedal bins, the vacuum and the dog are the game's own models for now, and the meeting seats stand on the lot before the bus stop rather than in the bus.
+The machines are the car scene's models, worked as the game's are (`render/carMachines.ts`), every bin is the street's tipping bin (`render/streetBins.ts`) and the vacuum hangs in a dock on the site office's wall. Brick Meetings are held down the bus's aisle. The dog is still the game's own model.
 
 ---
 
@@ -332,7 +332,7 @@ Every map must keep the rival doubling: a straight south edge, nothing crossing 
 
 ## As built
 
-The three maps are in `shared/src/content/maps/` (`merchant.ts`, `station.ts`, `camp.ts`), registered in `maps/index.ts` and picked by the host in the lobby. Each is generated from the round's seed by a layout function that tries seeds until `mapProblems` (in `maps/common.ts`) finds nothing wrong: enough places for pages and seats, every hiding place reachable and able to open at least square, the stations in reach, and the dog's network covering most of the ground it can walk. `maps.test.ts` runs those checks for eight seeds per map, alone and doubled for rival teams, and sweeps the dog's body along every link in the physics world. `groundPicture` draws a map's ground as the dog sees it, for working on a layout.
+Maps 2 to 4 are in `shared/src/content/maps/` (`merchant.ts`, `station.ts`, `camp.ts`), registered in `maps/index.ts` and picked by the host in the lobby. Each is generated from the round's seed by a layout function that tries seeds until `mapProblems` (in `maps/common.ts`) finds nothing wrong: enough places for pages and seats, every hiding place reachable and able to open at least square, the stations in reach, and the dog's network covering most of the ground it can walk. `maps.test.ts` runs those checks for eight seeds per map, alone and doubled for rival teams, and sweeps the dog's body along every link in the physics world. `groundPicture` draws a map's ground as the dog sees it, for working on a layout.
 
 What was built differs from the design above in these ways:
 

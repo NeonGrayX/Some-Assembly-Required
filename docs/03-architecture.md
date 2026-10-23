@@ -23,15 +23,17 @@ Engines we rejected:
 ## Repository layout
 
 ```
-/client        Vite app: rendering, input, UI, interpolation, voice
-/server        Node game server: rooms, authoritative simulation, static file hosting
-/shared        Types, protocol messages, brick catalogue, build format, rules, matching logic
-/content       Maps (JSON + glTF), target builds (JSON), page art templates
-/tools         Build editor / exporter, packaging scripts
+/client        Vite app: rendering, input, UI, interpolation, voice, the build editor
+/server        Node game server: rooms, authoritative simulation, static file hosting, host app build
+/shared        Types, protocol messages, brick catalogue, build format, rules, matching logic,
+               the maps' layout generators and the built-in builds
+/builds        The detailed builds as build files (.sarbuild.json)
+/desktop       The desktop app (Electron)
+/deploy        VPS setups and the release script
 /docs          These documents
 ```
 
-npm workspaces (or pnpm). `shared` is imported by both client and server.
+npm workspaces (`shared`, `client`, `server`; `desktop` has its own). `shared` is imported by both client and server. The README's code layout table has more.
 
 ## Networking model
 
@@ -45,7 +47,7 @@ npm workspaces (or pnpm). `shared` is imported by both client and server.
              +----------+-------------------+--------+
           snapshots 20 Hz |  events (reliable) |  ^ inputs 60 Hz, action requests
                          v                   v  |
-             +----------------+   +----------------+   ...up to 8 clients
+             +----------------+   +----------------+   ...up to 10 clients
              | Client         |   | Client         |
              | - predicts own |   |                |<--- WebRTC voice mesh --->
              |   movement     |   |                |
@@ -111,7 +113,7 @@ Scale: bricks are much bigger than real ones. A 2x4 brick is about the size of a
 
 ## Data formats
 
-### Brick catalogue (`shared/bricks.ts`)
+### Brick catalogue (`shared/src/bricks.ts`)
 
 ```ts
 type BrickTypeId = '1x1' | '1x2' | '2x2' | '2x3' | '2x4' | '1x4' | 'plate2x4' | 'slope2x2' | ...;
@@ -119,7 +121,9 @@ interface BrickType { id: BrickTypeId; studsX: number; studsZ: number; heightPla
 interface Colour { id: string; hex: string; nearMiss: string[] }   // light-grey <-> dark-grey, red <-> dark-red
 ```
 
-### Target build (`content/builds/lighthouse.json`)
+### Target build (`shared/src/builds/`, `builds/*.sarbuild.json`)
+
+As planned (the real format is in [07-build-file-format.md](07-build-file-format.md)):
 
 ```jsonc
 {
@@ -136,19 +140,19 @@ interface Colour { id: string; hex: string; nearMiss: string[] }   // light-grey
 
 Page images are **rendered at runtime** from this data (an isometric Three.js render to a texture with the new bricks highlighted), so no hand-drawn pages are needed. Forged pages are made by changing one brick to a near-miss colour (never its type or position) and nudging the stamp or watermark.
 
-### Map (`content/maps/house.json` + `house.glb`)
+### Map (`shared/src/content/`)
 
-- glTF with the static geometry (collision as simple boxes), plus JSON listing: hiding spots (id, position, type: drawer/rug/roof/dog...), the brick works' machines, the job-site location, the index location candidates, the inspector location, and the meeting room.
+- Each map is a `LevelDef` (`shared/src/content/house.ts`) made in code, most by a layout function from the round's seed (`shared/src/content/maps/`): its boxes (collision and what the client draws), hiding spots (id, position, type: drawer/rug/roof/dog...), the brick works' machines, the job-site location, the page spots, the inspector location and the meeting seats. Chevron Street's is worked out from the car scene's models and drawn with them, not with boxes (see [08-maps.md](08-maps.md)).
 
-### Build editor (tool)
+### Build editor
 
-A simple in-browser editor (reusing the client's snapping code) to place bricks and split them into steps, then export JSON. This is how we create new target builds and joke builds.
+An in-browser editor (`client/src/editor.ts`, **Build editor** on the main menu) that reuses the game's snapping code to place bricks and split them into steps, and imports and exports build files. This is how new target builds are made.
 
 ## Client architecture
 
 - **Game loop:** fixed 60 Hz simulation for local prediction, render at the display refresh rate.
 - **Rendering:** one `InstancedMesh` per brick type, with per-instance colour. Simple toon or flat shading with soft shadows from a single directional light.
-- **Input:** WASD plus mouse look (pointer lock). E = grab/interact, R = rotate held brick, Q = show page, F = saboteur ability menu (saboteur only), V = push-to-talk (optional), Tab = scoreboard and objectives.
+- **Input:** WASD plus mouse look (pointer lock), with on-screen controls on touch screens. The keys are in the README's controls table.
 - **Camera:** third person over the shoulder by default (so you see yourself ragdoll), and a first-person toggle for precise placement. Turning and following are 1:1 with the input; what is softened is the boom when a wall gets in the way (a sphere probe keeps it clear, it pulls in at once and pays back out gently), the vertical follow, and the first-person toggle.
 - **Placement assist:** a ghost preview of where the held brick will snap, which makes building with a mouse workable.
 - **Audio:** Web Audio for effects (positional), plus voice streams through `PannerNode` with distance falloff. Meetings switch voice to global.
@@ -156,7 +160,7 @@ A simple in-browser editor (reusing the client's snapping code) to place bricks 
 ## Server architecture
 
 - One process, many rooms. Each room has: player list, phase state machine, Rapier world, build state, page/spot state, and timers.
-- Tick: 30 Hz physics, 20 Hz snapshots.
+- Tick: 60 Hz simulation, 20 Hz snapshots (`TICK_RATE`, `SNAPSHOT_EVERY`).
 - Every rule lives in `shared/` as pure functions (`canSnap`, `matchBuild`, `applyVote`, ...) so it can be unit tested and used for client prediction.
 - No database for the MVP. Rooms live in memory and disappear when empty.
 - Logging: per-room event log (also useful for the end-of-round replay or highlights).
@@ -164,7 +168,7 @@ A simple in-browser editor (reusing the client's snapping code) to place bricks 
 ## Voice
 
 - Signalling (SDP offer/answer, ICE candidates) is relayed by the game server over the existing WebSocket.
-- Full mesh: each client connects to every other (fine for 8 or fewer).
+- Full mesh: each client connects to every other (fine for 10 or fewer).
 - Volume per peer = f(distance) from the game state, with muffling through walls via a raycast against the level each frame (a handful of rays, cheap). Details in the roadmap's M7 notes.
 - STUN: a public STUN server for internet games. TURN: optional coturn on the VPS. LAN: neither needed.
 - Fallback: when voice is off, text chat bubbles above heads, and the "scream" is a sound effect.
