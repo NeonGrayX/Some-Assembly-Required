@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { TrashBinModel } from '@sar/shared';
 import { add, box, mat, metal, sharpBox } from './interiors.ts';
-import { barrelModel } from './pirate.ts';
 import { bevelCylinder } from './shapes.ts';
 import { streetBinModel } from './streetBins.ts';
+import { barrelModel } from './pirate/harbour.ts';
 
 /**
  * The rubbish bins bricks are thrown away in, one look per kind of place: a wheelie bin with

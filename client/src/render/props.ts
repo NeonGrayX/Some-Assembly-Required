@@ -21,21 +21,6 @@ import { bevelBox, bevelCylinder } from './shapes.ts';
 import { caravanRoof, towHitch } from './caravan.ts';
 import { boulderModel, logModel, palmModel, pineModel, rockModel, stumpModel } from './nature.ts';
 import {
-  anchorModel,
-  barrelModel,
-  cannonModel,
-  flagpoleModel,
-  gableRoofModel,
-  hullModel,
-  lanternPostModel,
-  mastModel,
-  pilingModel,
-  ropeCoilModel,
-  ropeFence,
-  storeyModel,
-} from './pirate.ts';
-import type { HullFittings, LashedPost, RoofWalls, ShipLine, StoreyBelow } from './pirate.ts';
-import {
   axleUnit,
   ballast,
   carriageRoof,
@@ -50,6 +35,22 @@ import {
   waterTank,
 } from './railway.ts';
 import { acUnit, forklift, pallet, rack, shutter } from './warehouse.ts';
+import { flagpoleModel } from './pirate/flags.ts';
+import {
+  anchorModel,
+  barrelModel,
+  cannonModel,
+  lanternPostModel,
+  ropeCoilModel,
+} from './pirate/harbour.ts';
+import { gableRoofModel } from './pirate/roofs.ts';
+import type { RoofWalls } from './pirate/roofs.ts';
+import { pilingModel, ropeFence } from './pirate/rope.ts';
+import type { LashedPost } from './pirate/rope.ts';
+import { hullModel, mastModel } from './pirate/ship.ts';
+import type { HullFittings, ShipLine } from './pirate/ship.ts';
+import { storeyModel } from './pirate/storey.ts';
+import type { StoreyBelow } from './pirate/storey.ts';
 
 /** What `makeProp` hands back of a model besides the model itself, for the view to animate. */
 export interface PropParts {
