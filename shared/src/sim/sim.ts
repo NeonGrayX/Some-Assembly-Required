@@ -6,7 +6,7 @@ import type {
   RigidBody,
   World,
 } from '@dimforge/rapier3d-compat';
-import { BASEPLATE_SIZE, BRICK_TYPES, COLOURS, PLATE_H, STUD, footprint } from '../bricks.ts';
+import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { GearId } from '../gear.ts';
 import type { FurnitureState } from '../net/protocol.ts';
@@ -49,6 +49,7 @@ import { Pages } from './pages.ts';
 import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
 import { REPAIR_SECONDS, Working } from './working.ts';
+import { Sabotage } from './sabotage.ts';
 import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
 import type { MachineAct } from './operate.ts';
 import { DT } from './time.ts';
@@ -61,7 +62,6 @@ import { partBox, partQuat, placedColliders } from '../parts.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
-  machinePose,
   printJobs,
   BOARD_SIZE,
   BUTTON_SIZE,
@@ -967,6 +967,7 @@ export class Sim {
   readonly carrying: Carrying;
   /** Players at work, and the power (see `Working`). */
   readonly working: Working;
+  readonly sabotage: Sabotage;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1003,6 +1004,7 @@ export class Sim {
     this.gearHunt = new GearHunt(this);
     this.carrying = new Carrying(this);
     this.working = new Working(this);
+    this.sabotage = new Sabotage(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -2004,96 +2006,6 @@ export class Sim {
     for (const a of lying.slice(0, Math.max(0, lying.length - this.looseLimit))) {
       this.removeAssembly(a);
     }
-  }
-
-  // ---------------------------------------------------------------- hiding places
-
-  // ---------------------------------------------------------------- corkboard
-
-  // ---------------------------------------------------------------- pages
-
-  // ---------------------------------------------------------------- gear
-
-  // ---------------------------------------------------------------- sabotage
-
-  /**
-   * Swaps the aimed brick for its look-alike colour, in place. Returns where it happened, or
-   * null if there was nothing to swap.
-   */
-  swapBrick(p: Player): Vec3 | null {
-    const hit = this.sight.aim(p);
-    if (hit?.owner.kind !== 'brick') return null;
-    const a = this.assemblies.get(hit.owner.assemblyId);
-    const b = a?.grid.bricks.get(hit.owner.brickId);
-    if (!a || !b || BRICK_TYPES[b.type].fixture) return null;
-    const near = COLOURS[b.colour].nearMiss[0];
-    if (!near) return null;
-    b.colour = near;
-    a.version++;
-    return hit.point;
-  }
-
-  /**
-   * Tampers with the aimed machine (it jams until someone clears it) or the electrical panel
-   * (the power goes out). Returns where it happened, or null if there was nothing to tamper with.
-   */
-  tamper(p: Player): Vec3 | null {
-    const hit = this.sight.aim(p);
-    if (!hit || !this.mayUse(p, hit.point)) return null;
-    if (hit.owner.kind === 'panel') {
-      if (!this.power.on || this.power.dead) return null;
-      this.working.breakPower();
-      return hit.point;
-    }
-    if (hit.owner.kind !== 'machine') return null;
-    const m = this.machines.get(hit.owner.machineId);
-    if (!m || m.jammed) return null;
-    Object.assign(m, { jammed: true, fixer: null, progress: 0 });
-    this.furnitureVersion++;
-    return hit.point;
-  }
-
-  /**
-   * A machine breaks down by itself: it jams just as if a saboteur had tampered with it, but
-   * with a clunk everyone close by hears. Returns false if it is jammed already.
-   */
-  breakMachine(id: number): boolean {
-    const m = this.machines.get(id);
-    if (!m || m.jammed) return false;
-    Object.assign(m, { jammed: true, fixer: null, progress: 0 });
-    this.furnitureVersion++;
-    this.events.push({ kind: 'breakdown', pos: machinePose(m.def).centre, machineId: id });
-    return true;
-  }
-
-  /** Replaces what is printed on the page in the player's pocket. */
-  reprintPocketPage(p: Player, printed: PrintedPage): boolean {
-    const page = p.page === null ? undefined : this.pages.get(p.page);
-    if (!page || !page.printed) return false;
-    page.printed = printed;
-    page.version++;
-    return true;
-  }
-
-  /** The hiding place the player aims at, if they have a page in their pocket to put in it. */
-  hideoutForPocketPage(p: Player): number | null {
-    if (p.page === null || !this.pages.has(p.page)) return null;
-    const hit = this.sight.aim(p);
-    return hit?.owner.kind === 'hideout' ? hit.owner.hideoutId : null;
-  }
-
-  /**
-   * Puts the page in the player's pocket into the hiding place they aim at and shuts it. Returns
-   * where it happened, or null if they aim at no hiding place or have no page.
-   */
-  hidePocketPage(p: Player): Vec3 | null {
-    const id = this.hideoutForPocketPage(p);
-    const page = p.page === null ? undefined : this.pages.get(p.page);
-    if (id === null || !page) return null;
-    const h = this.hideouts.get(id)!;
-    this.hiding.hideInHideout(page, id);
-    this.events.push({ kind: 'close', pos: h.def.pos, hideoutId: id, playerId: p.id });
-    return h.def.pos;
   }
 
   // ---------------------------------------------------------------- meetings

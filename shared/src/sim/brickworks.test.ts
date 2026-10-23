@@ -622,7 +622,7 @@ describe('the brick works', () => {
     const press = loadedPress(sim, '2x4', 'red');
     lookAt(sim, p, press.stand, press.target);
     act(sim, p, { kind: 'grab' });
-    expect(sim.breakMachine(press.m.def.id)).toBe(true);
+    expect(sim.sabotage.breakMachine(press.m.def.id)).toBe(true);
     // It still comes out, for whoever stands by for it.
     expect(takeOut(sim, p, press)).toBe(true);
     expect(heldPart(sim, p)).toMatchObject({ type: '2x4', colour: 'red' });
@@ -775,7 +775,7 @@ describe('working a machine', () => {
     const p = sim.addPlayer();
     settle(sim);
     const press = machine(sim, 'press');
-    sim.breakMachine(press.m.def.id);
+    sim.sabotage.breakMachine(press.m.def.id);
     lookAt(sim, p, press.stand, press.target);
     act(sim, p, { kind: 'grab' });
     expect(press.m.fixer).toBe(p.id);

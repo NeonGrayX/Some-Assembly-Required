@@ -1118,7 +1118,7 @@ describe('cheating', () => {
 
     // A forger reprinting it in their pocket tells nobody else a thing.
     const seen = sent(b).length;
-    sim.reprintPocketPage(ada, { ...page.printed!, stamp: 'fake' });
+    sim.sabotage.reprintPocketPage(ada, { ...page.printed!, stamp: 'fake' });
     run(1);
     expect(sent(a).at(-1)!.p.printed!.stamp).toBe('fake');
     expect(sent(b)).toHaveLength(seen);
