@@ -15,7 +15,8 @@ import { isLooseBrick } from '../sim/sim.ts';
 import type { Assembly, Player, ViewAsk } from '../sim/sim.ts';
 import { FEET } from './nav.ts';
 import { JUMP_LIFT, MAX_PITCH, REACH, brickKey } from './common.ts';
-import type { Bot, Job, Target, Wanted } from './bot.ts';
+import type { Bot, Job, Wanted } from './bot.ts';
+import type { Target } from './clicking.ts';
 
 /** View angles to place a brick at, after how many quarter turns, and the layer aim first. */
 interface PlaceAim {
@@ -523,7 +524,7 @@ export class Building {
   *fixBrick(id: number): Job {
     const sim = this.bot.squad.game.sim;
     const build = sim.build(this.bot.site);
-    const ok = yield* this.bot.use(
+    const ok = yield* this.bot.clicking.use(
       {
         key: `fix|${id}`,
         point: () => {
@@ -563,11 +564,11 @@ export class Building {
       point: () => point,
       ok: (o) => o.kind === 'button' && o.buttonId === 'done' && o.site === this.bot.site,
     };
-    if (!(yield* this.bot.use(t, { kind: 'grab' }))) return false;
+    if (!(yield* this.bot.clicking.use(t, { kind: 'grab' }))) return false;
     this.bot.say('That is all of it. Pressing Done!');
     for (let k = 0; k < 20; k++) yield;
     if (round.phase === 'building' && round.doneArmedFor(this.bot.site))
-      yield* this.bot.use(t, { kind: 'grab' });
+      yield* this.bot.clicking.use(t, { kind: 'grab' });
     return true;
   }
 }

@@ -5,7 +5,8 @@ import { machineFront, machineOutputs, machinePose } from '../content/house.ts';
 import { add, length, rotate, sub, v3, yawQuat } from '../math.ts';
 import { isLooseBrick } from '../sim/sim.ts';
 import type { Action, ColliderOwner, MachineState, Made } from '../sim/sim.ts';
-import type { Bot, Job, Target } from './bot.ts';
+import type { Bot, Job } from './bot.ts';
+import type { Target } from './clicking.ts';
 
 /**
  * Whether two things the brick works make are the same: moulds for the same part, buckets of
@@ -55,7 +56,7 @@ export class BrickMaking {
       .sort((a, b) => length(sub(a.body.worldCom(), me)) - length(sub(b.body.worldCom(), me)))[0];
     if (loose) {
       const id = loose.id;
-      const ok = yield* this.bot.use(
+      const ok = yield* this.bot.clicking.use(
         {
           key: `loose|${id}`,
           point: () => {
@@ -146,7 +147,9 @@ export class BrickMaking {
         const near = presses()[0];
         if (near)
           yield* this.bot.walking.walk(
-            this.bot.stands(this.machineTarget(near.def.id).point()!, () => true, 1.6).slice(0, 3),
+            this.bot.clicking
+              .stands(this.machineTarget(near.def.id).point()!, () => true, 1.6)
+              .slice(0, 3),
             undefined,
             20,
           );
@@ -160,13 +163,13 @@ export class BrickMaking {
       try {
         if (choice.mould !== type) {
           if (!(yield* this.getMould(type))) return false;
-          if (!(yield* this.bot.use(this.machineTarget(choice.def.id), { kind: 'grab' })))
+          if (!(yield* this.bot.clicking.use(this.machineTarget(choice.def.id), { kind: 'grab' })))
             return false;
           if (choice.mould !== type) return false;
         }
         if (choice.colour !== colour || choice.shots <= 0) {
           if (!(yield* this.getPellets(colour))) return false;
-          if (!(yield* this.bot.use(this.machineTarget(choice.def.id), { kind: 'grab' })))
+          if (!(yield* this.bot.clicking.use(this.machineTarget(choice.def.id), { kind: 'grab' })))
             return false;
           if (choice.colour !== colour) return false;
         }
@@ -229,14 +232,15 @@ export class BrickMaking {
       const near = (o: ColliderOwner): boolean =>
         (o.kind === 'machine' || o.kind === 'output') && o.machineId === id;
       const inReach = (): boolean =>
-        !!this.bot.aim(front.point()!, front.ok) && !!this.bot.aim(out, near);
-      if (!inReach()) yield* this.bot.walking.walk(this.bot.stands(out, near).slice(0, 3), inReach);
+        !!this.bot.clicking.aim(front.point()!, front.ok) && !!this.bot.clicking.aim(out, near);
+      if (!inReach())
+        yield* this.bot.walking.walk(this.bot.clicking.stands(out, near).slice(0, 3), inReach);
       if (!(yield* this.makeRoom(m, wanted, able)) || this.has(wanted)) continue;
       // Things change while it waits.
       if (!able()) return false;
       // A moulding machine takes a mould or a bucket in hand instead of making a part.
       if (wanted.kind === 'part' && this.bot.me()?.tool) yield* this.bot.chores.putAway();
-      if (!(yield* this.bot.use(front, order))) return false;
+      if (!(yield* this.bot.clicking.use(front, order))) return false;
       const job = m.making;
       // It would not make it (no power, say).
       if (!job) return false;
@@ -298,7 +302,9 @@ export class BrickMaking {
     if (this.bot.me()?.holding) yield* this.bot.chores.letGo();
     const tool = this.bot.me()?.tool;
     if (tool && (made.kind === 'part' || tool.kind !== made.kind)) yield* this.bot.chores.putAway();
-    if (!(yield* this.bot.use(this.outputTarget(id, slot), { kind: 'grab', output: true }))) {
+    if (
+      !(yield* this.bot.clicking.use(this.outputTarget(id, slot), { kind: 'grab', output: true }))
+    ) {
       return false;
     }
     return this.has(made);
@@ -384,9 +390,9 @@ export class BrickMaking {
     const printer = sim.machines.get(id)!;
     for (let k = 0; k < 240 && printer.part; k++) yield;
     if (printer.part) return false;
-    yield* this.bot.use(this.machineTarget(id), { kind: 'grab' });
+    yield* this.bot.clicking.use(this.machineTarget(id), { kind: 'grab' });
     if (!printer.part) return false;
-    yield* this.bot.use(this.machineTarget(id), { kind: 'print', job });
+    yield* this.bot.clicking.use(this.machineTarget(id), { kind: 'print', job });
     // It takes the part off the bed once it is printed.
     for (let k = 0; k < 10 * 60 && printer.part && !this.bot.building.holdingBrick(); k++) yield;
     return !!this.bot.building.holdingBrick();

@@ -3,7 +3,8 @@ import { machineFront } from '../content/house.ts';
 import { add, length, scale, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import type { SabotageTool } from '../round.ts';
-import type { Bot, Job, Target } from './bot.ts';
+import type { Bot, Job } from './bot.ts';
+import type { Target } from './clicking.ts';
 
 /**
  * A saboteur bot's tricks: when nobody is looking, it swaps a brick's colour, forges or hides a
@@ -122,7 +123,7 @@ export class Sabotage {
     if (!pick) return false;
     const id = pick.h.def.id;
     const centre = pick.h.def.pos;
-    const ok = yield* this.bot.use(
+    const ok = yield* this.bot.clicking.use(
       {
         key: `hideout|${id}`,
         point: () => centre,
@@ -172,7 +173,7 @@ export class Sabotage {
       : bricks.sort(() => this.bot.random() - 0.5);
     for (const b of order.slice(0, 12)) {
       const at = sim.brickPose(build, b).pos;
-      const sol = this.bot.aim(
+      const sol = this.bot.clicking.aim(
         at,
         (o) => o.kind === 'brick' && o.assemblyId === build.id && o.brickId === b.id,
       );
@@ -245,11 +246,15 @@ export class Sabotage {
       target = this.bot.making.machineTarget(id);
     }
     const at = target.point()!;
-    const goals = this.bot.stands(at, target.ok);
+    const goals = this.bot.clicking.stands(at, target.ok);
     if (!goals.length) return false;
-    yield* this.bot.walking.walk(goals.slice(0, 3), () => !!this.bot.aim(at, target.ok), 25);
+    yield* this.bot.walking.walk(
+      goals.slice(0, 3),
+      () => !!this.bot.clicking.aim(at, target.ok),
+      25,
+    );
     if (!(yield* this.alone(8, at))) return false;
-    const sol = this.bot.aim(at, target.ok);
+    const sol = this.bot.clicking.aim(at, target.ok);
     if (!sol) return false;
     this.bot.act({ kind: 'sabotage', tool: 'tamper' }, sol.yaw, sol.pitch);
     yield;
@@ -263,7 +268,7 @@ export class Sabotage {
     if (!page?.body) return false;
     const at = page.body.translation();
     if (this.bot.watchers(at) > 0) return false;
-    return yield* this.bot.use(
+    return yield* this.bot.clicking.use(
       {
         key: `page|${id}`,
         point: () => {

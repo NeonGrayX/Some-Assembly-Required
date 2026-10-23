@@ -47,7 +47,7 @@ export class Chores {
     this.bot.squad.clearing.set(this.bot.id, id);
     try {
       if (this.bot.me()!.holding) yield* this.throwAway();
-      const ok = yield* this.bot.use(
+      const ok = yield* this.bot.clicking.use(
         {
           key: `debris|${id}`,
           point: () => {
@@ -131,14 +131,14 @@ export class Chores {
     for (const jar of jars) {
       if (this.bot.me()?.treat) break;
       const at = add(jar, v3(0, 0.09, 0));
-      yield* this.bot.use(
+      yield* this.bot.clicking.use(
         { key: `treats|${jar.x}|${jar.z}`, point: () => at, ok: (o) => o.kind === 'treats' },
         { kind: 'grab' },
       );
     }
     if (!this.bot.me()?.treat) return false;
     for (let tries = 0; tries < 4 && this.bot.me()?.treat; tries++) {
-      yield* this.bot.use(
+      yield* this.bot.clicking.use(
         {
           key: 'dog',
           point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
@@ -154,7 +154,7 @@ export class Chores {
   *fixPanel(): Job {
     const sim = this.bot.squad.game.sim;
     const panel = sim.panel!;
-    const ok = yield* this.bot.use(
+    const ok = yield* this.bot.clicking.use(
       { key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' },
       { kind: 'grab' },
     );
@@ -169,7 +169,7 @@ export class Chores {
   /** Clears the jam in a machine a saboteur tampered with, staying on it until it is done. */
   *clearJam(id: number): Job {
     const m = this.bot.squad.game.sim.machines.get(id)!;
-    const ok = yield* this.bot.use(this.bot.making.machineTarget(id), { kind: 'grab' });
+    const ok = yield* this.bot.clicking.use(this.bot.making.machineTarget(id), { kind: 'grab' });
     if (!ok) return false;
     for (let k = 0; k < 6 * 60 && m.jammed && m.fixer === this.bot.id; k++) yield;
     if (!m.jammed) this.bot.say('Cleared the jam, the machine works again.');
@@ -197,7 +197,7 @@ export class Chores {
     // Pin it where everyone can read it.
     const boards = levelBoards(sim.level).filter((b) => b.site === this.bot.site);
     for (const b of boards) {
-      const ok = yield* this.bot.use(
+      const ok = yield* this.bot.clicking.use(
         {
           key: `board|${b.pos.x}|${b.pos.z}`,
           point: () => add(b.pos, v3(0, -0.15, 0)),

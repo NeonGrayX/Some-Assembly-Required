@@ -9,8 +9,8 @@ import type { BrickGrid } from '../grid.ts';
 import { add, length, makeRng, scale, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
-import { EYE_OFFSET, TICK_RATE } from '../sim/sim.ts';
-import type { Action, ColliderOwner, Player, SimEvent } from '../sim/sim.ts';
+import { TICK_RATE } from '../sim/sim.ts';
+import type { Action, Player, SimEvent } from '../sim/sim.ts';
 import { ACTIONS_PER_SECOND, ACTION_BURST } from '../net/protocol.ts';
 import { FEET } from './nav.ts';
 import type { Plate } from './nav.ts';
@@ -21,20 +21,14 @@ import { BotChat } from './chat.ts';
 import { Chores } from './chores.ts';
 import { PageJobs } from './pageJobs.ts';
 import { Building } from './building.ts';
-import { JUMP_LIFT, MAX_PITCH, REACH, brickKey } from './common.ts';
+import { brickKey } from './common.ts';
 import { BrickMaking } from './making.ts';
 import { Sabotage } from './sabotage.ts';
 import { Walking } from './walking.ts';
+import { Clicking } from './clicking.ts';
 
 /** A job, run a tick at a time: yields once per tick, returns whether it worked. */
 export type Job<T = boolean> = Generator<void, T>;
-
-/** Something to click on: where it is, and what the aim must land on. */
-export interface Target {
-  key: string;
-  point(): Vec3 | null;
-  ok(o: ColliderOwner): boolean;
-}
 
 /** A brick of the build to put in place, with the step it belongs to. */
 export type Wanted = TargetBrick & { step: number };
@@ -76,7 +70,7 @@ export class Bot {
   /** Where it looks now (turning toward `ctl`'s view). */
   readonly view = { yaw: 0, pitch: -0.2 };
   /** Clicks it may make now, as the room counts them. */
-  private credits = ACTION_BURST;
+  credits = ACTION_BURST;
   readonly random: () => number;
   /** Things that did not work lately, by key, with the tick they may be tried again. */
   private readonly avoid = new Map<string, number>();
@@ -109,6 +103,8 @@ export class Bot {
   wanderAt = 0;
   /** Nodes something is in the way of, with the tick to try them again. */
   readonly blocked = new Map<number, number>();
+  /** Aiming and clicking (see `Clicking`). */
+  readonly clicking: Clicking;
   /** Walking about (see `Walking`). */
   readonly walking: Walking;
   /** Talking with people (see `BotChat`). */
@@ -132,6 +128,7 @@ export class Bot {
     seed: number,
   ) {
     this.random = makeRng(seed * 7919 + id);
+    this.clicking = new Clicking(this);
     this.walking = new Walking(this);
     this.chat = new BotChat(this);
     this.chores = new Chores(this);
@@ -868,182 +865,6 @@ export class Bot {
 
   // ---------------------------------------------------------------- aiming and clicking
 
-  /**
-   * The view angles that put the crosshair on `point` (or near it, nudged the way a player
-   * nudges the mouse) with the aim landing on what `ok` wants, from where the bot stands now.
-   */
-  aim(point: Vec3, ok: (o: ColliderOwner) => boolean): { yaw: number; pitch: number } | null {
-    const p = this.me();
-    if (!p) return null;
-    const sim = this.squad.game.sim;
-    const eye = sim.eye(p);
-    if (length(sub(point, eye)) > REACH + 0.3) return null;
-    const nudges = [v3()];
-    for (const d of [0.04, 0.08, 0.14]) {
-      nudges.push(v3(d, 0, 0), v3(-d, 0, 0), v3(0, d, 0), v3(0, -d, 0), v3(0, 0, d), v3(0, 0, -d));
-    }
-    for (const n of nudges) {
-      const d = sub(add(point, n), eye);
-      const yaw = Math.atan2(-d.x, -d.z);
-      const pitch = Math.max(
-        -MAX_PITCH,
-        Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))),
-      );
-      const hit = sim.sight.aim(p, { eye, yaw, pitch, firstPerson: true });
-      if (hit && ok(hit.owner)) return { yaw, pitch };
-    }
-    return null;
-  }
-
-  /** Nodes to stand on to reach `point`, best first: in reach, in view, not too close. */
-  stands(point: Vec3, ok: (o: ColliderOwner) => boolean, near = 1.1, lift = 0): number[] {
-    const nav = this.squad.nav;
-    const sim = this.squad.game.sim;
-    const R = this.squad.rapier;
-    const me = this.feet();
-    const eyeUp = FEET + EYE_OFFSET + lift;
-    const scored = nav
-      .around(point, 2.2, 2.6, 0.8)
-      .map((n) => {
-        const eye = v3(nav.xs[n]!, nav.ys[n]! + eyeUp, nav.zs[n]!);
-        const reach = length(sub(point, eye));
-        const flat = Math.hypot(nav.xs[n]! - point.x, nav.zs[n]! - point.z);
-        const fromMe = Math.hypot(nav.xs[n]! - me.x, nav.zs[n]! - me.z);
-        return {
-          n,
-          eye,
-          reach,
-          score: Math.abs(flat - near) + 0.08 * fromMe + (flat < 0.45 ? 2 : 0),
-        };
-      })
-      .filter((s) => s.reach < REACH)
-      .sort((a, b) => a.score - b.score);
-    const out: number[] = [];
-    for (const s of scored.slice(0, 40)) {
-      const d = sub(point, s.eye);
-      const dist = length(d);
-      const hit = sim.world.castRay(
-        new R.Ray(s.eye, scale(d, 1 / dist)),
-        dist + 0.1,
-        true,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        (c) => {
-          const o = sim.ownerOf(c);
-          return o !== undefined && o.kind !== 'player' && (o.kind !== 'dog' || ok(o));
-        },
-      );
-      const o = hit ? sim.ownerOf(hit.collider) : undefined;
-      if (o && ok(o)) out.push(s.n);
-      if (out.length >= 6) break;
-    }
-    return out;
-  }
-
-  /**
-   * Goes to where it can click on a target and clicks (or does all of `actions` there, in
-   * order). Returns whether it got to click.
-   */
-  *use(t: Target, actions: Action | Action[], near?: number): Job {
-    const list = Array.isArray(actions) ? actions : [actions];
-    if (this.avoided(t.key)) return false;
-    yield* this.free();
-    const point = t.point();
-    if (!point) return false;
-    const tried = new Set<number>();
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const at = t.point();
-      if (!at) return false;
-      let sol = this.aim(at, t.ok);
-      if (!sol) {
-        const goals = this.stands(at, t.ok, near).filter((n) => !tried.has(n));
-        if (!goals.length) {
-          // Out of sight from the floor (on a high shelf): jump and click at the top.
-          if (yield* this.jumpUse(t, list, near)) return true;
-          this.squad.trace?.(this.id, `no place to stand for ${t.key} (attempt ${attempt})`);
-          break;
-        }
-        for (const g of goals) tried.add(g);
-        const there = yield* this.walking.walk(goals.slice(0, 3), () => {
-          const now = t.point();
-          return !!now && !!this.aim(now, t.ok);
-        });
-        const now = t.point();
-        if (!now) return false;
-        sol = this.aim(now, t.ok);
-        if (!sol && !there) {
-          const f = this.feet();
-          this.squad.trace?.(
-            this.id,
-            `walk to ${t.key} failed at ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)}`,
-          );
-          continue;
-        }
-      }
-      if (!sol) {
-        // Standing there, but the aim does not land: look again from a step closer.
-        for (let k = 0; k < 10; k++) yield;
-        const now = t.point();
-        sol = now ? this.aim(now, t.ok) : null;
-        if (!sol) {
-          const f = this.feet();
-          const hit = this.me() && now ? this.squad.game.sim.sight.aim(this.me()!) : null;
-          this.squad.trace?.(
-            this.id,
-            `no aim on ${t.key} from ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)} (${hit?.owner.kind})`,
-          );
-          continue;
-        }
-      }
-      if (this.credits < list.length) {
-        yield* this.afford(list.length);
-        const now = t.point();
-        sol = now ? this.aim(now, t.ok) : null;
-        if (!sol) continue;
-      }
-      this.ctl.yaw = sol.yaw;
-      this.ctl.pitch = sol.pitch;
-      for (const a of list) this.act(a, sol.yaw, sol.pitch);
-      yield;
-      yield;
-      return true;
-    }
-    this.failed(t.key);
-    this.squad.trace?.(this.id, `could not use ${t.key}`);
-    return false;
-  }
-
-  /** Clicks on something only in sight mid-jump: walks under it, jumps, clicks near the top. */
-  private *jumpUse(t: Target, list: Action[], near?: number): Job {
-    const at = t.point();
-    if (!at) return false;
-    const goals = this.stands(at, t.ok, near, JUMP_LIFT);
-    if (!goals.length) return false;
-    for (let tries = 0; tries < 3; tries++) {
-      yield* this.walking.walk(goals.slice(0, 3), undefined, 30);
-      this.halt();
-      for (let k = 0; k < 6; k++) yield;
-      this.ctl.jump = true;
-      for (let k = 0; k < 45; k++) {
-        yield;
-        const now = t.point();
-        if (!now) return false;
-        const sol = this.aim(now, t.ok);
-        if (sol) {
-          this.ctl.yaw = sol.yaw;
-          this.ctl.pitch = sol.pitch;
-          for (const a of list) this.act(a, sol.yaw, sol.pitch);
-          yield;
-          yield;
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   // ---------------------------------------------------------------- jobs: small ones
 
   // ---------------------------------------------------------------- jobs: pages
@@ -1084,7 +905,7 @@ export class Bot {
     const who = this.accused();
     const site = levelSites(sim.level)[this.site]!;
     const point = add(site.bell, v3(0, 0.85, 0));
-    const ok = yield* this.use(
+    const ok = yield* this.clicking.use(
       {
         key: 'bell',
         point: () => point,

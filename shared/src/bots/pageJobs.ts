@@ -101,7 +101,7 @@ export class PageJobs {
     const sim = this.bot.squad.game.sim;
     const ok = yield* this.bot.searchingFor(
       'dog',
-      this.bot.use(
+      this.bot.clicking.use(
         {
           key: 'dog',
           point: () => add(sim.dog.body.translation(), v3(0, 0.1, 0)),
@@ -137,7 +137,7 @@ export class PageJobs {
     const sim = this.bot.squad.game.sim;
     const ok = yield* this.bot.searchingFor(
       `page|${id}`,
-      this.bot.use(
+      this.bot.clicking.use(
         {
           key: `page|${id}`,
           point: () => {
@@ -169,7 +169,7 @@ export class PageJobs {
     const team = this.bot.team;
     if (!h.open) {
       const centre = add(h.def.pos, v3(0, h.def.kind === 'rug' ? 0.02 : 0, 0));
-      const ok = yield* this.bot.use(
+      const ok = yield* this.bot.clicking.use(
         {
           key: `hideout|${id}`,
           point: () => centre,
