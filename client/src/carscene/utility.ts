@@ -165,7 +165,7 @@ export function powerCabinet(on = true): THREE.Group {
   const lampMat = glow(on ? POWER_LAMP.on : POWER_LAMP.off, 3).clone();
   const states: THREE.Mesh[] = [];
   for (const s of [-1, 1]) {
-    hingedDoor(
+    const door = hingedDoor(
       g,
       'power cabinet',
       new THREE.Vector3(face, (dy0 + dy1) / 2, s * dz),
@@ -258,6 +258,7 @@ export function powerCabinet(on = true): THREE.Group {
         }
       },
     );
+    door.role = 'power cabinet';
   }
   // The switch: what it feeds, and how it shows.
   const feeds: ((k: number) => void)[] = [];
@@ -288,6 +289,7 @@ export function powerCabinet(on = true): THREE.Group {
       on,
     ),
   );
+  mains.role = 'mains';
   mains.noise = ['powerOn', 'powerOut'];
   // A cable conduit out of its foot into the ground behind.
   rbox(g, charcoal(), -d / 2 - 0.05, 0.3, 0.25, 0.1, 0.6, 0.1, 0.04);

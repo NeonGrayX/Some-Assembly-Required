@@ -1063,6 +1063,7 @@ function bin(parent: THREE.Object3D, colour = TEAL): void {
   parent.userData.binColour = colour;
   const front = addGadget(parent, new Toggle([b.front], ['open the bin', 'shut the bin'], b.tip));
   front.noise = ['lidOpen', 'lidShut'];
+  front.role = 'bin';
 }
 
 /**
