@@ -23,3 +23,9 @@ export function downloadBlob(blob: Blob, fileName: string): void {
   // The download starts from the link after the click returns: let go of the file once it has.
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+/** Whether a key went to a text box or a list on the page rather than to the game. */
+export const typing = (e: Event) =>
+  e.target instanceof HTMLInputElement ||
+  e.target instanceof HTMLTextAreaElement ||
+  e.target instanceof HTMLSelectElement;
