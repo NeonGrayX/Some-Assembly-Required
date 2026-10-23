@@ -35,10 +35,13 @@ import {
   isLooseBrick,
   viewDir,
   REACH,
+  QUARTER,
+  collidersOf,
 } from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
 import { Movement } from './movement.ts';
+import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
 import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
@@ -46,19 +49,9 @@ import { DT, TICK_RATE, seconds } from './time.ts';
 import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
-import {
-  canFlip,
-  computeGroupSnap,
-  computeLayerSnap,
-  latticeSnap,
-  sideSnap,
-  spinSnap,
-  snapLayer,
-} from '../snap.ts';
+import { canFlip } from '../snap.ts';
 import type { SnapLayer } from '../snap.ts';
 import { partBox, partQuat, placedColliders } from '../parts.ts';
-import { frameQuat, unframeMetres, unframeTurn } from '../frames.ts';
-import type { Frame } from '../frames.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
@@ -317,7 +310,6 @@ const HOLD = { up: 0.15, front: 0.27 };
 const BUILD_HOLD_GAP = 0.06;
 /** Fastest a held item's hold point is followed outright, so a teleport does not fling it. */
 const MAX_HOLD_FOLLOW = 20;
-const THROW_SPEED = 7;
 /** The knock (velocity change, m/s) a build takes when it is picked up. */
 const LIFT_SEVERITY = 1;
 /** Ticks after an assembly is created during which impacts do not break it. */
@@ -915,8 +907,6 @@ export interface SnapPreview {
   rot: Quat;
 }
 
-const QUARTER = Math.PI / 2;
-
 /** The collider for a shape of a level's models (see `SolidDef`), placed by `place`. */
 export function solidDesc(R: typeof RAPIER, s: SolidDef, place: MeshDef): ColliderDesc {
   const [r, half] = [s.r ?? 0, (s.h ?? 0) / 2];
@@ -985,11 +975,6 @@ export interface SimOptions {
   replica?: boolean;
   /** Whether the job site has its meeting bell (not in a gear hunt). */
   bell?: boolean;
-}
-
-/** All of an assembly's colliders. */
-function* collidersOf(a: Assembly): Generator<Collider> {
-  for (const cs of a.colliders.values()) yield* cs;
 }
 
 /**
@@ -1087,9 +1072,11 @@ export class Sim {
   /** How players move (see `Movement`). */
   private readonly movement: Movement;
   /** The brick works at work (see `BrickWorks`). */
-  private readonly works: BrickWorks;
+  readonly works: BrickWorks;
   /** What players see and aim at (see `Sight`). */
-  private readonly sight: Sight;
+  readonly sight: Sight;
+  /** Putting down what players hold (see `Placing`). */
+  private readonly placing: Placing;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1121,6 +1108,8 @@ export class Sim {
     this.movement = new Movement(this);
     this.works = new BrickWorks(this);
     this.sight = new Sight(this);
+    this.placing = new Placing(this);
+    this.placing = new Placing(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1456,7 +1445,7 @@ export class Sim {
     return a;
   }
 
-  private addCollider(a: Assembly, b: PlacedBrick): void {
+  addCollider(a: Assembly, b: PlacedBrick): void {
     const colliders = placedColliders(b).map(({ centre, half, rot }) => {
       const desc = this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
         .setTranslation(centre.x, centre.y, centre.z)
@@ -1482,7 +1471,7 @@ export class Sim {
    * body's contacts (as switching it to fixed and back does) makes it start afresh from where
    * it is. Rapier has no call that only drops them.
    */
-  private collidersChanged(a: Assembly): void {
+  collidersChanged(a: Assembly): void {
     if (a.anchored || this.replica) return;
     const { RigidBodyType } = this.R;
     const linvel = a.body.linvel();
@@ -1602,7 +1591,7 @@ export class Sim {
     return created;
   }
 
-  private setHeld(a: Assembly, playerId: number | null): void {
+  setHeld(a: Assembly, playerId: number | null): void {
     a.heldBy = playerId;
     const g = playerId === null ? WORLD_GROUPS : HELD_GROUPS;
     for (const c of collidersOf(a)) c.setCollisionGroups(g);
@@ -1679,7 +1668,7 @@ export class Sim {
     const p = this.players.get(id);
     if (!p) return;
     if (!this.replica) {
-      this.release(p);
+      this.placing.release(p);
       this.works.putToolAway(p);
       this.putVacuumDown(p);
       this.dropPage(p);
@@ -1807,13 +1796,13 @@ export class Sim {
       target.pos.y -= p.holding.settingDown;
       // Once the build rests on something it cannot follow the hands down any further.
       if (com.y - target.pos.y > 0.12 || p.holding.settingDown > 2) {
-        this.release(p);
+        this.placing.release(p);
         return;
       }
     }
     const err = sub(target.pos, com);
     if (length(err) > 2.5) {
-      this.release(p);
+      this.placing.release(p);
       return;
     }
     // Move along with the player (running, turning) and steer out the rest of the error on
@@ -1960,18 +1949,18 @@ export class Sim {
       case 'pull':
         return p.handsOff ? undefined : this.pull(p);
       case 'place':
-        return p.handsOff ? undefined : this.place(p, action.output === true);
+        return p.handsOff ? undefined : this.placing.place(p, action.output === true);
       case 'drop':
       case 'throw':
         if (this.vacuum.heldBy === p.id) return this.putVacuumDown(p);
         if (p.tool) return this.works.putToolAway(p);
-        return action.kind === 'drop' ? this.setDown(p) : this.throwHeld(p);
+        return action.kind === 'drop' ? this.placing.setDown(p) : this.placing.throwHeld(p);
       case 'rotate':
         if (!p.holding) return;
         if (action.step === 'quarter') p.holding.rot = ((p.holding.rot + 1) % 4) as Rotation;
         else if (action.step === 'eighth') p.holding.eighth = !p.holding.eighth;
         // A part in hand that would hang on one stud alone turns 45° a step, else a quarter.
-        else if (!p.holding.eighth && this.snap(p, { eighth: true })?.preview.turned45)
+        else if (!p.holding.eighth && this.placing.snap(p, { eighth: true })?.preview.turned45)
           p.holding.eighth = true;
         else {
           p.holding.eighth = false;
@@ -2015,7 +2004,7 @@ export class Sim {
   }
 
   /** Pages and buttons work whether or not the player has their hands full. */
-  private interact(p: Player, hit: AimHit | null): boolean {
+  interact(p: Player, hit: AimHit | null): boolean {
     // The other team's side: look, but do not touch.
     if (hit && !this.mayUse(p, hit.point)) return true;
     if (hit?.owner.kind === 'page') {
@@ -2202,7 +2191,7 @@ export class Sim {
       this.events.push({ kind: 'tug', pos: at, playerId: p.id, fromId: holder.id });
       return;
     }
-    this.release(holder);
+    this.placing.release(holder);
     this.hold(p, a);
     this.events.push({ kind: 'tugged', pos: at, playerId: p.id, fromId: holder.id });
   }
@@ -2264,7 +2253,7 @@ export class Sim {
     }
     p.fatigue++;
     if (this.replica || p.fatigue < TIRED_DROP_TICKS || p.holding?.settingDown != null) return;
-    this.setDown(p);
+    this.placing.setDown(p);
     this.events.push({ kind: 'tired', pos: held.body.worldCom(), playerId: p.id });
   }
 
@@ -2939,7 +2928,7 @@ export class Sim {
 
   /** Lets go of whatever the player holds (bricks fall, the pocketed page stays). */
   dropHeld(p: Player): void {
-    this.release(p);
+    this.placing.release(p);
     this.putVacuumDown(p);
   }
 
@@ -3266,7 +3255,7 @@ export class Sim {
   knockDown(p: Player, push: Vec3, ticks = DOWN_TICKS): boolean {
     if (p.down > 0 || this.replica) return false;
     const held = this.heldAssembly(p);
-    this.release(p);
+    this.placing.release(p);
     this.putVacuumDown(p);
     if (held) held.body.setLinvel(add(held.body.linvel(), scale(push, 2)), true);
     const flat = v3(push.x, 0, push.z);
@@ -3381,7 +3370,7 @@ export class Sim {
   }
 
   /** Whether two colliders actually touch, rather than only having overlapping bounds. */
-  private touching(a: Collider, b: Collider): boolean {
+  touching(a: Collider, b: Collider): boolean {
     let hit = false;
     this.world.contactPair(a, b, (m) => {
       for (let i = 0; i < m.numContacts(); i++) if (m.contactDist(i) < 0.03) hit = true;
@@ -3422,212 +3411,6 @@ export class Sim {
     const loose = this.spawnBrick(b.type, b.colour, pose.pos, pose.rot, undefined, b.id, b.prints);
     // Like any brick picked up, it turns to sit straight across the hands.
     this.hold(p, loose);
-  }
-
-  /**
-   * Where the held brick, or the held piece of bricks clutched together, would snap right now,
-   * if anywhere. A build with the baseplate in it is never snapped onto anything. While a layer
-   * is locked (Shift), the bricks keep to it for as long as they still clutch something there.
-   */
-  snapPreview(p: Player, ask?: ViewAsk): SnapPreview | null {
-    return this.snap(p, ask)?.preview ?? null;
-  }
-
-  private snap(p: Player, ask?: ViewAsk): { preview: SnapPreview; layer: SnapLayer | null } | null {
-    const held = this.heldAssembly(p);
-    if (!held || !p.holding) return null;
-    const bricks = [...held.grid.bricks.values()];
-    if (bricks.some((b) => BRICK_TYPES[b.type].fixture)) return null;
-    // Flipped, it goes on by its other hole only, never onto a locked layer.
-    const flip = isLooseBrick(held) && (ask?.flip ?? p.holding.flip ?? false);
-    const lock = ask?.lock !== undefined ? ask.lock : p.snapLock;
-    const locked = lock && this.assemblies.get(lock.targetId);
-    if (lock && locked && !flip && this.snapsOnto(held, locked)) {
-      const ray = this.sight.aimRay(p, ask);
-      const inv = conj(locked.body.rotation());
-      const origin = rotate(inv, sub(ray.origin, locked.body.translation()));
-      const dir = rotate(inv, ray.dir);
-      const { group, rot } = this.snapGroup(p, held, locked, ask);
-      const placements = computeLayerSnap(locked.grid, origin, dir, group, rot, lock, REACH + 0.4);
-      const preview = placements && this.snapPreviewOf(locked, bricks, placements);
-      if (preview && this.mayUse(p, preview.pos)) return { preview, layer: lock };
-    }
-    const hit = this.sight.aim(p, ask);
-    if (hit?.owner.kind !== 'brick') return null;
-    const t = this.assemblies.get(hit.owner.assemblyId);
-    if (!t || !this.snapsOnto(held, t)) return null;
-    if (!this.mayUse(p, hit.point)) return null;
-    const inv = conj(t.body.rotation());
-    // On the lattice of the part aimed at: turned 45° off the grid, if it is.
-    const frame = t.grid.bricks.get(hit.owner.brickId)?.frame;
-    const onGrid = rotate(inv, sub(hit.point, t.body.translation()));
-    const local = frame ? unframeMetres(frame, onGrid) : onGrid;
-    const normal = frame ? unframeTurn(frame, rotate(inv, hit.normal)) : rotate(inv, hit.normal);
-    const { group, rot } = this.snapGroup(p, held, t, ask, frame);
-    // A single part aimed at the side of a build clips onto the side studs there; failing
-    // that or a top or bottom, it goes onto whatever studs face out there, turned to take them.
-    const single = isLooseBrick(held);
-    const sideways = single && Math.abs(normal.y) < 0.3;
-    const type = bricks[0]!.type;
-    let placements = flip
-      ? [latticeSnap(t.grid, local, normal, type, rot, true, frame)].filter((x) => x !== null)
-      : sideways
-        ? [sideSnap(t.grid, local, normal, type, rot, frame)].filter((x) => x !== null)
-        : computeGroupSnap(t.grid, local, normal, group, rot, frame);
-    if (!placements?.length && single && !flip)
-      placements = [latticeSnap(t.grid, local, normal, type, rot, false, frame)].filter(
-        (x) => x !== null,
-      );
-    if (!placements?.length) return null;
-    // Turned 45° on, where it hangs on one stud alone.
-    const spun =
-      single && (ask?.eighth ?? p.holding.eighth) ? spinSnap(t.grid, placements[0]!) : null;
-    if (spun) placements = [spun];
-    const preview = this.snapPreviewOf(t, bricks, placements);
-    if (spun) preview.turned45 = true;
-    const square = !sideways && !flip && !spun && !frame && !placements[0]!.orient;
-    return { preview, layer: square ? snapLayer(local, normal) : null };
-  }
-
-  /** Whether something held may snap onto `t`: not itself, not held, not frozen, upright. */
-  private snapsOnto(held: Assembly, t: Assembly): boolean {
-    if (t === held || t.heldBy !== null || t.frozen) return false;
-    return rotate(t.body.rotation(), v3(0, 1, 0)).y >= 0.9; // not tipped over
-  }
-
-  /** The held bricks in their own grid, and how they turn to go onto `t`. */
-  private snapGroup(
-    p: Player,
-    held: Assembly,
-    t: Assembly,
-    ask?: ViewAsk,
-    frame?: Frame,
-  ): { group: Placement[]; rot: Rotation } {
-    // Turned as the lattice it goes on is.
-    const tRot = frame ? mulQuat(t.body.rotation(), frameQuat(frame)) : t.body.rotation();
-    const bricks = [...held.grid.bricks.values()];
-    // A single brick goes on at the heading it has in the hands; a piece keeps its own bricks'
-    // headings, turned by how its hold point is turned against the target.
-    const single = isLooseBrick(held);
-    const yaw = ask?.yaw ?? p.input.yaw;
-    const turn = ask?.rot ?? p.holding!.rot;
-    const rel = single
-      ? yaw + turn * QUARTER - yawOf(tRot)
-      : yawOf(this.holdTarget(p, { ...p.holding!, rot: turn }, held, yaw).rot) - yawOf(tRot);
-    const rot = (((Math.round(rel / QUARTER) % 4) + 4) % 4) as Rotation;
-    const group = single
-      ? [{ ...bricks[0]!, x: 0, y: 0, z: 0, rot: 0 as Rotation, face: undefined }]
-      : bricks;
-    return { group, rot };
-  }
-
-  private snapPreviewOf(t: Assembly, bricks: PlacedBrick[], placements: Placement[]): SnapPreview {
-    const out = placements.map((placement, i) => ({
-      id: bricks[i]!.id,
-      placement: {
-        type: placement.type,
-        x: placement.x,
-        y: placement.y,
-        z: placement.z,
-        rot: placement.rot,
-        ...(placement.face ? { face: placement.face } : {}),
-        ...(placement.orient ? { orient: placement.orient } : {}),
-        ...(placement.frame ? { frame: placement.frame } : {}),
-      },
-      ...this.brickPose(t, placement),
-    }));
-    return { targetId: t.id, bricks: out, pos: out[0]!.pos, rot: out[0]!.rot };
-  }
-
-  /**
-   * Holding Shift (the sprint key) with something in hand locks snapping to the layer it snaps
-   * to as the key goes down; letting go of the key, or of what is held, unlocks it.
-   */
-  private trackSnapLock(p: Player): void {
-    const pressed = p.input.sprint && p.holding !== null;
-    if (!pressed) p.snapLock = null;
-    else if (!p.snapLockKey) {
-      const s = this.snap(p);
-      p.snapLock = s?.layer ? { ...s.layer, targetId: s.preview.targetId } : null;
-    }
-    p.snapLockKey = pressed;
-  }
-
-  /** A click with something in hand; `output` as in `Action`. */
-  private place(p: Player, output = false): void {
-    const hit = this.sight.aim(p);
-    if (this.interact(p, hit)) return;
-    // Machines work with a click whatever is in hand; what is in their output areas is only
-    // taken with the hands free for it, and nothing is dropped there instead.
-    if (hit?.owner.kind === 'machine') {
-      if (!output && this.mayUse(p, hit.point)) this.works.useMachine(p, hit.owner.machineId);
-      return;
-    }
-    if (hit?.owner.kind === 'output') {
-      if (this.mayUse(p, hit.point)) this.works.takeOut(p, hit.owner.machineId, hit.owner.slot);
-      return;
-    }
-    if (p.tool) return;
-    const preview = this.snapPreview(p);
-    const held = this.heldAssembly(p);
-    if (!preview || !held) return this.setDown(p);
-    const target = this.assemblies.get(preview.targetId)!;
-    const placed: PlacedBrick[] = preview.bricks.map((b) => {
-      const { colour, prints } = held.grid.bricks.get(b.id)!;
-      return { ...b.placement, id: b.id, colour, ...(prints ? { prints } : {}) };
-    });
-    this.removeAssembly(held);
-    // The preview checked the bricks as a whole: none overlaps, and the piece clutches on.
-    for (const b of placed) {
-      target.grid.insert(b);
-      this.addCollider(target, b);
-    }
-    this.collidersChanged(target);
-    target.version++;
-    target.body.wakeUp();
-    this.events.push({ kind: 'snap', pos: preview.pos });
-  }
-
-  /** Lets go of a single brick, or starts lowering a build to the ground. */
-  private setDown(p: Player): void {
-    const a = this.heldAssembly(p);
-    if (a && p.holding && !isLooseBrick(a)) p.holding.settingDown ??= 0;
-    else this.release(p);
-  }
-
-  private release(p: Player): void {
-    const a = this.heldAssembly(p);
-    p.holding = null;
-    if (!a) return;
-    this.setHeld(a, null);
-    // Something let go of in the air sounds when it lands (see `handleImpacts`); something
-    // already resting on the ground, set down gently, just settles.
-    if (length(a.body.linvel()) < 0.5 && this.resting(a)) {
-      a.lastDropTick = this.tick;
-      this.events.push({ kind: 'drop', pos: a.body.worldCom(), count: a.grid.size, speed: 0.5 });
-    }
-  }
-
-  /** Whether `a` rests against anything that is not part of it. */
-  private resting(a: Assembly): boolean {
-    for (const c of collidersOf(a)) {
-      let rests = false;
-      this.world.contactPairsWith(c, (other) => {
-        const o = this.owners.get(other.handle);
-        if (o?.kind === 'brick' && o.assemblyId === a.id) return;
-        if (this.touching(c, other)) rests = true;
-      });
-      if (rests) return true;
-    }
-    return false;
-  }
-
-  private throwHeld(p: Player): void {
-    const a = this.heldAssembly(p);
-    if (!a) return;
-    this.release(p);
-    const push = THROW_SPEED / Math.max(1, assemblyMass(a) / 5);
-    a.body.setLinvel(scale(viewDir(p.input.yaw, p.input.pitch), push), true);
   }
 
   // ---------------------------------------------------------------- replica
@@ -3923,7 +3706,7 @@ export class Sim {
       for (const p of this.players.values()) {
         if (p.replicated) continue;
         this.movement.movePlayer(p, [p.input]);
-        this.trackSnapLock(p);
+        this.placing.trackSnapLock(p);
         this.tire(p);
       }
       // The server says when the fix is done; until then it only looks like it is coming along.
@@ -3941,7 +3724,7 @@ export class Sim {
       p.pendingInputs = null;
       if (inputs.length) this.movement.movePlayer(p, inputs);
       this.applyHold(p);
-      this.trackSnapLock(p);
+      this.placing.trackSnapLock(p);
       this.tire(p);
       this.maybeTrip(p);
       this.stepOnBricks(p);
@@ -4112,5 +3895,14 @@ export class Sim {
   /** What the player is aiming at, within reach (or would aim at with the view `ask`). */
   aim(p: Player, ask?: ViewAsk): AimHit | null {
     return this.sight.aim(p, ask);
+  }
+
+  /**
+   * Where the held brick, or the held piece of bricks clutched together, would snap right now,
+   * if anywhere. A build with the baseplate in it is never snapped onto anything. While a layer
+   * is locked (Shift), the bricks keep to it for as long as they still clutch something there.
+   */
+  snapPreview(p: Player, ask?: ViewAsk): SnapPreview | null {
+    return this.placing.snapPreview(p, ask);
   }
 }

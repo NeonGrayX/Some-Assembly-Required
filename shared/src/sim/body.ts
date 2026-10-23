@@ -1,3 +1,4 @@
+import type { Collider } from '@dimforge/rapier3d-compat';
 import { BRICK_TYPES, PLATE_H, STUD } from '../bricks.ts';
 import { v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
@@ -88,3 +89,11 @@ export function tiredFactor(p: Player): number {
 
 /** How far a player reaches to click something (m), from their eye. */
 export const REACH = 2.6;
+
+/** A quarter turn (radians), what a brick in hand turns by. */
+export const QUARTER = Math.PI / 2;
+
+/** All of an assembly's colliders. */
+export function* collidersOf(a: Assembly): Generator<Collider> {
+  for (const cs of a.colliders.values()) yield* cs;
+}
