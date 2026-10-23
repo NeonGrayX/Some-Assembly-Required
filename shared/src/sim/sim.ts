@@ -36,10 +36,12 @@ import {
   QUARTER,
   collidersOf,
   PAGE_SIZE,
+  GEAR_SIZE,
   restingOn,
 } from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
 import { DogWorld } from './dogworld.ts';
+import { HidingPlaces } from './hiding.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
 import { DOWN_TICKS, KnockDowns } from './knockdowns.ts';
 import { Movement } from './movement.ts';
@@ -88,13 +90,7 @@ import type {
 import { meshOf } from '../content/maps/meshes.ts';
 import { sideOf } from '../content/rival.ts';
 import { groundHeight, groundSlope, terrainTriangles } from '../content/terrain.ts';
-import {
-  hideoutBody,
-  hideoutPartInWorld,
-  inWorld,
-  dropSpot,
-  openingIn,
-} from '../content/hideouts.ts';
+import { hideoutBody, hideoutPartInWorld, inWorld, openingIn } from '../content/hideouts.ts';
 import type { PartPose } from '../content/hideouts.ts';
 import {
   IDENTITY,
@@ -122,6 +118,7 @@ export { VACUUM_CAPACITY, vacuumRestPose } from './vacuum.ts';
 export { CAMERA_DISTANCE, CAMERA_LIFT, CAMERA_SHOULDER, cameraPosition } from './sight.ts';
 export { BUCKET_SHOTS, MAKE_SECONDS, MAKE_TICKS, UNJAM_SECONDS } from './brickworks.ts';
 export {
+  GEAR_SIZE,
   PAGE_SIZE,
   TIRED_DROP_TICKS,
   TIRED_TICKS,
@@ -214,8 +211,6 @@ const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
  * they went over it.
  */
 const RAIL_GUARD = 1;
-/** Size of a piece of gear lying about (its collider, and about what the client draws). */
-export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
 /** The litter of a gear hunt: small bricks scattered around every dog point, this far out. */
 const LITTER_SPREAD = 1.1;
 const LITTER_TYPES: BrickTypeId[] = ['1x1', '1x2', 'plate1x2'];
@@ -1002,6 +997,8 @@ export class Sim {
   private readonly dogWorld: DogWorld;
   /** The round's pages (see `Pages`). */
   readonly pageWork: Pages;
+  /** The hiding places and the scenery's gadgets (see `HidingPlaces`). */
+  readonly hiding: HidingPlaces;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1034,6 +1031,7 @@ export class Sim {
     this.knocks = new KnockDowns(this);
     this.dogWorld = new DogWorld(this);
     this.pageWork = new Pages(this);
+    this.hiding = new HidingPlaces(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1209,7 +1207,7 @@ export class Sim {
         opening: openingIn(level, def),
       };
       this.hideouts.set(def.id, h);
-      this.setOpen(h, false);
+      this.hiding.setOpen(h, false);
     }
     // Clicked in, but not solid: the lamp, the tap, the hob are solid as the scenery's boxes.
     for (const def of level.gadgets ?? []) {
@@ -1942,12 +1940,12 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'hideout') {
-      this.toggleHideout(hit.owner.hideoutId, p.id);
+      this.hiding.toggleHideout(hit.owner.hideoutId, p.id);
       return true;
     }
     if (hit?.owner.kind === 'gadget') {
       const g = this.gadgets.get(hit.owner.gadgetId);
-      if (g) this.setUsed(g, !g.used);
+      if (g) this.hiding.setUsed(g, !g.used);
       return true;
     }
     if (hit?.owner.kind === 'carDoor') {
@@ -2324,112 +2322,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- hiding places
 
-  /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
-  toggleHideout(id: number, playerId?: number): void {
-    const h = this.hideouts.get(id);
-    if (!h) return;
-    if (h.locked) {
-      // A padlock rattles for everyone but the key ring's wearer, for whom it comes off.
-      const p = playerId === undefined ? undefined : this.players.get(playerId);
-      if (!p?.gear.has('keys')) {
-        this.events.push({ kind: 'locked', pos: h.def.pos, playerId });
-        return;
-      }
-      h.locked = false;
-      this.furnitureVersion++;
-      this.events.push({ kind: 'unlock', pos: h.def.pos, playerId });
-    }
-    this.setOpen(h, !h.open);
-    this.events.push({
-      kind: h.open ? 'open' : 'close',
-      pos: h.def.pos,
-      hideoutId: h.def.id,
-      playerId,
-    });
-    if (!h.open) return;
-    const drop = dropSpot(this.level, h.def);
-    h.contents.forEach((pageId, i) => {
-      const page = this.pages.get(pageId);
-      if (!page) return;
-      page.hidden = false;
-      page.hideout = null;
-      const at = add(drop, v3((i % 2) * 0.12, i * 0.02, 0));
-      this.pageWork.placePage(page, restingOn(at, PAGE_SIZE), yawQuat(h.def.facing));
-      page.version++;
-    });
-    h.contents = [];
-    h.gear.forEach((gearId, i) => {
-      const item = this.gear.get(gearId);
-      if (!item) return;
-      item.hidden = false;
-      item.hideout = null;
-      const at = add(drop, v3(-0.1 - i * 0.15, 0.1, 0));
-      this.placeGear(item, restingOn(at, GEAR_SIZE), yawQuat(h.def.facing));
-      item.version++;
-    });
-    h.gear = [];
-  }
-
-  /** Padlocks a hiding place (Gear Hunt), until someone with the key ring opens it. */
-  lockHideout(id: number): void {
-    const h = this.hideouts.get(id);
-    if (!h || h.locked) return;
-    h.locked = true;
-    this.furnitureVersion++;
-  }
-
-  /** Tucks a piece of gear into a hiding place and shuts it. */
-  hideGearInHideout(item: GearItem, id: number): void {
-    const h = this.hideouts.get(id);
-    if (!h) return;
-    this.detachGear(item);
-    item.hidden = true;
-    item.hideout = id;
-    item.version++;
-    h.gear.push(item.id);
-    if (h.open) this.setOpen(h, false);
-  }
-
-  /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
-  hideInHideout(page: PageItem, id: number): void {
-    const h = this.hideouts.get(id);
-    if (!h) return;
-    this.pageWork.detachPage(page);
-    page.hidden = true;
-    page.hideout = id;
-    page.version++;
-    h.contents.push(page.id);
-    if (h.open) this.setOpen(h, false);
-  }
-
-  /** Clicks a gadget (or unclicks it): its handles' click boxes go where they are for that. */
-  private setUsed(g: GadgetState, used: boolean): void {
-    if (g.used === used) return;
-    g.used = used;
-    g.def.handles.forEach(({ box, used: moved }, i) => {
-      const { pos, size } = used ? moved : box;
-      const c = g.handles[i]!;
-      c.setHalfExtents(scale(size, 0.5));
-      c.setTranslationWrtParent(pos);
-    });
-    this.furnitureVersion++;
-  }
-
-  /** Moves the door (drawer, lid…) and makes only it clickable once open. */
-  private setOpen(h: HideoutState, open: boolean): void {
-    h.open = open;
-    const pose = hideoutPartInWorld(h.def, open, h.opening);
-    h.part.setHalfExtents(pose.half);
-    h.part.setTranslationWrtParent(pose.centre);
-    h.part.setRotationWrtParent(pose.rot);
-    // An open door can be walked through, and pages fall past it.
-    h.part.setSensor(open);
-    const target: ColliderOwner = { kind: 'hideout', hideoutId: h.def.id };
-    this.owners.set(h.part.handle, target);
-    if (h.body) this.owners.set(h.body.handle, open ? { kind: 'static' } : target);
-    this.furnitureVersion++;
-  }
-
   // ---------------------------------------------------------------- corkboard
 
   // ---------------------------------------------------------------- pages
@@ -2446,7 +2338,7 @@ export class Sim {
   /** Puts a piece of gear straight into a hiding place, shut. */
   spawnGearInHideout(kind: GearId, hideoutId: number): GearItem {
     const item = this.newGear(kind, this.newId());
-    this.hideGearInHideout(item, hideoutId);
+    this.hiding.hideGearInHideout(item, hideoutId);
     return item;
   }
 
@@ -2467,7 +2359,7 @@ export class Sim {
   }
 
   /** Puts a piece of gear into the world with its middle at `centre`. */
-  private placeGear(item: GearItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+  placeGear(item: GearItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
     const centre = this.aboveGround(at, GEAR_SIZE.y / 2 + 0.01, GEAR_SIZE.x / 2);
     const body = this.world.createRigidBody(
@@ -2491,7 +2383,7 @@ export class Sim {
   }
 
   /** Takes a piece of gear out of the world, and off whoever wears it. */
-  private detachGear(item: GearItem): void {
+  detachGear(item: GearItem): void {
     if (item.body) {
       this.owners.delete(item.body.collider(0).handle);
       this.world.removeRigidBody(item.body);
@@ -2646,7 +2538,7 @@ export class Sim {
     const page = p.page === null ? undefined : this.pages.get(p.page);
     if (id === null || !page) return null;
     const h = this.hideouts.get(id)!;
-    this.hideInHideout(page, id);
+    this.hiding.hideInHideout(page, id);
     this.events.push({ kind: 'close', pos: h.def.pos, hideoutId: id, playerId: p.id });
     return h.def.pos;
   }
@@ -2819,10 +2711,10 @@ export class Sim {
     this.replicaTools = new Map(f.tools);
     for (const p of this.players.values()) p.tool = this.replicaTools.get(p.id) ?? null;
     for (const h of this.hideouts.values()) {
-      this.setOpen(h, f.open.includes(h.def.id));
+      this.hiding.setOpen(h, f.open.includes(h.def.id));
       h.locked = f.locked.includes(h.def.id);
     }
-    for (const g of this.gadgets.values()) this.setUsed(g, f.used.includes(g.def.id));
+    for (const g of this.gadgets.values()) this.hiding.setUsed(g, f.used.includes(g.def.id));
     this.carDoorsClicked.clear();
     for (const group of f.carDoors ?? []) this.carDoorsClicked.add(group);
     if (f.power.fixer !== this.power.fixer) this.power.progress = 0;
@@ -3245,5 +3137,25 @@ export class Sim {
   /** Puts a printed page straight into a hiding place, shut. */
   spawnPageInHideout(printed: PrintedPage | null, hideoutId: number): PageItem {
     return this.pageWork.spawnPageInHideout(printed, hideoutId);
+  }
+
+  /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
+  toggleHideout(id: number, playerId?: number): void {
+    return this.hiding.toggleHideout(id, playerId);
+  }
+
+  /** Padlocks a hiding place (Gear Hunt), until someone with the key ring opens it. */
+  lockHideout(id: number): void {
+    return this.hiding.lockHideout(id);
+  }
+
+  /** Tucks a piece of gear into a hiding place and shuts it. */
+  hideGearInHideout(item: GearItem, id: number): void {
+    return this.hiding.hideGearInHideout(item, id);
+  }
+
+  /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
+  hideInHideout(page: PageItem, id: number): void {
+    return this.hiding.hideInHideout(page, id);
   }
 }

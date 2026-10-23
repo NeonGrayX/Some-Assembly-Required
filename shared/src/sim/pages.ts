@@ -142,7 +142,7 @@ export class Pages {
   /** Puts a printed page straight into a hiding place, shut. */
   spawnPageInHideout(printed: PrintedPage | null, hideoutId: number): PageItem {
     const page = this.newPage(printed, this.sim.newId());
-    this.sim.hideInHideout(page, hideoutId);
+    this.sim.hiding.hideInHideout(page, hideoutId);
     return page;
   }
 

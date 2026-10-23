@@ -106,3 +106,6 @@ export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
 export function restingOn(at: Vec3, size: { y: number }): Vec3 {
   return v3(at.x, at.y + size.y / 2 + 0.01, at.z);
 }
+
+/** Size of a piece of gear lying about (its collider, and about what the client draws). */
+export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
