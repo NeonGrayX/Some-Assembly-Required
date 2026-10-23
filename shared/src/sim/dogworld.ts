@@ -50,16 +50,16 @@ export class DogWorld {
       pages: this.sim.pages,
       emit: (e) => this.sim.events.push(e),
       random: () => this.sim.rng(),
-      stealTargets: () => this.sim.stealTargets(),
+      stealTargets: () => this.sim.pageWork.stealTargets(),
       mayWreck: () => this.sim.dogMayWreck,
       wreckTarget: (from) => this.wreckTarget(from),
       wreck: (at) => this.dogWreck(at),
       pickPageUp: (page) => {
-        this.sim.detachPage(page);
+        this.sim.pageWork.detachPage(page);
         page.version++;
       },
       putPageDown: (page, pos, yaw) => {
-        this.sim.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw));
+        this.sim.pageWork.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw));
         page.version++;
       },
       clearLine: (a, b, wide) => this.clearForDog(a, b, wide),

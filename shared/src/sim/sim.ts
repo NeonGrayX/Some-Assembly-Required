@@ -43,6 +43,7 @@ import { DogWorld } from './dogworld.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
 import { DOWN_TICKS, KnockDowns } from './knockdowns.ts';
 import { Movement } from './movement.ts';
+import { Pages } from './pages.ts';
 import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
 import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
@@ -60,15 +61,12 @@ import type { Prints, TargetBuild } from '../builds/types.ts';
 import {
   machinePose,
   printJobs,
-  BOARD_FACE_SLOTS,
   BOARD_SIZE,
-  BOARD_SLOTS,
   BUTTON_SIZE,
   groundPieces,
   CATAPULT,
   catapultSolids,
   isTrashBin,
-  levelBoards,
   trashBinMouth,
   levelSites,
 } from '../content/house.ts';
@@ -101,7 +99,6 @@ import type { PartPose } from '../content/hideouts.ts';
 import {
   IDENTITY,
   add,
-  conj,
   length,
   makeRng,
   mulQuat,
@@ -1003,6 +1000,8 @@ export class Sim {
   readonly knocks: KnockDowns;
   /** The world as the dog meets it (see `DogWorld`). */
   private readonly dogWorld: DogWorld;
+  /** The round's pages (see `Pages`). */
+  readonly pageWork: Pages;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1015,8 +1014,6 @@ export class Sim {
   readonly rng: () => number;
   /** The level, with the round's pictures for the UV printer once a round is under way. */
   level: LevelDef;
-  /** Every corkboard, site by site (see `levelBoards`): slots run board by board. */
-  private readonly boards: { site: number; pos: Vec3; facing: number }[];
 
   constructor(
     readonly R: Rapier,
@@ -1027,7 +1024,6 @@ export class Sim {
     this.level = level;
     this.replica = opts.replica ?? false;
     this.sites = levelSites(level);
-    this.boards = levelBoards(level);
     this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -WORLD_GRAVITY, z: 0 });
     this.world.timestep = DT;
@@ -1037,6 +1033,7 @@ export class Sim {
     this.placing = new Placing(this);
     this.knocks = new KnockDowns(this);
     this.dogWorld = new DogWorld(this);
+    this.pageWork = new Pages(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1227,7 +1224,7 @@ export class Sim {
       for (const c of handles) this.owners.set(c.handle, { kind: 'gadget', gadgetId: def.id });
       this.gadgets.set(def.id, { def, used: false, handles });
     }
-    this.boards.forEach((b, i) => {
+    this.pageWork.boards.forEach((b, i) => {
       const board = world.createCollider(
         R.ColliderDesc.cuboid(BOARD_SIZE.x / 2, BOARD_SIZE.y / 2, BOARD_SIZE.z / 2)
           .setTranslation(b.pos.x, b.pos.y, b.pos.z)
@@ -1320,7 +1317,7 @@ export class Sim {
     );
   }
 
-  private newId(): number {
+  newId(): number {
     return this.nextId++;
   }
 
@@ -1593,7 +1590,7 @@ export class Sim {
       this.placing.release(p);
       this.works.putToolAway(p);
       this.vacuuming.putVacuumDown(p);
-      this.dropPage(p);
+      this.pageWork.dropPage(p);
       for (const kind of [...p.gear]) this.dropGear(p, kind);
     }
     this.owners.delete(p.collider.handle);
@@ -1898,7 +1895,7 @@ export class Sim {
         return;
       }
       case 'dropPage':
-        return this.dropPage(p);
+        return this.pageWork.dropPage(p);
       case 'unequip':
         return this.dropGear(p, action.gear);
       case 'fill':
@@ -1931,7 +1928,7 @@ export class Sim {
     if (hit && !this.mayUse(p, hit.point)) return true;
     if (hit?.owner.kind === 'page') {
       const page = this.pages.get(hit.owner.pageId);
-      if (page) this.takePage(p, page);
+      if (page) this.pageWork.takePage(p, page);
       return true;
     }
     if (hit?.owner.kind === 'button') {
@@ -1979,7 +1976,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'board') {
-      if (p.page !== null) this.pinPocketPage(p, hit.owner.board, hit.point);
+      if (p.page !== null) this.pageWork.pinPocketPage(p, hit.owner.board, hit.point);
       return true;
     }
     if (hit?.owner.kind === 'panel') {
@@ -2133,7 +2130,7 @@ export class Sim {
       this.events.push({ kind: 'pick', pos: at, playerId: p.id, fromId: victim.id });
       return;
     }
-    if (p.page !== null) this.dropPage(p);
+    if (p.page !== null) this.pageWork.dropPage(p);
     victim.page = null;
     page.carriedBy = p.id;
     page.version++;
@@ -2280,8 +2277,6 @@ export class Sim {
     this.events.push({ kind: 'anchor', pos: home, count: a.grid.bricks.size });
   }
 
-  // ---------------------------------------------------------------- the brick works
-
   // ---------------------------------------------------------------- rubbish bins
 
   /** Throws a loose brick or piece away in rubbish bin `bin`: it is gone for good. */
@@ -2359,7 +2354,7 @@ export class Sim {
       page.hidden = false;
       page.hideout = null;
       const at = add(drop, v3((i % 2) * 0.12, i * 0.02, 0));
-      this.placePage(page, restingOn(at, PAGE_SIZE), yawQuat(h.def.facing));
+      this.pageWork.placePage(page, restingOn(at, PAGE_SIZE), yawQuat(h.def.facing));
       page.version++;
     });
     h.contents = [];
@@ -2399,7 +2394,7 @@ export class Sim {
   hideInHideout(page: PageItem, id: number): void {
     const h = this.hideouts.get(id);
     if (!h) return;
-    this.detachPage(page);
+    this.pageWork.detachPage(page);
     page.hidden = true;
     page.hideout = id;
     page.version++;
@@ -2437,198 +2432,7 @@ export class Sim {
 
   // ---------------------------------------------------------------- corkboard
 
-  /**
-   * Where a page pinned to `slot` hangs: two rows of four on each face of a board, the front
-   * (the side its `facing` looks toward) first, board after board.
-   */
-  slotPose(slot: number): { pos: Vec3; rot: Quat } {
-    const b = this.boards[Math.floor(slot / BOARD_SLOTS)]!;
-    const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
-    // Turned around for the back face, so that face is laid out just like the front.
-    const rot = mulQuat(yawQuat(b.facing), yawQuat(face * Math.PI));
-    const col = slot % 4;
-    const row = Math.floor((slot % BOARD_FACE_SLOTS) / 4);
-    const local = v3((col - 1.5) * 0.38, row === 0 ? 0.24 : -0.24, -(BOARD_SIZE.z / 2 + 0.01));
-    // The page's printed face (+y) turned to face out of the board, with the top of the print
-    // (the page's -z edge) up: turned end for end, then stood up.
-    const standUp = { x: -Math.sin(Math.PI / 4), y: 0, z: 0, w: Math.cos(Math.PI / 4) };
-    const faceOut = mulQuat(mulQuat(rot, standUp), yawQuat(Math.PI));
-    return { pos: add(b.pos, rotate(rot, local)), rot: faceOut };
-  }
-
-  /**
-   * Pages the dog can jump up and take: those in the bottom row of either face (the top row is
-   * out of its reach), with the spot on the floor in front of each where it stands to jump.
-   */
-  stealTargets(): StealTarget[] {
-    const targets: StealTarget[] = [];
-    for (const page of this.pages.values()) {
-      const slot = page.pinned;
-      if (slot === null || !page.body || slot % BOARD_FACE_SLOTS < 4) continue;
-      const b = this.boards[Math.floor(slot / BOARD_SLOTS)]!;
-      const face = Math.floor(slot / BOARD_FACE_SLOTS) % 2;
-      const out = rotate(yawQuat(b.facing + face * Math.PI), v3(0, 0, -1));
-      const at = this.slotPose(slot).pos;
-      const stand = v3(at.x + out.x * 0.45, 0, at.z + out.z * 0.45);
-      targets.push({ page, stand: this.aboveGround(stand, 0) });
-    }
-    return targets;
-  }
-
-  /** Which face of a board a point is on: 0 for the front, 1 for the back. */
-  private boardFace(board: number, at: Vec3): number {
-    const b = this.boards[board]!;
-    const local = rotate(conj(yawQuat(b.facing)), sub(at, b.pos));
-    return local.z < 0 ? 0 : 1;
-  }
-
-  /**
-   * Pins the page in the player's pocket to the free slot closest to where they clicked, on the
-   * board and face they clicked.
-   */
-  private pinPocketPage(p: Player, board: number, at: Vec3): void {
-    const page = p.page === null ? undefined : this.pages.get(p.page);
-    if (!page) return;
-    const face = this.boardFace(board, at);
-    const taken = new Set([...this.pages.values()].map((x) => x.pinned));
-    const first = board * BOARD_SLOTS + face * BOARD_FACE_SLOTS;
-    const free = Array.from({ length: BOARD_FACE_SLOTS }, (_, i) => first + i).filter(
-      (i) => !taken.has(i),
-    );
-    if (!free.length) return;
-    const slot = free.sort(
-      (a, b) => length(sub(this.slotPose(a).pos, at)) - length(sub(this.slotPose(b).pos, at)),
-    )[0]!;
-    p.page = null;
-    this.pinPage(page, slot);
-    this.events.push({ kind: 'pin', pos: at, playerId: p.id });
-  }
-
-  /**
-   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
-   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
-   */
-  pinToBoard(page: PageItem, slot: number): void {
-    if (slot < 0 || slot >= this.boards.length * BOARD_SLOTS) return;
-    if (page.hideout !== null) {
-      const h = this.hideouts.get(page.hideout);
-      if (h) h.contents = h.contents.filter((id) => id !== page.id);
-    }
-    page.hidden = false;
-    page.hideout = null;
-    this.pinPage(page, slot);
-  }
-
-  private pinPage(page: PageItem, slot: number): void {
-    this.detachPage(page);
-    const { pos, rot } = this.slotPose(slot);
-    const body = this.world.createRigidBody(
-      this.R.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z).setRotation(rot),
-    );
-    const c = this.world.createCollider(
-      this.R.ColliderDesc.cuboid(PAGE_SIZE.x / 2, PAGE_SIZE.y / 2, PAGE_SIZE.z / 2),
-      body,
-    );
-    this.owners.set(c.handle, { kind: 'page', pageId: page.id });
-    page.body = body;
-    page.pinned = slot;
-    page.version++;
-  }
-
-  /** Takes a page out of the world (or off the board) without putting it anywhere yet. */
-  detachPage(page: PageItem): void {
-    if (page.body) {
-      this.owners.delete(page.body.collider(0).handle);
-      this.world.removeRigidBody(page.body);
-      page.body = null;
-    }
-    if (page.carriedBy !== null) {
-      const holder = this.players.get(page.carriedBy);
-      if (holder?.page === page.id) holder.page = null;
-    }
-    page.carriedBy = null;
-    page.pinned = null;
-  }
-
   // ---------------------------------------------------------------- pages
-
-  /** Puts a printed page (step -1 is the master index) into the world, lying at `pos`. */
-  spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
-    const page = this.newPage(printed, id);
-    this.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw));
-    return page;
-  }
-
-  /** Puts a printed page straight into a hiding place, shut. */
-  spawnPageInHideout(printed: PrintedPage | null, hideoutId: number): PageItem {
-    const page = this.newPage(printed, this.newId());
-    this.hideInHideout(page, hideoutId);
-    return page;
-  }
-
-  /** A page that is nowhere yet. */
-  private newPage(printed: PrintedPage | null, id: number): PageItem {
-    const page: PageItem = {
-      id,
-      step: printed?.step ?? -1,
-      printed,
-      body: null,
-      carriedBy: null,
-      hidden: false,
-      hideout: null,
-      pinned: null,
-      version: 0,
-    };
-    this.pages.set(page.id, page);
-    return page;
-  }
-
-  /** Puts a page into the world with its middle at `centre`. */
-  placePage(page: PageItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
-    const { R } = this;
-    const centre = this.aboveGround(at, PAGE_SIZE.y / 2 + 0.01, PAGE_SIZE.z / 2);
-    const body = this.world.createRigidBody(
-      (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
-        .setTranslation(centre.x, centre.y, centre.z)
-        .setRotation(rot)
-        .setLinvel(linvel.x, linvel.y, linvel.z)
-        .setLinearDamping(1.5)
-        .setAngularDamping(3),
-    );
-    const c = this.world.createCollider(
-      R.ColliderDesc.cuboid(PAGE_SIZE.x / 2, PAGE_SIZE.y / 2, PAGE_SIZE.z / 2)
-        .setDensity(60)
-        .setFriction(1),
-      body,
-    );
-    this.owners.set(c.handle, { kind: 'page', pageId: page.id });
-    page.body = body;
-    page.carriedBy = null;
-    page.pinned = null;
-  }
-
-  private takePage(p: Player, page: PageItem): void {
-    if (!page.body) return;
-    if (p.page !== null) this.dropPage(p);
-    const pos = page.body.translation();
-    this.detachPage(page);
-    page.carriedBy = p.id;
-    page.version++;
-    p.page = page.id;
-    this.events.push({ kind: 'page', pos, playerId: p.id });
-  }
-
-  private dropPage(p: Player): void {
-    const page = p.page === null ? undefined : this.pages.get(p.page);
-    p.page = null;
-    if (!page) return;
-    const yaw = p.input.yaw;
-    const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    // Let go of a little below the hands.
-    const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.4, 0)));
-    this.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw), scale(f, 1));
-    page.version++;
-  }
 
   // ---------------------------------------------------------------- gear
 
@@ -2855,12 +2659,6 @@ export class Sim {
     this.vacuuming.putVacuumDown(p);
   }
 
-  // ---------------------------------------------------------------- the vacuum
-
-  // ---------------------------------------------------------------- the dog
-
-  // ---------------------------------------------------------------- knock-downs
-
   /** Moves a player somewhere instantly (to the meeting table). */
   teleportPlayer(p: Player, feet: Vec3): void {
     const centre = add(this.aboveGround(feet, 0), v3(0, PLAYER_FEET + CONTROLLER_OFFSET, 0));
@@ -2931,7 +2729,7 @@ export class Sim {
     pos: Vec3,
     rot: Quat,
   ): void {
-    const page = this.pages.get(id) ?? this.newPage(printed, id);
+    const page = this.pages.get(id) ?? this.pageWork.newPage(printed, id);
     // A page first seen unread (in someone's pocket) learns which it is once it can be read.
     if (printed) page.step = printed.step;
     // Which hiding place it is in is never told, only that it is in one.
@@ -2940,7 +2738,7 @@ export class Sim {
       page.printed = printed;
       page.carriedBy = null;
       page.hidden = false;
-      this.pinPage(page, where.pinned);
+      this.pageWork.pinPage(page, where.pinned);
       return;
     }
     page.hidden = where.hidden;
@@ -2953,7 +2751,7 @@ export class Sim {
     }
     page.carriedBy = carriedBy;
     page.pinned = null;
-    if (carriedBy === null && !where.hidden && !where.dog) this.placePage(page, pos, rot);
+    if (carriedBy === null && !where.hidden && !where.dog) this.pageWork.placePage(page, pos, rot);
   }
 
   /**
@@ -3252,7 +3050,7 @@ export class Sim {
    * or a player's feet would start sunk in the uphill side and fall through. Only on a map
    * whose ground is terrain: the flat maps' basements are below 0.
    */
-  private aboveGround(at: Vec3, lift: number, reach = 0): Vec3 {
+  aboveGround(at: Vec3, lift: number, reach = 0): Vec3 {
     if (!this.level.terrain?.length) return at;
     const ground = groundHeight(this.level, at.x, at.z);
     const slope = reach ? groundSlope(this.level, at.x, at.z) * reach : 0;
@@ -3413,5 +3211,39 @@ export class Sim {
    */
   dogWreck(at: WreckTarget): boolean {
     return this.dogWorld.dogWreck(at);
+  }
+
+  /**
+   * Where a page pinned to `slot` hangs: two rows of four on each face of a board, the front
+   * (the side its `facing` looks toward) first, board after board.
+   */
+  slotPose(slot: number): { pos: Vec3; rot: Quat } {
+    return this.pageWork.slotPose(slot);
+  }
+
+  /**
+   * Pages the dog can jump up and take: those in the bottom row of either face (the top row is
+   * out of its reach), with the spot on the floor in front of each where it stands to jump.
+   */
+  stealTargets(): StealTarget[] {
+    return this.pageWork.stealTargets();
+  }
+
+  /**
+   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
+   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
+   */
+  pinToBoard(page: PageItem, slot: number): void {
+    return this.pageWork.pinToBoard(page, slot);
+  }
+
+  /** Puts a printed page (step -1 is the master index) into the world, lying at `pos`. */
+  spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
+    return this.pageWork.spawnPage(printed, pos, yaw, id);
+  }
+
+  /** Puts a printed page straight into a hiding place, shut. */
+  spawnPageInHideout(printed: PrintedPage | null, hideoutId: number): PageItem {
+    return this.pageWork.spawnPageInHideout(printed, hideoutId);
   }
 }
