@@ -103,7 +103,7 @@ export class BrickWorks {
     if (slot < 0 ? m.part !== null : m.out[slot] !== null) return;
     const point = slot < 0 ? machinePose(m.def).centre : machineOutputs(m.def)[slot]!.rest;
     const normal = rotate(yawQuat(m.def.facing), v3(0, 0, 1));
-    this.sim.startWork(p, m.def.id, { point, normal }, 'take', slot);
+    this.sim.working.startWork(p, m.def.id, { point, normal }, 'take', slot);
   }
 
   /** Whoever is clearing a jammed machine gets on with it, as long as they stay there on their feet. */
@@ -238,7 +238,7 @@ export class BrickWorks {
   dispenseMould(p: Player, type: BrickTypeId): void {
     if (typeof type !== 'string' || !MOULD_TYPES.includes(type)) return;
     const dispenser = this.aimedMachine(p, 'dispenser');
-    if (!dispenser || !this.sim.machinesPowered) return;
+    if (!dispenser || !this.sim.working.machinesPowered) return;
     const slot = this.startMaking(dispenser, { kind: 'mould', type }, MAKE_TICKS.mould);
     if (slot < 0) return;
     this.sim.events.push({
@@ -296,7 +296,7 @@ export class BrickWorks {
         this.setTool(p, null);
         return event('pour', { colour: m.colour });
       }
-      if (!m.mould || !m.colour || m.shots <= 0 || !this.sim.machinesPowered) return;
+      if (!m.mould || !m.colour || m.shots <= 0 || !this.sim.working.machinesPowered) return;
       const made = { kind: 'part' as const, type: m.mould, colour: m.colour };
       const slot = this.startMaking(m, made, MAKE_TICKS.part);
       if (slot < 0) return;
@@ -341,7 +341,7 @@ export class BrickWorks {
   fillBucket(p: Player, colour: ColourId): void {
     if (typeof colour !== 'string' || !makeableColours().includes(colour)) return;
     const silo = this.aimedMachine(p, 'silo');
-    if (!silo || !this.sim.machinesPowered) return;
+    if (!silo || !this.sim.working.machinesPowered) return;
     const slot = this.startMaking(silo, { kind: 'bucket', colour }, MAKE_TICKS.bucket);
     if (slot < 0) return;
     this.sim.events.push({
@@ -368,7 +368,7 @@ export class BrickWorks {
     if (job < 0) return this.handOver(p, printer);
     const print = this.sim.printJobs[job]!;
     // Without power nothing is printed.
-    if (print.type !== part.type || !this.sim.machinesPowered) return;
+    if (print.type !== part.type || !this.sim.working.machinesPowered) return;
     printer.part = { ...part, prints: print.prints };
     printer.making = {
       made: { kind: 'part', ...part },

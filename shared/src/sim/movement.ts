@@ -172,10 +172,10 @@ export class Movement {
       else if (w && !w.there) {
         const way = sub(w.spot, add(start, total));
         const off = Math.hypot(way.x, way.z);
-        if (off < WORK_CLOSE || --w.walk <= 0) this.sim.arrive(w);
+        if (off < WORK_CLOSE || --w.walk <= 0) this.sim.working.arrive(w);
         else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
-      } else if (w && --w.ticks <= 0 && this.sim.fixerOf(w.machineId) !== p.id) {
-        this.sim.workDone(p, w);
+      } else if (w && --w.ticks <= 0 && this.sim.working.fixerOf(w.machineId) !== p.id) {
+        this.sim.working.workDone(p, w);
       }
       // At a ladder's top, pushing on more or less toward what it reaches takes them straight
       // in off it, whichever way they look, between its rails.

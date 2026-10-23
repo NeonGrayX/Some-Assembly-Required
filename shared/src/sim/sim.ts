@@ -30,7 +30,6 @@ import {
   WORLD_GROUPS,
   groups,
   isLooseBrick,
-  REACH,
   QUARTER,
   collidersOf,
   PAGE_SIZE,
@@ -49,10 +48,10 @@ import { Movement } from './movement.ts';
 import { Pages } from './pages.ts';
 import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
+import { REPAIR_SECONDS, Working } from './working.ts';
 import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
-import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
-import { DT, seconds } from './time.ts';
+import { DT } from './time.ts';
 import type { StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
@@ -118,6 +117,7 @@ export { DOWN_TICKS, LIMP_TICKS } from './knockdowns.ts';
 export { STAIRS_MARGIN, STAIRS_SLIDE, WALK_SPEED } from './movement.ts';
 export { VACUUM_CAPACITY, vacuumRestPose } from './vacuum.ts';
 export { CAMERA_DISTANCE, CAMERA_LIFT, CAMERA_SHOULDER, cameraPosition } from './sight.ts';
+export { REPAIR_SECONDS, WORK_STANDOFF, WORK_TICKS } from './working.ts';
 export { BUCKET_SHOTS, MAKE_SECONDS, MAKE_TICKS, UNJAM_SECONDS } from './brickworks.ts';
 export {
   GEAR_SIZE,
@@ -140,23 +140,10 @@ export {
 
 /** What bricks, pages and the rest fall by; players and the dog fall by their own (`GRAVITY`). */
 const WORLD_GRAVITY = 9.81;
-/** Seconds of work at the electrical panel to get the power back on. */
-export const REPAIR_SECONDS = 3;
 
 // Working a machine
-/** How far out from where they click a machine a player stands to work it (m). */
-export const WORK_STANDOFF = 0.55;
-/** How long they walk up to a machine at most before working it where they are. */
-const WORK_WALK_TICKS = seconds(1.5);
-/** How long they stay at a machine working it, once there (clearing a jam: till it is clear). */
-export const WORK_TICKS = seconds(1.1);
 /** The brick works' events that set a machine making something, once a player's hands start it. */
 const MAKES: SimEvent['kind'][] = ['fill', 'dispense', 'moulded', 'print'];
-/**
- * How long a player waiting by a machine for what it makes them (see `Work.awaits`) waits on
- * once it no longer shows making it: on a client, for the server to say they took it.
- */
-const WAIT_TICKS = seconds(0.5);
 
 /**
  * What a player may still do while they work a machine (see `Sim.act`): turn or flip what they
@@ -978,6 +965,8 @@ export class Sim {
   readonly gearHunt: GearHunt;
   /** Picking things up and carrying them (see `Carrying`). */
   readonly carrying: Carrying;
+  /** Players at work, and the power (see `Working`). */
+  readonly working: Working;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1013,6 +1002,7 @@ export class Sim {
     this.hiding = new HidingPlaces(this);
     this.gearHunt = new GearHunt(this);
     this.carrying = new Carrying(this);
+    this.working = new Working(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1746,96 +1736,14 @@ export class Sim {
       const took = raised.some((e) => e.kind === 'grab');
       const { act, at } = actOf(done, slot, this.machines.get(machineId)?.def.kind, took);
       // (Nothing the machine did for them, as putting a tool away in front of it: no work.)
-      if (act !== 'work') this.startWork(p, machineId, hit, act, at);
+      if (act !== 'work') this.working.startWork(p, machineId, hit, act, at);
       // What it makes is only begun once their hands set it going, and they wait for it there.
       if (p.work && done && MAKES.includes(done.kind)) {
         p.work.delays = true;
         p.work.awaits = done.slot ?? -1;
       }
     } else if (did && hit?.owner.kind === 'panel' && this.power.fixer === p.id)
-      this.startWork(p, null, hit, 'fix');
-  }
-
-  /**
-   * They have got to where they work (or as near as they could): what the machine was asked to
-   * make is begun as their hands set it going (see `ACT_TIMES`), and done that much later.
-   */
-  arrive(w: Work): void {
-    w.there = true;
-    const m = w.machineId === null ? undefined : this.machines.get(w.machineId);
-    if (!w.delays || !m?.making) return;
-    m.making.at += this.tick - w.since + seconds(ACT_TIMES[w.act].lead);
-    this.furnitureVersion++;
-  }
-
-  /**
-   * They are done with their hands at the machine: they stand by it while it makes what they set
-   * it making (see `Work.awaits`), and once it is done take it (on the server, which says so:
-   * see `collect`); otherwise they are done.
-   */
-  workDone(p: Player, w: Work): void {
-    const m = w.machineId === null || w.awaits === null ? null : this.machines.get(w.machineId);
-    if (!m || w.awaits === null) {
-      p.work = null;
-      return;
-    }
-    const making = m.making?.slot === w.awaits;
-    if (!making && w.act === 'wait') p.work = null;
-    else if (!making && !this.replica) this.works.collect(p, m, w.awaits);
-    else Object.assign(w, { act: 'wait', slot: w.awaits, ticks: WAIT_TICKS });
-  }
-
-  /** Whether player `id` is fixing something: clearing a jammed machine, or the panel. */
-  fixing(id: number): boolean {
-    if (this.power.fixer === id) return true;
-    for (const m of this.machines.values()) if (m.fixer === id) return true;
-    return false;
-  }
-
-  /** Who is fixing machine `machineId` (null: the electrical panel), if anyone. */
-  fixerOf(machineId: number | null): number | null {
-    return machineId === null ? this.power.fixer : (this.machines.get(machineId)?.fixer ?? null);
-  }
-
-  /**
-   * Walks `p` up to the machine (null: the electrical panel) they clicked at `hit`, to do `act`
-   * there (see `Player.work`): to their station for it before the machine, or where they
-   * clicked it.
-   */
-  startWork(
-    p: Player,
-    machineId: number | null,
-    hit: Pick<AimHit, 'point' | 'normal'>,
-    act: MachineAct = 'work',
-    slot = -1,
-  ): void {
-    const at = p.body.translation();
-    // Out from the face they clicked; off a top, back the way they came.
-    let out = v3(hit.normal.x, 0, hit.normal.z);
-    if (length(out) < 0.3) out = v3(at.x - hit.point.x, 0, at.z - hit.point.z);
-    out = length(out) > 1e-6 ? scale(out, 1 / length(out)) : v3(0, 0, 1);
-    let spot = add(v3(hit.point.x, at.y, hit.point.z), scale(out, WORK_STANDOFF));
-    const def = machineId === null ? undefined : this.machines.get(machineId)?.def;
-    const x = def ? actStation(def.kind, act) : null;
-    if (def && x !== null) {
-      const station = rotate(yawQuat(def.facing), v3(x, 0, def.size.z / 2 + ACT_STAND));
-      spot = v3(def.pos.x + station.x, at.y, def.pos.z + station.z);
-    }
-    const ticks = act === 'fix' ? WORK_TICKS : seconds(ACT_TIMES[act].seconds);
-    p.work = {
-      n: ++p.works,
-      machineId,
-      act,
-      slot,
-      spot,
-      hand: hit.point,
-      since: this.tick,
-      delays: false,
-      awaits: null,
-      there: false,
-      walk: WORK_WALK_TICKS,
-      ticks,
-    };
+      this.working.startWork(p, null, hit, 'fix');
   }
 
   private doAct(p: Player, action: Action): void {
@@ -1971,59 +1879,6 @@ export class Sim {
       return true;
     }
     return false;
-  }
-
-  /** The electrical panel breaks down: the lights stay out until someone fixes it. */
-  breakPower(): void {
-    if (!this.power.on || !this.panel) return;
-    Object.assign(this.power, { on: false, fixer: null, progress: 0 });
-    this.furnitureVersion++;
-    this.events.push({ kind: 'powerOut', pos: this.panel });
-  }
-
-  /**
-   * The panel dies for the round (a gear hunt): the lights go out for good, and the brick
-   * works run on a circuit of their own.
-   */
-  killPower(): void {
-    if (this.power.dead) return;
-    this.power.dead = true;
-    this.furnitureVersion++;
-    this.breakPower();
-  }
-
-  /** The power comes back without anyone fixing the panel. */
-  restorePower(): void {
-    if (this.power.on || !this.panel) return;
-    Object.assign(this.power, { on: true, fixer: null, progress: 0 });
-    this.furnitureVersion++;
-    this.events.push({ kind: 'powerOn', pos: this.panel });
-  }
-
-  /**
-   * Whether the brick works' machines have power: they stop while the panel is out, but run on
-   * a circuit of their own while it is dead for the round (`PowerState.dead`).
-   */
-  get machinesPowered(): boolean {
-    return this.power.on || this.power.dead;
-  }
-
-  /** Whoever is fixing the panel gets on with it, as long as they stay there on their feet. */
-  private updatePower(): void {
-    const power = this.power;
-    if (power.fixer === null || !this.panel) return;
-    const p = this.players.get(power.fixer);
-    if (!p || p.down > 0 || length(sub(this.eye(p), this.panel)) > REACH + 0.4) {
-      power.fixer = null;
-      power.progress = 0;
-      this.furnitureVersion++;
-      return;
-    }
-    power.progress += DT / REPAIR_SECONDS;
-    if (power.progress < 1) return;
-    Object.assign(power, { on: true, fixer: null, progress: 0 });
-    this.furnitureVersion++;
-    this.events.push({ kind: 'powerOn', pos: this.panel, playerId: p.id });
   }
 
   setAnchored(a: Assembly, anchored: boolean): void {
@@ -2187,7 +2042,7 @@ export class Sim {
     if (!hit || !this.mayUse(p, hit.point)) return null;
     if (hit.owner.kind === 'panel') {
       if (!this.power.on || this.power.dead) return null;
-      this.breakPower();
+      this.working.breakPower();
       return hit.point;
     }
     if (hit.owner.kind !== 'machine') return null;
@@ -2560,7 +2415,7 @@ export class Sim {
       this.knocks.stepOnBricks(p);
     }
     this.dog.update();
-    this.updatePower();
+    this.working.updatePower();
     this.works.updateJams();
     this.works.updateMaking();
     for (const a of this.assemblies.values()) {
@@ -2896,5 +2751,41 @@ export class Sim {
   /** Whether the build is too heavy for this player to carry at more than a careful pace. */
   heavyFor(p: Player): boolean {
     return this.carrying.heavyFor(p);
+  }
+
+  /** Whether player `id` is fixing something: clearing a jammed machine, or the panel. */
+  fixing(id: number): boolean {
+    return this.working.fixing(id);
+  }
+
+  /** Who is fixing machine `machineId` (null: the electrical panel), if anyone. */
+  fixerOf(machineId: number | null): number | null {
+    return this.working.fixerOf(machineId);
+  }
+
+  /** The electrical panel breaks down: the lights stay out until someone fixes it. */
+  breakPower(): void {
+    return this.working.breakPower();
+  }
+
+  /**
+   * The panel dies for the round (a gear hunt): the lights go out for good, and the brick
+   * works run on a circuit of their own.
+   */
+  killPower(): void {
+    return this.working.killPower();
+  }
+
+  /** The power comes back without anyone fixing the panel. */
+  restorePower(): void {
+    return this.working.restorePower();
+  }
+
+  /**
+   * Whether the brick works' machines have power: they stop while the panel is out, but run on
+   * a circuit of their own while it is dead for the round (`PowerState.dead`).
+   */
+  get machinesPowered(): boolean {
+    return this.working.machinesPowered;
   }
 }
