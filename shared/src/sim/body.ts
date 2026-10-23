@@ -85,3 +85,6 @@ export function tiredFactor(p: Player): number {
   const t = Math.min(1, (p.fatigue - TIRED_TICKS) / (TIRED_DROP_TICKS - TIRED_TICKS));
   return 1 - (1 - TIRED_SPEED) * t;
 }
+
+/** How far a player reaches to click something (m), from their eye. */
+export const REACH = 2.6;
