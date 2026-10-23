@@ -14,6 +14,7 @@ import type { FurnitureState } from '../net/protocol.ts';
 import type { SabotageTool } from '../round.ts';
 import { planBreaks } from '../breaking.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
+import { GRAVITY } from './gravity.ts';
 import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
 import { DT, TICK_RATE, seconds } from './time.ts';
@@ -182,8 +183,7 @@ const LADDER_TOP_IN = 0.8;
 const LADDER_INTO = 0.7;
 /** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
 const LADDER_PULL = 8;
-/** What players fall by: their own gravity, not the physics world's (`WORLD_GRAVITY`). */
-const GRAVITY = 15;
+/** What bricks, pages and the rest fall by; players and the dog fall by their own (`GRAVITY`). */
 const WORLD_GRAVITY = 9.81;
 const REACH = 2.6;
 /** Seconds of work at the electrical panel to get the power back on. */

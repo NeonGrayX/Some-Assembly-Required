@@ -9,6 +9,7 @@ import type { DogDef } from '../content/house.ts';
 import { add, length, scale, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import type { PageItem, Player, SimEvent } from './sim.ts';
+import { GRAVITY } from './gravity.ts';
 import { DT, seconds } from './time.ts';
 
 export const DOG_RADIUS = 0.22;
@@ -21,7 +22,6 @@ const WALK_SPEED = 1.6;
 /** Faster than walking, slower than sprinting: a sprinting player can catch it. */
 const RUN_SPEED = 4.6;
 const BEG_SPEED = 2.4;
-const GRAVITY = 15;
 /** Players this close who sprint send it running. */
 const FLEE_RANGE = 3.5;
 /** It smells a treat in someone's hand from this far. */

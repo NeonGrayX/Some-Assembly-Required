@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GRAVITY } from '@sar/shared';
 import { STEP, Solids } from '../carscene/solids.ts';
 
 /**
@@ -7,8 +8,7 @@ import { STEP, Solids } from '../carscene/solids.ts';
  * physics, over the map's `Solids` and the ground's own height.
  */
 
-/** The game's own gravity and a jump that clears a barrel. */
-const GRAVITY = 15;
+/** A jump that clears a barrel, under the game's own gravity. */
 const JUMP = 6.2;
 const WALK = 4.2;
 const RUN = 7.5;
