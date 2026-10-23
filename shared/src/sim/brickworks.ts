@@ -147,7 +147,7 @@ export class BrickWorks {
       undefined,
       part.prints,
     );
-    this.sim.hold(p, a);
+    this.sim.carrying.hold(p, a);
     this.sim.tidyLooseBricks();
   }
 

@@ -186,7 +186,7 @@ export class KnockDowns {
     if (!a || a.heldBy !== null || a.frozen) return;
     const b = a.grid.bricks.get(hit.owner.brickId)!;
     if (BRICK_TYPES[b.type].fixture) return;
-    if (a.grid.size === 1) return this.sim.hold(p, a);
+    if (a.grid.size === 1) return this.sim.carrying.hold(p, a);
     const pose = this.sim.brickPose(a, b);
     this.sim.removeCollider(a, b.id);
     a.grid.remove(b.id);
@@ -204,6 +204,6 @@ export class KnockDowns {
       b.prints,
     );
     // Like any brick picked up, it turns to sit straight across the hands.
-    this.sim.hold(p, loose);
+    this.sim.carrying.hold(p, loose);
   }
 }

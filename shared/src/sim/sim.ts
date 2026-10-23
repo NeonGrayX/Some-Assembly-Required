@@ -13,8 +13,6 @@ import type { FurnitureState } from '../net/protocol.ts';
 import type { SabotageTool } from '../round.ts';
 import { planBreaks } from '../breaking.ts';
 import {
-  TIRED_DROP_TICKS,
-  TIRED_TICKS,
   BRICK_DENSITY,
   CONTROLLER_OFFSET,
   EYE_OFFSET,
@@ -41,6 +39,7 @@ import {
   restingOn,
 } from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
+import { Carrying } from './carrying.ts';
 import { DogWorld } from './dogworld.ts';
 import { GearHunt } from './gearhunt.ts';
 import { HidingPlaces } from './hiding.ts';
@@ -53,7 +52,7 @@ import { Sight } from './sight.ts';
 import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
 import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
-import { DT, TICK_RATE, seconds } from './time.ts';
+import { DT, seconds } from './time.ts';
 import type { StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
@@ -113,6 +112,7 @@ import type { Quat, Vec3 } from '../math.ts';
 type Rapier = typeof RAPIER;
 
 export { DT, TICK_RATE, catchUp } from './time.ts';
+export { TUG_CLICKS } from './carrying.ts';
 export { DOG_STEEPEST } from './dogworld.ts';
 export { DOWN_TICKS, LIMP_TICKS } from './knockdowns.ts';
 export { STAIRS_MARGIN, STAIRS_SLIDE, WALK_SPEED } from './movement.ts';
@@ -203,10 +203,6 @@ function actOf(
 }
 
 // Knock-downs
-/** Clicks on a build someone else carries that tug it out of their hands. */
-export const TUG_CLICKS = 6;
-/** The most time between two clicks of one tug before it starts over. */
-const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
 /**
  * How far over a guarded railing (round a stairwell or a roof) players meet a wall they cannot
  * see. At the top of a jump (1.3 m up) a player steps onto anything up to `STEP_UP` higher,
@@ -262,8 +258,6 @@ const HOLD = { up: 0.15, front: 0.27 };
 const BUILD_HOLD_GAP = 0.06;
 /** Fastest a held item's hold point is followed outright, so a teleport does not fling it. */
 const MAX_HOLD_FOLLOW = 20;
-/** The knock (velocity change, m/s) a build takes when it is picked up. */
-const LIFT_SEVERITY = 1;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
 /** A loose piece losing at least this much speed in one step has landed on something. */
@@ -279,14 +273,6 @@ const KILL_Y = -20;
  */
 const BIN_CATCH = 0.45;
 const BIN_DEPTH = 0.3;
-
-/** One tug of war (see `Sim.tugged`): who tugs whom, how many clicks so far, and when the last. */
-interface Tug {
-  by: number;
-  from: number;
-  clicks: number;
-  tick: number;
-}
 
 export interface PlayerInput {
   /** -1..1, positive is forward. */
@@ -964,9 +950,6 @@ export class Sim {
   catapultArmed = false;
   catapultCooldown = 0;
   tick = 0;
-  /** Tugs going on at carried builds (by assembly id) and at pockets (by player id). */
-  private readonly buildTugs = new Map<number, Tug>();
-  private readonly pocketTugs = new Map<number, Tug>();
   /** The clickable places in each machine's output area, by machine id: on while full. */
   readonly outputColliders = new Map<number, Collider[]>();
   /** The house dog (on a client, only where the server says it is). */
@@ -993,6 +976,8 @@ export class Sim {
   readonly hiding: HidingPlaces;
   /** The gear of a gear hunt (see `GearHunt`). */
   readonly gearHunt: GearHunt;
+  /** Picking things up and carrying them (see `Carrying`). */
+  readonly carrying: Carrying;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1027,6 +1012,7 @@ export class Sim {
     this.pageWork = new Pages(this);
     this.hiding = new HidingPlaces(this);
     this.gearHunt = new GearHunt(this);
+    this.carrying = new Carrying(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1855,7 +1841,7 @@ export class Sim {
   private doAct(p: Player, action: Action): void {
     switch (action.kind) {
       case 'grab':
-        return this.grab(p, action.output === true);
+        return this.carrying.grab(p, action.output === true);
       case 'suck':
         return p.handsOff || this.vacuum.heldBy !== p.id ? undefined : this.vacuuming.suck(p, true);
       case 'pull':
@@ -1902,19 +1888,6 @@ export class Sim {
     }
   }
 
-  hold(p: Player, a: Assembly): void {
-    const com = a.body.worldCom();
-    p.holding = {
-      assemblyId: a.id,
-      rot: 0,
-      yawOffset: yawOf(a.body.rotation()) - p.input.yaw,
-      last: null,
-      settingDown: null,
-    };
-    this.setHeld(a, p.id);
-    this.events.push({ kind: 'grab', pos: com, count: a.grid.bricks.size });
-  }
-
   /** Pages and buttons work whether or not the player has their hands full. */
   interact(p: Player, hit: AimHit | null): boolean {
     // The other team's side: look, but do not touch.
@@ -1948,7 +1921,7 @@ export class Sim {
       return true;
     }
     if (hit?.owner.kind === 'player') {
-      this.pickpocket(p, hit.owner.playerId);
+      this.carrying.pickpocket(p, hit.owner.playerId);
       return true;
     }
     if (hit?.owner.kind === 'gear') {
@@ -2053,144 +2026,7 @@ export class Sim {
     this.events.push({ kind: 'powerOn', pos: this.panel, playerId: p.id });
   }
 
-  /** A click with the hands free (or a tool in them); `output` as in `Action`. */
-  private grab(p: Player, output = false): void {
-    const hit = this.sight.aim(p);
-    if (this.interact(p, hit)) return;
-    if (p.handsOff) return;
-    if (this.vacuum.heldBy === p.id) return this.vacuuming.suck(p);
-    if (!hit || !this.mayUse(p, hit.point)) return;
-    if (hit.owner.kind === 'machine') {
-      return output ? undefined : this.works.useMachine(p, hit.owner.machineId);
-    }
-    if (hit.owner.kind === 'output')
-      return this.works.takeOut(p, hit.owner.machineId, hit.owner.slot);
-    if (p.holding || p.tool) return;
-    if (hit.owner.kind !== 'brick') return;
-    const a = this.assemblies.get(hit.owner.assemblyId);
-    if (!a) return;
-    if (a.heldBy !== null) return this.tug(p, a);
-    if (a.frozen) return;
-    if (a.anchored) {
-      // Grabbing the baseplate itself lifts the whole build off the job site (to carry it to
-      // the inspector). Grabbing any other brick of it takes just that brick.
-      const brick = a.grid.bricks.get(hit.owner.brickId)!;
-      if (!BRICK_TYPES[brick.type].fixture) return this.knocks.pull(p);
-    }
-    if (this.tooTiredFor(p, a, hit.point)) return;
-    if (a.anchored) {
-      // A gear hunt's build is heavy: without the back brace it only lifts for someone walking
-      // carefully (and they keep to that pace with it, see `movePlayer`).
-      if (this.heavyFor(p) && !p.input.careful) {
-        this.events.push({ kind: 'heavy', pos: hit.point, playerId: p.id });
-        return;
-      }
-      this.setAnchored(a, false);
-    }
-    this.liftJolt(a, hit.owner.brickId);
-    this.hold(p, a);
-  }
-
-  /**
-   * A click on a build someone else carries: enough of them in quick succession pull it out of
-   * their hands and into the tugger's. Everyone nearby sees and hears the struggle.
-   */
-  private tug(p: Player, a: Assembly): void {
-    const holder = a.heldBy === null ? undefined : this.players.get(a.heldBy);
-    if (!holder || holder.id === p.id || isLooseBrick(a)) return;
-    const at = a.body.worldCom();
-    if (this.tooTiredFor(p, a, at)) return;
-    if (!this.tugged(this.buildTugs, a.id, p, holder)) {
-      this.events.push({ kind: 'tug', pos: at, playerId: p.id, fromId: holder.id });
-      return;
-    }
-    this.placing.release(holder);
-    this.hold(p, a);
-    this.events.push({ kind: 'tugged', pos: at, playerId: p.id, fromId: holder.id });
-  }
-
-  /**
-   * A click on another player: enough of them in quick succession pick the page out of their
-   * pocket and into the picker's (whose own page, if any, drops). Everyone nearby sees it.
-   */
-  private pickpocket(p: Player, victimId: number): void {
-    const victim = this.players.get(victimId);
-    if (!victim || victim.id === p.id || victim.page === null) return;
-    const page = this.pages.get(victim.page);
-    if (!page) return;
-    const at = this.eye(victim);
-    if (!this.tugged(this.pocketTugs, victim.id, p, victim)) {
-      this.events.push({ kind: 'pick', pos: at, playerId: p.id, fromId: victim.id });
-      return;
-    }
-    if (p.page !== null) this.pageWork.dropPage(p);
-    victim.page = null;
-    page.carriedBy = p.id;
-    page.version++;
-    p.page = page.id;
-    this.events.push({ kind: 'picked', pos: at, playerId: p.id, fromId: victim.id });
-  }
-
-  /**
-   * Counts one click of a tug at `key` of `tugs` (a build, or a player's pocket) by `p` against
-   * `from`: true once there have been `TUG_CLICKS` of them, each soon enough after the one
-   * before.
-   */
-  private tugged(tugs: Map<number, Tug>, key: number, p: Player, from: Player): boolean {
-    const t = tugs.get(key);
-    const clicks =
-      t && t.by === p.id && t.from === from.id && this.tick - t.tick <= TUG_GAP_TICKS
-        ? t.clicks + 1
-        : 1;
-    if (clicks < TUG_CLICKS) {
-      tugs.set(key, { by: p.id, from: from.id, clicks, tick: this.tick });
-      return false;
-    }
-    tugs.delete(key);
-    return true;
-  }
-
-  /** Too tired to lift build `a` (a single brick is never too much): says so, and is true. */
-  private tooTiredFor(p: Player, a: Assembly, at: Vec3): boolean {
-    if (isLooseBrick(a) || p.fatigue < TIRED_TICKS) return false;
-    this.events.push({ kind: 'tired', pos: at, playerId: p.id });
-    return true;
-  }
-
-  /** Carry fatigue builds while carrying a build and wears off otherwise; at its limit, they set it down. */
-  private tire(p: Player): void {
-    const held = this.heldAssembly(p);
-    if (!held || isLooseBrick(held)) {
-      p.fatigue = Math.max(0, p.fatigue - 1);
-      return;
-    }
-    p.fatigue++;
-    if (this.replica || p.fatigue < TIRED_DROP_TICKS || p.holding?.settingDown != null) return;
-    this.placing.setDown(p);
-    this.events.push({ kind: 'tired', pos: held.body.worldCom(), playerId: p.id });
-  }
-
-  /**
-   * Picking a build up (by part `by`) jolts it: whatever holds on too weakly for even that (a
-   * tall tower of round 1x1 bricks on one stud) comes off and topples over where it stood.
-   */
-  private liftJolt(a: Assembly, by: number): void {
-    if (this.replica || a.grid.size < 2) return;
-    const pieces = this.resplit(a, planBreaks(a.grid, LIFT_SEVERITY, this.rng, by), by);
-    for (const piece of pieces) {
-      const tip = this.rng() * 2 * Math.PI;
-      piece.body.setAngvel(v3(Math.cos(tip) * 1.5, 0, Math.sin(tip) * 1.5), true);
-    }
-    if (pieces.length)
-      this.events.push({ kind: 'break', pos: a.body.worldCom(), count: pieces.length });
-  }
-
-  /** Whether the build is too heavy for this player to carry at more than a careful pace. */
-  heavyFor(p: Player): boolean {
-    return this.hazards.has('brace') && !p.gear.has('brace');
-  }
-
-  private setAnchored(a: Assembly, anchored: boolean): void {
+  setAnchored(a: Assembly, anchored: boolean): void {
     const { RigidBodyType } = this.R;
     a.anchored = anchored;
     a.body.setBodyType(anchored ? RigidBodyType.Fixed : RigidBodyType.Dynamic, true);
@@ -2701,7 +2537,7 @@ export class Sim {
         if (p.replicated) continue;
         this.movement.movePlayer(p, [p.input]);
         this.placing.trackSnapLock(p);
-        this.tire(p);
+        this.carrying.tire(p);
       }
       // The server says when the fix is done; until then it only looks like it is coming along.
       if (this.power.fixer !== null)
@@ -2719,7 +2555,7 @@ export class Sim {
       if (inputs.length) this.movement.movePlayer(p, inputs);
       this.applyHold(p);
       this.placing.trackSnapLock(p);
-      this.tire(p);
+      this.carrying.tire(p);
       this.knocks.maybeTrip(p);
       this.knocks.stepOnBricks(p);
     }
@@ -3055,5 +2891,10 @@ export class Sim {
    */
   spawnLitter(perPoint: number, rng: () => number): number {
     return this.gearHunt.spawnLitter(perPoint, rng);
+  }
+
+  /** Whether the build is too heavy for this player to carry at more than a careful pace. */
+  heavyFor(p: Player): boolean {
+    return this.carrying.heavyFor(p);
   }
 }

@@ -156,7 +156,7 @@ export class Movement {
       const i = p.work?.machineId != null && p.down === 0 ? stayPut(inputs[k]!) : inputs[k]!;
       const limping = p.limp > 0;
       // A gear hunt's heavy build keeps whoever carries it without the back brace to a careful pace.
-      const careful = i.careful || (load > 0 && this.sim.heavyFor(p));
+      const careful = i.careful || (load > 0 && this.sim.carrying.heavyFor(p));
       const pace = careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
       const speed =
         (pace / (1 + load / 40)) * (limping && !careful ? LIMP_FACTOR : 1) * tiredFactor(p);

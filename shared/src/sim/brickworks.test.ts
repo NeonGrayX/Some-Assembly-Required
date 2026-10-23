@@ -310,7 +310,7 @@ describe('the brick works', () => {
     expect(sim.vacuum.heldBy).toBeNull();
     // A brick in hand: clicking the tray takes nothing, and drops nothing in it either.
     const brick = sim.spawnBrick('1x1', 'red', { x: press.stand.x, y: 1.2, z: press.stand.z });
-    (sim as unknown as { hold(p: Player, a: typeof brick): void }).hold(p, brick);
+    sim.carrying.hold(p, brick);
     takeOut(sim, p, press);
     expect(p.holding?.assemblyId).toBe(brick.id);
     expect(press.m.out[0]).toEqual({ kind: 'part', type: '2x4', colour: 'blue' });
@@ -387,7 +387,7 @@ describe('the brick works', () => {
     const p = sim.addPlayer();
     settle(sim);
     const brick = sim.spawnBrick('1x1', 'red', { x: 0, y: 1.2, z: 0 });
-    (sim as unknown as { hold(p: Player, a: typeof brick): void }).hold(p, brick);
+    sim.carrying.hold(p, brick);
     const dispenser = machine(sim, 'dispenser');
     lookAt(sim, p, dispenser.stand, dispenser.target);
     act(sim, p, { kind: 'mould', type: '2x4' });
