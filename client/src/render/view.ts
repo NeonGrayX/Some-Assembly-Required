@@ -78,6 +78,7 @@ import { PanelView } from './power.ts';
 import { Graphics } from './graphics.ts';
 import { setUnseen } from './layers.ts';
 import { Sky } from './sky.ts';
+import { CITY_HAZE, buildCity, disposeCity } from '../carscene/city.ts';
 import { bakeGroundShadows, bakeOver } from '../carscene/ground.ts';
 import {
   DAY,
@@ -330,6 +331,8 @@ export class View {
   private readonly fog = new THREE.Fog(0x9fc9e8, 25, 60);
   /** The country round the level, past its fence: drawn with the sky (and built once it shows). */
   private surroundings: THREE.Group | null = null;
+  /** The town round a map drawn with the car scene's models, built the first time it shows. */
+  private city: THREE.Group | null = null;
   private night = false;
   /** Whether the house has power: without it the ceiling lamps are out. */
   private power = true;
@@ -595,7 +598,7 @@ export class View {
       size: Math.max(f.x1 - f.x0, f.z1 - f.z0) + 4,
     };
     bakeOver(area);
-    floorOver(area);
+    floorOver(area, this.level.scenery?.kind === 'chevron' ? CITY_HAZE : undefined);
     const old = this.carStudio.baked;
     old?.key.dispose();
     old?.sky.dispose();
@@ -642,6 +645,11 @@ export class View {
       this.surroundings.removeFromParent();
       disposeSurroundings(this.surroundings);
       this.surroundings = null;
+    }
+    if (this.city) {
+      this.city.removeFromParent();
+      disposeCity(this.city);
+      this.city = null;
     }
     this.buildLevel(level);
     this.lightLevel();
@@ -1356,6 +1364,17 @@ export class View {
 
   /** Draws the frame: false, and nothing drawn, while its shaders compile (`Graphics.rewarm`). */
   render(): boolean {
+    // Built the first time it shows, and lit for the time with the rest (its programs compiled
+    // ahead with the level's).
+    if (this.level.scenery?.kind === 'chevron' && !this.city && !this.studio) {
+      const { x, z } = this.level.scenery;
+      this.city = buildCity(this.level.divide ? this.level.divide.z - z : null);
+      this.city.position.set(x, 0, z);
+      this.city.updateMatrixWorld(true);
+      this.scene.add(this.city);
+      this.lit = false;
+    }
+    if (this.city) this.city.visible = !this.studio;
     // Lit on the first frame, once the graphics settings are in.
     if (!this.lit) this.applyTimeOfDay();
     const sky = (this.sky.mesh.visible = !this.studio && !this.level.scenery);

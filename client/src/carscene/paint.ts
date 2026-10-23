@@ -34,7 +34,8 @@ export type PaintJob =
       rect: Rect;
       perMetre: number;
     }
-  | { kind: 'lawn'; outline: [number, number][]; rect: Rect; perMetre: number };
+  | { kind: 'lawn'; outline: [number, number][]; rect: Rect; perMetre: number }
+  | { kind: 'facade'; night: boolean; perMetre: number };
 
 /** A painted texture's pixels, RGBA in rows. */
 export interface Painting {
@@ -53,9 +54,9 @@ function pixels(w: number, d: number, perMetre: number): [number, number] {
 
 /** How big `job`'s painting is, in pixels. */
 export function paintingSize(job: PaintJob): [number, number] {
-  return job.kind === 'paving'
-    ? pixels(job.w, job.d, job.perMetre)
-    : pixels(job.rect[2], job.rect[3], job.perMetre);
+  if (job.kind === 'paving') return pixels(job.w, job.d, job.perMetre);
+  if (job.kind === 'facade') return pixels(FACADE, FACADE, job.perMetre);
+  return pixels(job.rect[2], job.rect[3], job.perMetre);
 }
 
 /** Paints `job`, `perMetre` as fine (its own, unless a rough copy is wanted). */
@@ -71,6 +72,8 @@ export function paint(job: PaintJob, perMetre = job.perMetre): Painting {
       return gravel(polygonField(job.outline), job.tracks, job.rect, perMetre);
     case 'lawn':
       return lawn(polygonField(job.outline), job.rect, perMetre);
+    case 'facade':
+      return facade(job.night, perMetre);
   }
 }
 
@@ -306,7 +309,9 @@ function paving(w: number, d: number, perMetre: number, seed: number): Painting 
       let c = base.map((b) => b * tone * mottle * (0.94 + 0.12 * speck));
       // A worn lighter rim round each slab, and the joint between.
       c = mix(c, [0xc4, 0xc1, 0xba], Math.max(0, 1 - edge / 0.02) * 0.4);
-      const inJoint = Math.max(0, Math.min(1, (0.008 - edge) / 0.004 + 0.5));
+      // (Wider, painted coarser, so that it still shows.)
+      const gap = Math.max(0.008, 0.6 / perMetre);
+      const inJoint = Math.max(0, Math.min(1, (gap - edge) / (gap / 2) + 0.5));
       const mossy = fbm(x * 0.8, z * 0.8, 8, seed + 7, 3) > 0.58;
       c = mix(c, mossy ? moss : joint, inJoint);
       // Stains here and there.
@@ -497,14 +502,92 @@ function lawn(field: Field, rect: Rect, perMetre: number): Painting {
         c = mix(c, earth, Math.min(1, bare) * (0.7 + 0.3 * blade));
         // Longer and darker toward the edge, where the mower does not reach.
         c = mix(c, dark, Math.max(0, 1 + f / 0.5) * 0.45);
-        // Daisies: a few white dots with yellow hearts.
+        // Daisies: a few white dots with yellow hearts (none on a lawn painted too coarse to
+        // show them small).
         const flower = noise(x * 28, z * 28, 100000, 423);
-        if (flower > 0.975 && bare < 0.2) c = mix(daisy, [0xe0, 0xc0, 0x30], (flower - 0.975) * 80);
+        if (flower > 0.975 && bare < 0.2 && perMetre >= 32)
+          c = mix(daisy, [0xe0, 0xc0, 0x30], (flower - 0.975) * 80);
       }
       data[k] = c[0]!;
       data[k + 1] = c[1]!;
       data[k + 2] = c[2]!;
       data[k + 3] = Math.round(Math.min(1, a) * 255);
+    }
+  return { data, width: W, height: H };
+}
+
+/** How wide and high a facade's painting is, in metres: four bays by four storeys, tiling. */
+export const FACADE = 12;
+/** A facade's bay and storey, in metres. */
+export const BAY = FACADE / 4;
+
+/**
+ * A distant building's walls, `FACADE` metres square and tiling both ways: four bays across and
+ * four storeys up, a window in each, its frame dark and its glass darker, a pale sky caught in
+ * the top of it, curtains or blinds drawn in some. The wall itself is white, to be tinted by the
+ * building's colour. At `night`, black but for the windows lit behind, warm and a few cooler.
+ * Rows run up the wall: row 0 is the foot of the tile (v 0).
+ */
+function facade(night: boolean, perMetre: number): Painting {
+  const [W, H] = pixels(FACADE, FACADE, perMetre);
+  const data = new Uint8Array(W * H * 4);
+  const frame = [0x3a, 0x3c, 0x40];
+  const pane = [0x2a, 0x34, 0x40];
+  const sky = [0x8a, 0x9c, 0xae];
+  const curtain = [0xb8, 0xa8, 0x90];
+  const warm = [0xff, 0xc8, 0x84];
+  const cool = [0xd8, 0xe4, 0xff];
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      // x along the wall, y up it, in metres.
+      const x = ((i + 0.5) / W) * FACADE;
+      const y = ((H - 1 - j + 0.5) / H) * FACADE;
+      const col = Math.floor(x / BAY);
+      const row = Math.floor(y / BAY);
+      const u = x - col * BAY;
+      const v = y - row * BAY;
+      // The window: 1.3 m wide, 1.5 m high, its sill 0.9 m up the storey.
+      const inX = Math.abs(u - BAY / 2) - 0.65;
+      const inY = Math.abs(v - 1.65) - 0.75;
+      const inside = Math.max(inX, inY);
+      const lit = hash(col, row, 701);
+      const k = (j * W + i) * 4;
+      let c: number[];
+      if (night) {
+        c = [0, 0, 0];
+        if (inside < -0.06 && lit > 0.55) {
+          const glow = 0.55 + 0.45 * hash(col, row, 703);
+          c = (lit > 0.92 ? cool : warm).map((w) => w * glow);
+          // A blind half drawn in some, its lower edge softly lit.
+          if (hash(col, row, 705) > 0.6 && v > 1.65 + 0.2) c = c.map((w) => w * 0.45);
+        }
+      } else {
+        // The wall, a little weathered: streaks below the sills, grime at the foot of the tile.
+        const grime = 0.9 + 0.1 * fbm(x * 0.5, y * 0.5, 6, 707, 3);
+        const streak =
+          Math.max(0, 1 - Math.abs(u - BAY / 2) / 0.6) * (v < 0.9 ? (0.9 - v) * 0.12 : 0);
+        c = [0xe8, 0xe6, 0xe0].map((w) => w * grime * (1 - streak));
+        if (inside < 0) {
+          c = frame;
+          if (inside < -0.06) {
+            // The glass: dark, the sky caught toward its top, a curtain or blind drawn in some.
+            const t = (v - 0.9) / 1.5;
+            c = mix(pane, sky, Math.max(0, t - 0.35) * 0.9);
+            const drawn = hash(col, row, 709);
+            if (drawn > 0.6 && Math.abs(u - BAY / 2) > 0.3) c = mix(c, curtain, 0.8);
+            else if (drawn < 0.15 && t > 0.5) c = mix(c, curtain, 0.7);
+            // Mullion down the middle, transom a third down.
+            if (Math.abs(u - BAY / 2) < 0.03 || Math.abs(t - 0.66) < 0.02) c = frame;
+          }
+        } else if (inside < 0.08 && inY + 0.75 > 0 && v < 0.95 && v > 0.84) {
+          // The sill, pale, under the window.
+          c = [0xf4, 0xf2, 0xee];
+        }
+      }
+      data[k] = c[0]!;
+      data[k + 1] = c[1]!;
+      data[k + 2] = c[2]!;
+      data[k + 3] = 255;
     }
   return { data, width: W, height: H };
 }
