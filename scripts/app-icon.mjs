@@ -4,7 +4,7 @@
  *
  *   client/public/favicon.svg, favicon.ico, apple-touch-icon.png, icon-192.png, icon-512.png
  *   desktop/build/icon.png   (electron-builder makes the Windows and Linux icons from it)
- *   icon.png                 (the repository's own icon, for file managers and project lists)
+ *   icon.svg                 (the repository's own icon, for file managers and project lists)
  *
  *     node scripts/app-icon.mjs [path to chromium or chrome]
  *
@@ -70,6 +70,7 @@ const pub = join(root, 'client/public');
 mkdirSync(pub, { recursive: true });
 mkdirSync(join(root, 'desktop/build'), { recursive: true });
 writeFileSync(join(pub, 'favicon.svg'), svg);
+writeFileSync(join(root, 'icon.svg'), svg);
 
 // A Chromium from snap can only read the home folder, so the page goes there.
 const work = mkdtempSync(join(homedir(), 'sar-icon-'));
@@ -125,7 +126,6 @@ writeFileSync(join(pub, 'apple-touch-icon.png'), png[180]);
 writeFileSync(join(pub, 'icon-192.png'), png[192]);
 writeFileSync(join(pub, 'icon-512.png'), png[512]);
 writeFileSync(join(root, 'desktop/build/icon.png'), png[512]);
-writeFileSync(join(root, 'icon.png'), png[512]);
 
 // favicon.ico: 16, 32 and 48 pixels, each kept as a PNG inside
 const ico = [16, 32, 48];
