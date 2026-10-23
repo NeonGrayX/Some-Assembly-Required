@@ -16,7 +16,6 @@ import {
   partQuat,
   parseBuildFile,
   stringifyBuildFile,
-  stringifyBuildFileWithMap,
   snapLayer,
   spinSnap,
   attachOrder,
@@ -52,6 +51,7 @@ import {
 } from './ui/brickFinder.ts';
 import type { BrickFilter, ColourFilter } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
+import { BuildFilePane } from './editor/buildFilePane.ts';
 import { History } from './editor/history.ts';
 
 /**
@@ -565,7 +565,7 @@ function redraw(): void {
   }
   stepEl.textContent = String(step + 1);
   updateSummary();
-  syncCode();
+  buildFile.sync();
 }
 
 /**
@@ -793,7 +793,7 @@ function showHover(id: number | undefined, placing: Omit<PlacedBrick, 'id'> | nu
   }
   if (placing) parts.push(`places ${brickName(placing.type)} at ${at(placing)}`);
   hoverEl.textContent = parts.join('   →   ');
-  if (codeOpen()) showCodeLine(b?.id);
+  if (buildFile.isOpen) buildFile.showLine(b?.id);
 }
 
 // Left drag orbits by hand so a click (no drag) can place bricks. Right or middle drag pans,
@@ -1135,165 +1135,27 @@ $('ed-clear').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ live build file
 
-const codePane = $('ed-code');
-const code = $<HTMLTextAreaElement>('ed-code-text');
-const codeStatus = $('ed-code-status');
-const codeOpenBtn = $<HTMLButtonElement>('ed-code-open');
-/** The brick id on each brick line of the text, in order. */
-let codeIds: number[] = [];
-/** The build those bricks belong to: the text's, as last written or read. */
-let codeBuild: TargetBuild | null = null;
-/** The line (from 0) each of those bricks is on in the text, or -1 where it is not found. */
-let codeLines: number[] = [];
-/** An edit in the text box is the one change undo knows about until the box is left. */
-let codeRecorded = false;
-let codeTimer = 0;
-/** Typed in since the build last took the text in. */
-let codeDirty = false;
-
-const codeOpen = () => !codePane.classList.contains('hidden');
-
-function setCodeOpen(on: boolean): void {
-  codePane.classList.toggle('hidden', !on);
-  codeOpenBtn.setAttribute('aria-pressed', String(on));
-  codeOpenBtn.classList.toggle('on', on);
-  if (!on) marked.visible = false;
-  syncCode();
-}
-
-/** Writes the build into the text box, unless it is being typed in. */
-function syncCode(): void {
-  if (!codeOpen() || document.activeElement === code) return;
-  const order: number[] = [];
-  codeBuild = currentBuild(order);
-  const { text, brickLines } = stringifyBuildFileWithMap(codeBuild);
-  code.value = text;
-  codeIds = order;
-  codeLines = brickLines;
-  showCodeStatus([]);
-}
-
-function showCodeStatus(problems: string[], bad = false): void {
-  codeStatus.classList.toggle('bad', bad);
-  codeStatus.textContent = problems.length
-    ? (bad ? '' : '⚠ ') + problems.slice(0, 3).join(' · ')
-    : '✓ The build matches the file.';
-}
-
-/** Builds what the text box says, as far as it can be read. */
-function applyCode(): void {
-  clearTimeout(codeTimer);
-  codeDirty = false;
-  const r = parseBuildFile(code.value, allBins());
-  const build = r.ok ? r.build : looseBuild(code.value);
-  if (!build) {
-    let why: string;
-    try {
-      JSON.parse(code.value);
-      why = 'Not a build file: it needs manual.pages with bricks.';
-    } catch (err) {
-      why = `Not readable JSON: ${(err as Error).message}`;
-    }
-    showCodeStatus([why], true);
-    return;
-  }
-  if (!codeRecorded) {
-    undoHistory.record();
-    codeRecorded = true;
-  }
-  codeIds = replaceBuild(build);
-  codeBuild = build;
-  codeLines = brickLinesIn(code.value, build);
-  step = Math.min(step, Math.max(0, build.steps.length - 1));
-  redraw();
-  showCodeStatus(r.ok ? [] : r.problems);
-  markCodeBrick();
-}
-
-/**
- * Where the bricks of a build read from `text` are in it: the line (from 0) of each, in file
- * order, or -1 for one not found. Typed text need not be laid out as the editor writes it, so
- * each brick's line as the editor would write it is looked for, from the last one found on.
- */
-function brickLinesIn(text: string, build: TargetBuild): number[] {
-  const own = stringifyBuildFileWithMap(build);
-  const ownLines = own.text.split('\n');
-  const lines = text.split('\n').map((l) => l.trim());
-  let from = 0;
-  return own.brickLines.map((at) => {
-    const row = lines.indexOf(ownLines[at]!.trim(), from);
-    if (row >= 0) from = row + 1;
-    return row;
-  });
-}
-
-/** The index of the brick whose line the cursor is on, if it is on one. */
-function brickLineAt(pos: number): number {
-  const row = code.value.slice(0, pos).split('\n').length - 1;
-  return codeLines.indexOf(row);
-}
-
-/** Marks in the view the brick whose line the cursor is on, while typing there. */
-function markCodeBrick(): void {
-  const i = document.activeElement === code ? brickLineAt(code.selectionStart) : -1;
-  const b = i < 0 ? undefined : grid.bricks.get(codeIds[i] ?? -1);
-  marked.visible = b !== undefined;
-  if (b) cover(marked, b);
-}
-
-const codeLine = $('ed-code-line');
-/** The row lit behind the text box, as a line number, or -1. */
-let litRow = -1;
-
-/** Scrolls the text box to a brick's line and lights it, while the box is not in use. */
-function showCodeLine(id: number | undefined): void {
-  if (document.activeElement === code) return;
-  const i = id === undefined ? -1 : codeIds.indexOf(id);
-  litRow = i < 0 ? -1 : (codeLines[i] ?? -1);
-  if (litRow >= 0) {
-    const lh = lineHeight();
-    const top = litRow * lh;
-    if (top < code.scrollTop || top + lh > code.scrollTop + code.clientHeight - lh) {
-      code.scrollTop = Math.max(0, top - code.clientHeight / 2);
-    }
-  }
-  placeCodeLine();
-}
-
-const lineHeight = () => parseFloat(getComputedStyle(code).lineHeight) || 16;
-
-function placeCodeLine(): void {
-  const lh = lineHeight();
-  const style = getComputedStyle(code);
-  const pad = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
-  const top = pad + litRow * lh - code.scrollTop;
-  // Only while the line is in sight in the box.
-  codeLine.hidden = litRow < 0 || top < pad || top + lh > code.clientHeight;
-  codeLine.style.top = `${top}px`;
-  codeLine.style.height = `${lh}px`;
-}
-code.addEventListener('scroll', placeCodeLine);
-
-code.addEventListener('input', () => {
-  // The lines move as they are typed in; the build takes the text in a moment later.
-  if (codeBuild) codeLines = brickLinesIn(code.value, codeBuild);
-  codeDirty = true;
-  clearTimeout(codeTimer);
-  codeTimer = window.setTimeout(applyCode, 300);
+const buildFile = new BuildFilePane({
+  current: (order) => currentBuild(order),
+  read: (text) => {
+    const r = parseBuildFile(text, allBins());
+    return r.ok
+      ? { build: r.build, problems: [] }
+      : { build: looseBuild(text), problems: r.problems };
+  },
+  replace: (build) => {
+    const ids = replaceBuild(build);
+    step = Math.min(step, Math.max(0, build.steps.length - 1));
+    return ids;
+  },
+  record: () => undoHistory.record(),
+  redraw,
+  mark: (id) => {
+    const b = id === undefined ? undefined : grid.bricks.get(id);
+    marked.visible = b !== undefined;
+    if (b) cover(marked, b);
+  },
 });
-code.addEventListener('focus', () => {
-  codeRecorded = false;
-  litRow = -1;
-  placeCodeLine();
-});
-code.addEventListener('blur', () => {
-  if (codeDirty) applyCode();
-  // Unreadable text stays as typed, to be fixed. Otherwise it is tidied into the file's layout.
-  if (!codeStatus.classList.contains('bad')) syncCode();
-});
-for (const ev of ['keyup', 'click', 'select'] as const) code.addEventListener(ev, markCodeBrick);
-codeOpenBtn.addEventListener('click', () => setCodeOpen(!codeOpen()));
-$('ed-code-close').addEventListener('click', () => setCodeOpen(false));
 
 const viewer = createBrickViewer({
   onUse(t, c) {
