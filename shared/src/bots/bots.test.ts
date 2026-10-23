@@ -366,7 +366,7 @@ describe('bots at the brick works', () => {
     job: Generator<void, unknown> | null;
     stop(): void;
     halt(): void;
-    collect(id: number, wanted: Made, order: Action): Generator<void, boolean>;
+    making: { collect(id: number, wanted: Made, order: Action): Generator<void, boolean> };
   }
 
   /** A race-car round with Ada (out of the way) and bots that stand still until given a job. */
@@ -436,15 +436,15 @@ describe('bots at the brick works', () => {
       // A bot that wants blue waits its turn, and one that wants red does not take hers: before
       // long both give up, leaving it there.
       const jobs = [
-        give(one, () => one.collect(silo.m.def.id, red, { kind: 'fill', colour: 'red' })),
-        give(two, () => two.collect(silo.m.def.id, blue, fillBlue)),
+        give(one, () => one.making.collect(silo.m.def.id, red, { kind: 'fill', colour: 'red' })),
+        give(two, () => two.making.collect(silo.m.def.id, blue, fillBlue)),
       ];
       run(() => jobs.every((j) => j.result !== undefined));
       expect(jobs.map((j) => j.result)).toEqual([false, false]);
       run(() => room.squad.tick - landed > 20 * 60);
       expect(silo.m.out[0]).toEqual(red);
       // Nobody came for it: now a bot takes it out of the way to fill its own.
-      const job = give(two, () => two.collect(silo.m.def.id, blue, fillBlue));
+      const job = give(two, () => two.making.collect(silo.m.def.id, blue, fillBlue));
       run(() => job.result !== undefined);
       expect(job.result).toBe(true);
       expect(sim.players.get(two.id)!.tool).toEqual(blue);
@@ -458,7 +458,7 @@ describe('bots at the brick works', () => {
     const silo = machine(sim, 'silo');
     // A red bucket the bot had filled, then went off to do something else.
     give(bot, () =>
-      bot.collect(
+      bot.making.collect(
         silo.m.def.id,
         { kind: 'bucket', colour: 'red' },
         { kind: 'fill', colour: 'red' },
@@ -473,7 +473,7 @@ describe('bots at the brick works', () => {
     const red = silo.m.out[0];
     expect(red).toEqual({ kind: 'bucket', colour: 'red' });
     const tryBlue = (meanwhile = () => {}) => {
-      const job = give(bot, () => bot.collect(silo.m.def.id, blue, fillBlue));
+      const job = give(bot, () => bot.making.collect(silo.m.def.id, blue, fillBlue));
       run(() => false, 1);
       meanwhile();
       run(() => job.result !== undefined);
@@ -516,7 +516,7 @@ describe('bots at the brick works', () => {
       };
       const part = { kind: 'part', type: '2x4', colour: 'red' } as const;
       const jobs = bots.map((b) =>
-        give(b, () => b.collect(press.m.def.id, part, { kind: 'grab' })),
+        give(b, () => b.making.collect(press.m.def.id, part, { kind: 'grab' })),
       );
       let twice = 0;
       run(() => {
@@ -540,7 +540,7 @@ describe('bots at the brick works', () => {
     const { room, sim, bots, run, give } = works(2);
     const [a, b] = bots as [Inside, Inside];
     const silo = machine(sim, 'silo');
-    give(a, () => a.collect(silo.m.def.id, blue, fillBlue));
+    give(a, () => a.making.collect(silo.m.def.id, blue, fillBlue));
     run(() => room.squad.collecting.has(a.id));
     expect(room.squad.collecting.has(a.id)).toBe(true);
     // Voted off while the silo fills its bucket.
@@ -549,7 +549,7 @@ describe('bots at the brick works', () => {
     expect(room.squad.collecting.has(a.id)).toBe(false);
     run(() => !!silo.m.out[0]);
     // The bucket is anyone's now: the other bot takes it.
-    const job = give(b, () => b.collect(silo.m.def.id, blue, fillBlue));
+    const job = give(b, () => b.making.collect(silo.m.def.id, blue, fillBlue));
     run(() => job.result !== undefined);
     expect(job.result).toBe(true);
     expect(sim.players.get(b.id)!.tool).toEqual(blue);
