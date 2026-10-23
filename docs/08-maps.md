@@ -342,4 +342,4 @@ What was built differs from the design above in these ways:
 
 New hideout kinds: **skip** and **cool box** (lids, like the chest), **tent** (a flap door) and **berth** (soft, like the cushion). The toggles without insides and the moving hazard remain open.
 
-Ladders need nothing behind them: a climber off the ground is held on the rungs (see `Sim`), and every ladder's height reaches `LADDER_CLEAR` past the deck or roof it climbs to, so the climber comes out standing on it. `maps.test.ts` climbs every ladder of every map, and checks that nothing in the camp passes through anything else for any seed (the other two maps still have a few such overlaps, under the carriages and the shutters).
+Ladders need nothing behind them: a climber off the ground is held on the rungs (see `Movement`), and every ladder's height reaches `LADDER_CLEAR` past the deck or roof it climbs to, so the climber comes out standing on it. `maps.test.ts` climbs every ladder of every map, and checks that nothing in the camp passes through anything else for any seed (the other two maps still have a few such overlaps, under the carriages and the shutters).
