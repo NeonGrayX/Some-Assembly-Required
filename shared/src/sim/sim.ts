@@ -35,8 +35,11 @@ import {
   REACH,
   QUARTER,
   collidersOf,
+  PAGE_SIZE,
+  restingOn,
 } from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
+import { DogWorld } from './dogworld.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
 import { DOWN_TICKS, KnockDowns } from './knockdowns.ts';
 import { Movement } from './movement.ts';
@@ -46,7 +49,7 @@ import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
 import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
 import { DT, TICK_RATE, seconds } from './time.ts';
-import type { DogHost, StealTarget, WreckTarget } from './dog.ts';
+import type { StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { canFlip } from '../snap.ts';
@@ -115,12 +118,14 @@ import type { Quat, Vec3 } from '../math.ts';
 type Rapier = typeof RAPIER;
 
 export { DT, TICK_RATE, catchUp } from './time.ts';
+export { DOG_STEEPEST } from './dogworld.ts';
 export { DOWN_TICKS, LIMP_TICKS } from './knockdowns.ts';
 export { STAIRS_MARGIN, STAIRS_SLIDE, WALK_SPEED } from './movement.ts';
 export { VACUUM_CAPACITY, vacuumRestPose } from './vacuum.ts';
 export { CAMERA_DISTANCE, CAMERA_LIFT, CAMERA_SHOULDER, cameraPosition } from './sight.ts';
 export { BUCKET_SHOTS, MAKE_SECONDS, MAKE_TICKS, UNJAM_SECONDS } from './brickworks.ts';
 export {
+  PAGE_SIZE,
   TIRED_DROP_TICKS,
   TIRED_TICKS,
   tiredFactor,
@@ -205,14 +210,6 @@ function actOf(
 export const TUG_CLICKS = 6;
 /** The most time between two clicks of one tug before it starts over. */
 const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
-/** How far out from the baseplate's edge the hungry dog stands to wreck the build. */
-const WRECK_STAND_OUT = 0.25;
-/**
- * Bricks whose middle is this close to where it stands (flat), and this low, it knocks off: about
- * the near half of the baseplate.
- */
-const WRECK_REACH = 1.1;
-const WRECK_HEIGHT = 0.95;
 /**
  * How far over a guarded railing (round a stairwell or a roof) players meet a wall they cannot
  * see. At the top of a jump (1.3 m up) a player steps onto anything up to `STEP_UP` higher,
@@ -279,28 +276,12 @@ const MAX_HOLD_FOLLOW = 20;
 const LIFT_SEVERITY = 1;
 /** Ticks after an assembly is created during which impacts do not break it. */
 const BREAK_GRACE_TICKS = 20;
-/** Half the thickness of the plank `clearForDog` sweeps across the dog's width. */
-const DOG_PLANK = 0.005;
-/** How long the pieces are that `clearForDog` follows the terrain in. */
-const DOG_PIECE = 0.75;
-/** The steepest ground the dog is sent over, as its rise over its run (about 38°). */
-export const DOG_STEEPEST = 0.78;
 /** A loose piece losing at least this much speed in one step has landed on something. */
 const LAND_SPEED = 1.2;
 /** Ticks between one piece's landing sounds, so a tumble is not a drum roll. */
 const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
-/** What the dog cannot walk or see through. */
-const DOG_SOLID: ReadonlySet<ColliderOwner['kind']> = new Set<ColliderOwner['kind']>([
-  'static',
-  'carDoor',
-  'hideout',
-  'machine',
-  'board',
-  'button',
-  'catapult',
-]);
 /**
  * The machines never run out of moulds or pellets, so this keeps the world from filling up:
  * past this many single bricks lying loose, making one tidies away the one that has lain there
@@ -657,16 +638,6 @@ export interface GadgetState {
   def: GadgetDef;
   used: boolean;
   handles: Collider[];
-}
-
-export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
-
-/**
- * Where the middle of something `size.y` tall goes to rest on a surface at `at` (just clear of
- * it, so it never starts out stuck in it): pages and gear are placed by their middle.
- */
-function restingOn(at: Vec3, size: { y: number }): Vec3 {
-  return v3(at.x, at.y + size.y / 2 + 0.01, at.z);
 }
 
 export interface Assembly {
@@ -1030,6 +1001,8 @@ export class Sim {
   readonly vacuuming: VacuumCleaner;
   /** Players knocked down and pulled up (see `KnockDowns`). */
   readonly knocks: KnockDowns;
+  /** The world as the dog meets it (see `DogWorld`). */
+  private readonly dogWorld: DogWorld;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1063,9 +1036,10 @@ export class Sim {
     this.sight = new Sight(this);
     this.placing = new Placing(this);
     this.knocks = new KnockDowns(this);
+    this.dogWorld = new DogWorld(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
-    this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS);
+    this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
     this.vacuuming = new VacuumCleaner(this, fixed);
     this.vacuum = {
@@ -2562,7 +2536,7 @@ export class Sim {
   }
 
   /** Takes a page out of the world (or off the board) without putting it anywhere yet. */
-  private detachPage(page: PageItem): void {
+  detachPage(page: PageItem): void {
     if (page.body) {
       this.owners.delete(page.body.collider(0).handle);
       this.world.removeRigidBody(page.body);
@@ -2610,7 +2584,7 @@ export class Sim {
   }
 
   /** Puts a page into the world with its middle at `centre`. */
-  private placePage(page: PageItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
+  placePage(page: PageItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
     const { R } = this;
     const centre = this.aboveGround(at, PAGE_SIZE.y / 2 + 0.01, PAGE_SIZE.z / 2);
     const body = this.world.createRigidBody(
@@ -2884,195 +2858,6 @@ export class Sim {
   // ---------------------------------------------------------------- the vacuum
 
   // ---------------------------------------------------------------- the dog
-
-  /** What the dog may do to the world: carry pages, and look around for walls. */
-  private dogHost(): DogHost {
-    return {
-      R: this.R,
-      world: this.world,
-      players: this.players,
-      pages: this.pages,
-      emit: (e) => this.events.push(e),
-      random: () => this.rng(),
-      stealTargets: () => this.stealTargets(),
-      mayWreck: () => this.dogMayWreck,
-      wreckTarget: (from) => this.wreckTarget(from),
-      wreck: (at) => this.dogWreck(at),
-      pickPageUp: (page) => {
-        this.detachPage(page);
-        page.version++;
-      },
-      putPageDown: (page, pos, yaw) => {
-        this.placePage(page, restingOn(pos, PAGE_SIZE), yawQuat(yaw));
-        page.version++;
-      },
-      clearLine: (a, b, wide) => this.clearForDog(a, b, wide),
-      floorUnder: (x, z, y) => (this.level.terrain?.length ? groundHeight(this.level, x, z) : y),
-    };
-  }
-
-  /**
-   * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
-   * `wide`, across its whole width too, so a gap a thin line slips through but the dog does not,
-   * a post it would walk into, or a corner it would brush, does not count as clear.
-   */
-  clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
-    if (!this.level.terrain?.length) return this.clearStraight(a, b, wide);
-    // Over terrain, the line follows the ground at the height it starts and ends over it, in
-    // short pieces, so a rise between the two points neither blocks it (the dog sees and walks
-    // over a hump) nor lets it float over what stands in a hollow; and walking, the ground
-    // must not be too steep for the dog anywhere on the way.
-    const ga = groundHeight(this.level, a.x, a.z);
-    const gb = groundHeight(this.level, b.x, b.z);
-    const pieces = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / DOG_PIECE));
-    let from = a;
-    let groundFrom = ga;
-    for (let i = 1; i <= pieces; i++) {
-      const t = i / pieces;
-      const x = a.x + (b.x - a.x) * t;
-      const z = a.z + (b.z - a.z) * t;
-      const ground = groundHeight(this.level, x, z);
-      const to = v3(x, ground + (a.y - ga) * (1 - t) + (b.y - gb) * t, z);
-      const run = Math.hypot(x - from.x, z - from.z);
-      if (wide && Math.abs(ground - groundFrom) > run * DOG_STEEPEST) return false;
-      if (!this.clearStraight(from, to, wide)) return false;
-      from = to;
-      groundFrom = ground;
-    }
-    return true;
-  }
-
-  /** `clearForDog` along one straight line. */
-  private clearStraight(a: Vec3, b: Vec3, wide: boolean): boolean {
-    const d = sub(b, a);
-    const dist = length(d);
-    if (dist < 1e-3) return true;
-    const dir = scale(d, 1 / dist);
-    const flat = Math.hypot(dir.x, dir.z);
-    // Walking, the job sites' builds are in the way too: it goes round them, not into them.
-    const builds = wide
-      ? new Set(
-          this.sites
-            .map((_, i) => this.build(i))
-            .filter((a) => a.anchored)
-            .map((a) => a.id),
-        )
-      : null;
-    const solid = (c: Collider) => {
-      const o = this.owners.get(c.handle);
-      if (!o) return false;
-      if (o.kind === 'brick') return builds?.has(o.assemblyId) ?? false;
-      return DOG_SOLID.has(o.kind);
-    };
-    if (!wide || flat < 1e-3)
-      return !this.world.castRay(
-        new this.R.Ray(a, dir),
-        dist,
-        true,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        solid,
-      );
-    // A thin plank as wide as the dog, square across the way it goes, swept along it: every
-    // line its body would follow at once, at the height of the points.
-    // Its long side (x) turned square across `dir`.
-    const across = Math.atan2(dir.x, dir.z);
-    return !this.world.castShape(
-      a,
-      yawQuat(across),
-      dir,
-      new this.R.Cuboid(DOG_RADIUS, DOG_PLANK, DOG_PLANK),
-      0,
-      dist,
-      true,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      solid,
-    );
-  }
-
-  /** A job-site build's bricks the dog could knock off, with where each one is. */
-  private wreckableBricks(site: number): { id: number; pos: Vec3 }[] {
-    const a = this.build(site);
-    if (!a.anchored || a.heldBy !== null || a.frozen) return [];
-    return [...a.grid.bricks.values()]
-      .filter((b) => !BRICK_TYPES[b.type].fixture)
-      .map((b) => ({ id: b.id, pos: this.brickPose(a, b).pos }))
-      .filter((b) => b.pos.y < this.sites[site]!.baseplate.y + WRECK_HEIGHT);
-  }
-
-  /**
-   * Where the hungry dog stands to wreck the build: just off one side of the baseplate, the side
-   * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
-   */
-  wreckTarget(from: Vec3): WreckTarget | null {
-    let best: { at: WreckTarget; n: number; d: number } | null = null;
-    for (let site = 0; site < this.sites.length; site++) {
-      const found = this.siteWreckTarget(site, from);
-      if (found && (!best || found.n > best.n || (found.n === best.n && found.d < best.d))) {
-        best = found;
-      }
-    }
-    return best?.at ?? null;
-  }
-
-  private siteWreckTarget(
-    site: number,
-    from: Vec3,
-  ): { at: WreckTarget; n: number; d: number } | null {
-    const bricks = this.wreckableBricks(site);
-    if (!bricks.length) return null;
-    const c = this.buildCentre(this.build(site));
-    const out = BASEPLATE_SIZE / 2 + WRECK_STAND_OUT;
-    const floor = this.sites[site]!.baseplate.y;
-    let best: { at: WreckTarget; n: number; d: number } | null = null;
-    for (let k = 0; k < 4; k++) {
-      const dir = v3(Math.sin((k * Math.PI) / 2), 0, Math.cos((k * Math.PI) / 2));
-      const stand = v3(c.x + dir.x * out, floor, c.z + dir.z * out);
-      const beyond = add(stand, scale(dir, 0.3));
-      const up = (p: Vec3) => v3(p.x, floor + 0.25, p.z);
-      if (!this.clearForDog(up(c), up(beyond))) continue;
-      const reach = bricks.filter(
-        (b) => Math.hypot(b.pos.x - stand.x, b.pos.z - stand.z) < WRECK_REACH,
-      );
-      if (!reach.length) continue;
-      const look = scale(
-        reach.reduce((s, b) => add(s, b.pos), v3()),
-        1 / reach.length,
-      );
-      const d = Math.hypot(stand.x - from.x, stand.z - from.z);
-      if (!best || reach.length > best.n || (reach.length === best.n && d < best.d)) {
-        best = { at: { stand, look, site }, n: reach.length, d };
-      }
-    }
-    return best;
-  }
-
-  /**
-   * The hungry dog's paws on the build: every brick in its reach comes off whatever holds it
-   * up (taking what sits on it along), and is knocked away from the dog.
-   */
-  dogWreck(at: WreckTarget): boolean {
-    const a = this.build(at.site);
-    const near = new Set(
-      this.wreckableBricks(at.site)
-        .filter((b) => Math.hypot(b.pos.x - at.stand.x, b.pos.z - at.stand.z) < WRECK_REACH)
-        .map((b) => b.id),
-    );
-    if (!near.size) return false;
-    const broken = a.grid.connections().filter((c) => near.has(c.upper));
-    const pieces = this.resplit(a, broken);
-    const away = sub(at.look, at.stand);
-    const len = Math.hypot(away.x, away.z) || 1;
-    const push = v3((away.x / len) * 1.2, 1, (away.z / len) * 1.2);
-    for (const piece of pieces) piece.body.setLinvel(push, true);
-    if (pieces.length) this.events.push({ kind: 'break', pos: at.look });
-    return pieces.length > 0;
-  }
 
   // ---------------------------------------------------------------- knock-downs
 
@@ -3603,5 +3388,30 @@ export class Sim {
   /** The saboteur's barefoot trap: a few small bricks spilled on the floor in front. */
   dropTrap(p: Player): Vec3 | null {
     return this.knocks.dropTrap(p);
+  }
+
+  /**
+   * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
+   * `wide`, across its whole width too, so a gap a thin line slips through but the dog does not,
+   * a post it would walk into, or a corner it would brush, does not count as clear.
+   */
+  clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
+    return this.dogWorld.clearForDog(a, b, wide);
+  }
+
+  /**
+   * Where the hungry dog stands to wreck the build: just off one side of the baseplate, the side
+   * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
+   */
+  wreckTarget(from: Vec3): WreckTarget | null {
+    return this.dogWorld.wreckTarget(from);
+  }
+
+  /**
+   * The hungry dog's paws on the build: every brick in its reach comes off whatever holds it
+   * up (taking what sits on it along), and is knocked away from the dog.
+   */
+  dogWreck(at: WreckTarget): boolean {
+    return this.dogWorld.dogWreck(at);
   }
 }

@@ -97,3 +97,12 @@ export const QUARTER = Math.PI / 2;
 export function* collidersOf(a: Assembly): Generator<Collider> {
   for (const cs of a.colliders.values()) yield* cs;
 }
+
+export const PAGE_SIZE = { x: 0.3, y: 0.008, z: 0.42 };
+/**
+ * Where the middle of something `size.y` tall goes to rest on a surface at `at` (just clear of
+ * it, so it never starts out stuck in it): pages and gear are placed by their middle.
+ */
+export function restingOn(at: Vec3, size: { y: number }): Vec3 {
+  return v3(at.x, at.y + size.y / 2 + 0.01, at.z);
+}
