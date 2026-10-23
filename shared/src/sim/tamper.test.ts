@@ -217,7 +217,7 @@ describe('tampering', () => {
     const press = machine(sim, 'press');
     Object.assign(press.m, { jammed: true, fixer: p.id });
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
-    replica.replicaFurniture(sim.furnitureState());
+    replica.replication.replicaFurniture(sim.replication.furnitureState());
     expect(replica.machines.get(press.m.def.id)).toMatchObject({ jammed: true, fixer: p.id });
   });
 });

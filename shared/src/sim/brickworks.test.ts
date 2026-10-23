@@ -655,10 +655,10 @@ describe('the brick works', () => {
     const dispenser = machine(sim, 'dispenser');
     lookAt(sim, p, dispenser.stand, dispenser.target);
     act(sim, p, { kind: 'mould', type: '1x2' });
-    const told = sim.furnitureState();
+    const told = sim.replication.furnitureState();
 
     const replica = new Sim(RAPIER, HOUSE, 1, { replica: true });
-    replica.replicaFurniture(told);
+    replica.replication.replicaFurniture(told);
     const part = { kind: 'part', type: '2x2', colour: 'blue' };
     expect(replica.machines.get(press.m.def.id)).toMatchObject({
       mould: '2x2',
@@ -679,7 +679,7 @@ describe('the brick works', () => {
     aimAt(replica, me, press.outs[0]!);
     expect(replica.aim(me)?.owner).toEqual({ kind: 'output', machineId: press.m.def.id, slot: 0 });
     // Once it is taken, the tray is empty there too.
-    replica.replicaFurniture({
+    replica.replication.replicaFurniture({
       ...told,
       machines: told.machines.map((m) =>
         m[0] === press.m.def.id ? [...m.slice(0, 7), [null], null] : m,

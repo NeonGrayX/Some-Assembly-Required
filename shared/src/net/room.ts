@@ -1033,7 +1033,7 @@ export class Room {
   }
 
   private furniture(): FurnitureState {
-    return this.sim.furnitureState();
+    return this.sim.replication.furnitureState();
   }
 
   /** Shows the page in a player's pocket to everyone within reading distance. */

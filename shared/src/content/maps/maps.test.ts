@@ -520,7 +520,7 @@ describe('the Chevron Street map', () => {
       sim.act(p.id, { kind: 'grab' });
       for (let k = 0; k < 45; k++) sim.step();
       expect(sim.carDoorsOpen()[i], d.mesh.mesh).toBe(1);
-      expect(sim.furnitureState().carDoors).toContain(group);
+      expect(sim.replication.furnitureState().carDoors).toContain(group);
       expect(sim.carDoorHint(group)).toBe(`shut the ${d.what}`);
     }
     expect(missed).toEqual([]);
@@ -557,14 +557,14 @@ describe('the Chevron Street map', () => {
         continue;
       }
       sim.act(p.id, { kind: 'grab' });
-      expect(sim.furnitureState().used, `#${g.id} clicked`).toContain(g.id);
+      expect(sim.replication.furnitureState().used, `#${g.id} clicked`).toContain(g.id);
       // Where the clicked one is now (an oven's door down), a click puts it back.
       if (!aimAt(g.id, used)) {
         missed.push(`#${g.id} clicked`);
         continue;
       }
       sim.act(p.id, { kind: 'grab' });
-      expect(sim.furnitureState().used, `#${g.id} clicked back`).not.toContain(g.id);
+      expect(sim.replication.furnitureState().used, `#${g.id} clicked back`).not.toContain(g.id);
     }
     expect(missed).toEqual([]);
   });

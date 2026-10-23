@@ -352,7 +352,7 @@ export class ClientGame {
         if (this.chat.length > 50) this.chat.shift();
         return;
       case 'furniture':
-        this.sim.replicaFurniture(msg.furniture);
+        this.sim.replication.replicaFurniture(msg.furniture);
         return;
       case 'shown':
         this.shown = { from: msg.from, printed: msg.printed, at: gameNow() };
@@ -365,7 +365,7 @@ export class ClientGame {
         return this.loadWorld(msg);
       case 'asm': {
         const s = msg.a;
-        const a = this.sim.replicaAssembly(
+        const a = this.sim.replication.replicaAssembly(
           s.id,
           bricksOf(s),
           s.anchored,
@@ -383,7 +383,7 @@ export class ClientGame {
         const a = this.sim.assemblies.get(msg.id);
         if (!a) return;
         const wasAnchored = a.anchored;
-        this.sim.replicaHeld(a, msg.heldBy, msg.anchored);
+        this.sim.replication.replicaHeld(a, msg.heldBy, msg.anchored);
         if (wasAnchored !== msg.anchored) {
           // Put back on (or lifted off) the job site: jump to exactly where the server has it.
           // A fixed body ignores interpolated poses, so it would otherwise stay wherever it was
@@ -399,7 +399,7 @@ export class ClientGame {
         return;
       }
       case 'asmDel':
-        this.sim.replicaRemoveAssembly(msg.id);
+        this.sim.replication.replicaRemoveAssembly(msg.id);
         this.tracks.delete(`a${msg.id}`);
         return;
       case 'page': {
@@ -413,7 +413,7 @@ export class ClientGame {
       }
       case 'gear': {
         const g = msg.g;
-        this.sim.replicaGear(
+        this.sim.replication.replicaGear(
           g.id,
           g.kind,
           g.wornBy,
@@ -467,7 +467,7 @@ export class ClientGame {
     this.phase = msg.phase;
     this.lastServerMs = msg.tick * DT * 1000;
     for (const s of msg.assemblies) {
-      this.sim.replicaAssembly(
+      this.sim.replication.replicaAssembly(
         s.id,
         bricksOf(s),
         s.anchored,
@@ -480,7 +480,7 @@ export class ClientGame {
     for (const p of msg.pages) this.notePocket(p);
     for (const p of msg.pages) this.replicaPage(p);
     for (const g of msg.gear)
-      this.sim.replicaGear(
+      this.sim.replication.replicaGear(
         g.id,
         g.kind,
         g.wornBy,
@@ -489,7 +489,7 @@ export class ClientGame {
         fromQ(g.rot),
       );
     this.sim.buildIds = msg.buildIds;
-    this.sim.replicaFurniture(msg.furniture);
+    this.sim.replication.replicaFurniture(msg.furniture);
     this.target = msg.target;
     this.targetId = msg.targetId;
     this.night = msg.night;
@@ -789,7 +789,7 @@ export class ClientGame {
       // What we hold is posed after the step, once we have moved.
       if (me && a.heldBy === me.id && me.holding) continue;
       const s = this.tracks.get(`a${a.id}`)?.at(renderMs);
-      if (s) this.sim.setPose(a.body, s.pos, s.rot);
+      if (s) this.sim.replication.setPose(a.body, s.pos, s.rot);
     }
     const dog = this.tracks.get('dog')?.at(renderMs);
     if (dog) {
@@ -799,11 +799,11 @@ export class ClientGame {
     for (const page of this.sim.pages.values()) {
       if (page.pinned !== null) continue;
       const s = page.body && this.tracks.get(`p${page.id}`)?.at(renderMs);
-      if (s) this.sim.setPose(page.body!, s.pos, s.rot);
+      if (s) this.sim.replication.setPose(page.body!, s.pos, s.rot);
     }
     for (const item of this.sim.gear.values()) {
       const s = item.body && this.tracks.get(`g${item.id}`)?.at(renderMs);
-      if (s) this.sim.setPose(item.body!, s.pos, s.rot);
+      if (s) this.sim.replication.setPose(item.body!, s.pos, s.rot);
     }
     for (const p of this.sim.players.values()) {
       if (!p.replicated) continue;
@@ -913,7 +913,14 @@ export class ClientGame {
   /** Mirrors a page as the server tells it. */
   private replicaPage(p: PageState): void {
     const where = { hidden: p.hidden, pinned: p.pinned, dog: p.dog };
-    this.sim.replicaPage(p.id, p.printed, p.carriedBy, where, fromV(p.pos), fromQ(p.rot));
+    this.sim.replication.replicaPage(
+      p.id,
+      p.printed,
+      p.carriedBy,
+      where,
+      fromV(p.pos),
+      fromQ(p.rot),
+    );
   }
 
   /** Notes how a page in someone else's pocket reads sticking out (see `pocketLabels`). */

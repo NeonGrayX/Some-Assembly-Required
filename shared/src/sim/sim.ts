@@ -9,7 +9,6 @@ import type {
 import { BASEPLATE_SIZE, BRICK_TYPES, PLATE_H, STUD, footprint } from '../bricks.ts';
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
 import type { GearId } from '../gear.ts';
-import type { FurnitureState } from '../net/protocol.ts';
 import type { SabotageTool } from '../round.ts';
 import { planBreaks } from '../breaking.ts';
 import {
@@ -50,6 +49,7 @@ import { Placing } from './placing.ts';
 import { Sight } from './sight.ts';
 import { REPAIR_SECONDS, Working } from './working.ts';
 import { Sabotage } from './sabotage.ts';
+import { Replication } from './replication.ts';
 import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
 import type { MachineAct } from './operate.ts';
 import { DT } from './time.ts';
@@ -902,7 +902,7 @@ export class Sim {
   /** The vehicles' doors (see `LevelDef.carDoors`), each with how far it is open (0 to 1). */
   private readonly carDoors: { def: CarDoorDef; body: RigidBody; open: number }[] = [];
   /** The groups of the vehicles' doors clicked open. */
-  private readonly carDoorsClicked = new Set<number>();
+  readonly carDoorsClicked = new Set<number>();
   /** The scenery's things a click works, by id. */
   readonly gadgets = new Map<number, GadgetState>();
   /**
@@ -915,7 +915,7 @@ export class Sim {
   /** What the UV printer can print this round: the printed parts of the round's build. */
   printJobs: PrintJob[] = [];
   /** On a client: who carries what, as last told, for players who appear later too. */
-  private replicaTools = new Map<number, Tool>();
+  replicaTools = new Map<number, Tool>();
   /** The lights: on unless the electrical panel has broken down. */
   readonly power: PowerState = { on: true, dead: false, fixer: null, progress: 0 };
   /** Where the electrical panel is, if the level has one. */
@@ -968,6 +968,7 @@ export class Sim {
   /** Players at work, and the power (see `Working`). */
   readonly working: Working;
   readonly sabotage: Sabotage;
+  readonly replication: Replication;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1005,6 +1006,7 @@ export class Sim {
     this.carrying = new Carrying(this);
     this.working = new Working(this);
     this.sabotage = new Sabotage(this);
+    this.replication = new Replication(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1294,7 +1296,7 @@ export class Sim {
 
   // ---------------------------------------------------------------- assemblies
 
-  private createAssembly(
+  createAssembly(
     bricks: PlacedBrick[],
     pos: Vec3,
     rot: Quat,
@@ -2028,193 +2030,6 @@ export class Sim {
     p.slide = v3();
     p.slip = p.squeeze = null;
     p.work = null;
-  }
-
-  // ---------------------------------------------------------------- replica
-
-  /** Creates or replaces an assembly exactly as the server describes it. */
-  replicaAssembly(
-    id: number,
-    bricks: PlacedBrick[],
-    anchored: boolean,
-    heldBy: number | null,
-    version: number,
-    pos: Vec3,
-    rot: Quat,
-  ): Assembly {
-    const old = this.assemblies.get(id);
-    if (old) this.replicaRemove(old);
-    const a = this.createAssembly(bricks, pos, rot, anchored, undefined, undefined, id);
-    a.version = version;
-    if (heldBy !== null) this.setHeld(a, heldBy);
-    return a;
-  }
-
-  /** Changes who holds an assembly without rebuilding it. */
-  replicaHeld(a: Assembly, heldBy: number | null, anchored: boolean): void {
-    if (a.heldBy !== heldBy) this.setHeld(a, heldBy);
-    if (a.anchored !== anchored) {
-      const { RigidBodyType } = this.R;
-      a.body.setBodyType(
-        anchored ? RigidBodyType.Fixed : RigidBodyType.KinematicPositionBased,
-        true,
-      );
-    }
-    a.anchored = anchored;
-  }
-
-  replicaRemoveAssembly(id: number): void {
-    const a = this.assemblies.get(id);
-    if (a) this.replicaRemove(a);
-  }
-
-  private replicaRemove(a: Assembly): void {
-    for (const c of collidersOf(a)) this.owners.delete(c.handle);
-    this.world.removeRigidBody(a.body);
-    this.assemblies.delete(a.id);
-  }
-
-  /**
-   * Creates, moves into a pocket, hides, pins or puts back an instruction page: lying with its
-   * middle at `pos` unless it is carried (by a player, or in the dog's mouth), hidden or pinned.
-   */
-  replicaPage(
-    id: number,
-    printed: PrintedPage | null,
-    carriedBy: number | null,
-    where: { hidden: boolean; pinned: number | null; dog: boolean },
-    pos: Vec3,
-    rot: Quat,
-  ): void {
-    const page = this.pages.get(id) ?? this.pageWork.newPage(printed, id);
-    // A page first seen unread (in someone's pocket) learns which it is once it can be read.
-    if (printed) page.step = printed.step;
-    // Which hiding place it is in is never told, only that it is in one.
-    page.hideout = null;
-    if (where.pinned !== null) {
-      page.printed = printed;
-      page.carriedBy = null;
-      page.hidden = false;
-      this.pageWork.pinPage(page, where.pinned);
-      return;
-    }
-    page.hidden = where.hidden;
-    page.printed = printed;
-    page.version++;
-    if (page.body) {
-      this.owners.delete(page.body.collider(0).handle);
-      this.world.removeRigidBody(page.body);
-      page.body = null;
-    }
-    page.carriedBy = carriedBy;
-    page.pinned = null;
-    if (carriedBy === null && !where.hidden && !where.dog) this.pageWork.placePage(page, pos, rot);
-  }
-
-  /**
-   * Creates, hands over, hides or puts back a piece of gear: lying with its middle at `pos`
-   * unless it is worn, hidden or (the leash) on the dog's pole.
-   */
-  replicaGear(
-    id: number,
-    kind: GearId,
-    wornBy: number | null,
-    where: { hidden: boolean; placed: boolean },
-    pos: Vec3,
-    rot: Quat,
-  ): void {
-    const item = this.gear.get(id) ?? this.gearHunt.newGear(kind, id);
-    if (item.body) {
-      this.owners.delete(item.body.collider(0).handle);
-      this.world.removeRigidBody(item.body);
-      item.body = null;
-    }
-    item.version++;
-    item.hidden = where.hidden;
-    item.hideout = null;
-    if (where.placed) {
-      item.placed = true;
-      item.wornBy = null;
-      if (!this.dog.leashed) this.dog.leash(this.gearHunt.dogPole());
-      return;
-    }
-    item.placed = false;
-    item.wornBy = wornBy;
-    if (wornBy === null && !where.hidden) this.gearHunt.placeGear(item, pos, rot);
-  }
-
-  /**
-   * Which hiding places stand open and which are padlocked, the power, and the brick works, as
-   * clients are told it (`replicaFurniture` on their side).
-   */
-  furnitureState(): FurnitureState {
-    const hideouts = [...this.hideouts.values()];
-    const { on, fixer, dead } = this.power;
-    return {
-      open: hideouts.filter((h) => h.open).map((h) => h.def.id),
-      locked: hideouts.filter((h) => h.locked).map((h) => h.def.id),
-      used: [...this.gadgets.values()].filter((g) => g.used).map((g) => g.def.id),
-      carDoors: [...this.carDoorsClicked],
-      power: { on, fixer, dead },
-      ...this.brickWorks(),
-    };
-  }
-
-  /** Mirrors the hiding places, the power and the brick works as the server tells them. */
-  replicaFurniture(f: FurnitureState): void {
-    for (const [id, mould, colour, shots, part, jammed, fixer, out, making] of f.machines) {
-      const m = this.machines.get(id);
-      if (!m) continue;
-      if (fixer !== m.fixer) m.progress = 0;
-      Object.assign(m, { mould, colour, shots, part, jammed, fixer, making });
-      const clicks = this.outputColliders.get(id) ?? [];
-      m.out.forEach((_, slot) => {
-        m.out[slot] = out[slot] ?? null;
-        clicks[slot]?.setEnabled(m.out[slot] !== null);
-      });
-    }
-    this.replicaTools = new Map(f.tools);
-    for (const p of this.players.values()) p.tool = this.replicaTools.get(p.id) ?? null;
-    for (const h of this.hideouts.values()) {
-      this.hiding.setOpen(h, f.open.includes(h.def.id));
-      h.locked = f.locked.includes(h.def.id);
-    }
-    for (const g of this.gadgets.values()) this.hiding.setUsed(g, f.used.includes(g.def.id));
-    this.carDoorsClicked.clear();
-    for (const group of f.carDoors ?? []) this.carDoorsClicked.add(group);
-    if (f.power.fixer !== this.power.fixer) this.power.progress = 0;
-    this.power.on = f.power.on;
-    this.power.fixer = f.power.fixer;
-    this.power.dead = f.power.dead;
-  }
-
-  /**
-   * The brick works as clients are told it: what is in each machine, what it is making and what
-   * waits in its output area, and who carries what.
-   */
-  brickWorks(): BrickWorksState {
-    return {
-      machines: [...this.machines.values()].map((m) => [
-        m.def.id,
-        m.mould,
-        m.colour,
-        m.shots,
-        m.part,
-        m.jammed,
-        m.fixer,
-        [...m.out],
-        m.making,
-      ]),
-      tools: [...this.players.values()].flatMap((p) =>
-        p.tool ? [[p.id, p.tool] as [number, Tool]] : [],
-      ),
-    };
-  }
-
-  /** Poses a replicated body for the next step. */
-  setPose(body: RigidBody, pos: Vec3, rot: Quat): void {
-    body.setNextKinematicTranslation(pos);
-    body.setNextKinematicRotation(rot);
   }
 
   // ---------------------------------------------------------------- step
