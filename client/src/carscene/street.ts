@@ -108,54 +108,6 @@ export interface StreetPlan {
   open?: boolean;
 }
 
-/** The street as the car scene's picture has it, before the cars. */
-export const STREET: StreetPlan = {
-  x0: -12.6,
-  x1: 3.6,
-  north: -13.3,
-  south: -19.7,
-  middle: -16.5,
-  pavement: 2.2,
-  crossing: -4.5,
-  lamps: [
-    { x: -10.6, side: 'north' },
-    { x: -0.4, side: 'north' },
-    { x: -8.2, side: 'south' },
-    { x: 2.4, side: 'south' },
-  ],
-  // The second under the road works' plate.
-  manholes: [
-    { x: -9.2, z: -15.6, lifts: true },
-    { x: 0.8, z: -17.6, lifts: false },
-  ],
-  drains: [
-    { x: -7.2, side: 'north' },
-    { x: 1.8, side: 'north' },
-    { x: -1.4, side: 'south' },
-    { x: -10.4, side: 'south' },
-  ],
-  // The west one ends short of the lamp on the pavement's edge there.
-  railings: [
-    { x: -8.85, side: 'north', length: 2.7 },
-    { x: 1.5, side: 'north', length: 2.0 },
-    { x: -0.1, side: 'south', length: 2.5 },
-  ],
-  furniture: [
-    // On the north pavement: a hydrant, a bin and a charging post.
-    { kind: 'hydrant', x: -8.0, side: 'north', back: 1.5 },
-    { kind: 'bin', x: -11.9, side: 'north', back: 1.7, toRoad: true },
-    { kind: 'charger', x: 2.3, side: 'north', back: 1.8, toRoad: true },
-    // On the south pavement: a pair of bins, a bench, a planter and bollards at the crossing.
-    { kind: 'bin', x: -11.2, side: 'south', back: 1.75, toRoad: true },
-    { kind: 'bin', x: -10.6, side: 'south', back: 1.75, toRoad: true, colour: BUS.yellow },
-    { kind: 'bench', x: -0.6, side: 'south', back: 1.6, toRoad: true },
-    { kind: 'planter', x: 1.3, side: 'south', back: 1.4, seed: 41 },
-    { kind: 'bollard', x: -7.1, side: 'south', back: 0.42 },
-    { kind: 'bollard', x: -7.75, side: 'south', back: 0.42 },
-  ],
-  bays: [],
-};
-
 /** The kerb's height, and the pavement's top just under it. */
 const KERB = { height: 0.15, depth: 0.22 };
 const PAVE = 0.146;
@@ -1403,7 +1355,7 @@ function planter(parent: THREE.Object3D, seed: number): void {
 }
 
 /** Builds the street as `plan` lays it out, in place in the scene. */
-export function buildStreet(plan: StreetPlan = STREET): THREE.Group {
+export function buildStreet(plan: StreetPlan): THREE.Group {
   const root = new THREE.Group();
   root.name = 'street';
   const { crossing: cx, north, south } = plan;

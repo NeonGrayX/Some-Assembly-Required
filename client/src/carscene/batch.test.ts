@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { batchStatic } from './batch.ts';
+import { CHEVRON_LAYOUT } from './chevronLayout.ts';
 import { buildCarScene } from './scene.ts';
 
 const meshes = (root: THREE.Object3D) => {
@@ -11,7 +12,7 @@ const meshes = (root: THREE.Object3D) => {
   return n;
 };
 
-const { root } = buildCarScene();
+const { root } = buildCarScene({ layout: CHEVRON_LAYOUT });
 
 describe('baking the car scene together', () => {
   it('draws it in far fewer meshes, in the same place, its doors still apart', () => {
