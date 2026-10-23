@@ -40,11 +40,12 @@ export default defineConfig({
     target: 'es2022',
     chunkSizeWarningLimit: 4000,
     rollupOptions: {
+      // The pages a release serves. The model gallery (models.html) and the pirate island test
+      // map (island-test.html) are for working on the models, so only the dev server has them.
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),
         editor: fileURLToPath(new URL('editor.html', import.meta.url)),
         frametest: fileURLToPath(new URL('frametest.html', import.meta.url)),
-        island: fileURLToPath(new URL('island-test.html', import.meta.url)),
       },
     },
   },

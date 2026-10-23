@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { BIG_HOUSE_BODY, BIG_WINDOWS } from './bighouse.ts';
 import { MACHINE_SIZE } from '@sar/shared';
 import { BODY, HOVER, SQUASH } from './car.ts';
-import { HEIGHT } from '../testmap/walk.ts';
+import { HEIGHT } from './solids.ts';
 import { type Face, HOUSE_BODY, HOUSE_WINDOWS, type Opening } from './house.ts';
 import { buildCarScene } from './scene.ts';
 

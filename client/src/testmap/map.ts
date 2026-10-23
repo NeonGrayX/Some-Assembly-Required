@@ -3,7 +3,7 @@ import { groundHeight } from '@sar/shared';
 import type { LevelDef } from '@sar/shared';
 import type { AssetName, PirateAssets } from './assets.ts';
 import { SHIP, SPAWN, islandLevel } from './ground.ts';
-import { Solids } from './walk.ts';
+import { Solids } from '../carscene/solids.ts';
 
 /**
  * The pirate test map laid out: the island's ground and sea, the galleon in its cove with a rope
