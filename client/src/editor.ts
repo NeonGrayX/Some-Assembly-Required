@@ -52,6 +52,7 @@ import {
 } from './ui/brickFinder.ts';
 import type { BrickFilter, ColourFilter } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
+import { History } from './editor/history.ts';
 
 /**
  * In-browser editor for target builds, opened from the main menu. Uses the same grid, aiming and
@@ -390,12 +391,6 @@ type Snapshot = {
   name: string;
 };
 
-const HISTORY = 200;
-const undoStack: Snapshot[] = [];
-const redoStack: Snapshot[] = [];
-const undoBtn = $<HTMLButtonElement>('ed-undo');
-const redoBtn = $<HTMLButtonElement>('ed-redo');
-
 /** Bricks are never changed in place, only swapped, so the snapshot can share them. */
 function snapshot(): Snapshot {
   return {
@@ -422,34 +417,12 @@ function restore(s: Snapshot): void {
   redraw();
 }
 
-/** Remembers the build as it was before a change, so the change can be undone. */
-function record(before: Snapshot = snapshot()): void {
-  undoStack.push(before);
-  if (undoStack.length > HISTORY) undoStack.shift();
-  redoStack.length = 0;
-  updateHistoryButtons();
-}
-
-function undo(): void {
-  const s = undoStack.pop();
-  if (!s) return;
-  redoStack.push(snapshot());
-  restore(s);
-  updateHistoryButtons();
-}
-
-function redo(): void {
-  const s = redoStack.pop();
-  if (!s) return;
-  undoStack.push(snapshot());
-  restore(s);
-  updateHistoryButtons();
-}
-
-function updateHistoryButtons(): void {
-  undoBtn.disabled = undoStack.length === 0;
-  redoBtn.disabled = redoStack.length === 0;
-}
+const undoBtn = $<HTMLButtonElement>('ed-undo');
+const redoBtn = $<HTMLButtonElement>('ed-redo');
+const undoHistory = new History(snapshot, restore, () => {
+  undoBtn.disabled = !undoHistory.canUndo;
+  redoBtn.disabled = !undoHistory.canRedo;
+});
 
 // ------------------------------------------------------------------ scene
 
@@ -664,7 +637,7 @@ function updateSummary(): void {
 
 /** Loads a build in place of this one. It can be undone, like any other change. */
 function load(build: TargetBuild): void {
-  record();
+  undoHistory.record();
   replaceBuild(build);
   step = Math.max(0, build.steps.length - 1);
   redraw();
@@ -918,12 +891,12 @@ container.addEventListener('pointerup', (e) => {
       return;
     }
     steps.set(id, step);
-    record(before);
+    undoHistory.record(before);
     redraw();
   } else if (e.button === 2 || (e.button === 0 && removing)) {
     const hit = pick(e);
     if (hit?.brickId === undefined || hit.brickId === PLATE.id) return;
-    record();
+    undoHistory.record();
     grid.remove(hit.brickId);
     steps.delete(hit.brickId);
     redraw();
@@ -936,8 +909,8 @@ window.addEventListener('keydown', (e) => {
   // Ctrl+Z (Cmd+Z on a Mac) undoes; with Shift, or Ctrl+Y, redoes.
   if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) {
     e.preventDefault();
-    if (e.code === 'KeyY' || e.shiftKey) redo();
-    else undo();
+    if (e.code === 'KeyY' || e.shiftKey) undoHistory.redo();
+    else undoHistory.undo();
     return;
   }
   if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey) rotate();
@@ -1102,10 +1075,10 @@ nameInput.addEventListener('change', () => {
   if (nameInput.value === name) return;
   const before = snapshot();
   name = nameInput.value;
-  record(before);
+  undoHistory.record(before);
 });
-undoBtn.addEventListener('click', undo);
-redoBtn.addEventListener('click', redo);
+undoBtn.addEventListener('click', () => undoHistory.undo());
+redoBtn.addEventListener('click', () => undoHistory.redo());
 $('ed-export').addEventListener('click', () => {
   json.value = stringifyBuildFile(currentBuild());
   json.select();
@@ -1225,7 +1198,7 @@ function applyCode(): void {
     return;
   }
   if (!codeRecorded) {
-    record();
+    undoHistory.record();
     codeRecorded = true;
   }
   codeIds = replaceBuild(build);
@@ -1331,7 +1304,6 @@ const viewer = createBrickViewer({
 $('ed-view-bricks').addEventListener('click', () => viewer.show(type, colour));
 
 redraw();
-updateHistoryButtons();
 
 /** The element the game's canvas goes back into when the editor shuts. */
 let canvasHome: HTMLElement | null = null;
