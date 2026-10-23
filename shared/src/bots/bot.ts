@@ -5,7 +5,7 @@ import { MAX_EXTRAS, PASS_FRACTION, matchBuild } from '../builds/match.ts';
 import type { MatchResult } from '../builds/match.ts';
 import type { PrintedPage } from '../builds/forgery.ts';
 import type { TargetBrick } from '../builds/types.ts';
-import { levelBoards, levelSites, machinePose } from '../content/house.ts';
+import { levelSites, machinePose } from '../content/house.ts';
 import type { BrickGrid } from '../grid.ts';
 import { add, conj, length, makeRng, scale, sub, v3 } from '../math.ts';
 import type { Vec3 } from '../math.ts';
@@ -17,7 +17,8 @@ import { FEET, overPlate } from './nav.ts';
 import type { PathCosts, Plate, Waypoint } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
 import type { Squad, Team } from './squad.ts';
-import type { Errand, Heard } from './talk.ts';
+import type { Errand } from './talk.ts';
+import { BotChat } from './chat.ts';
 import { Chores } from './chores.ts';
 import { PageJobs } from './pageJobs.ts';
 import { Building } from './building.ts';
@@ -59,7 +60,7 @@ export class Bot {
   /** The job site (team) it builds for. */
   site = 0;
   private job: Job<unknown> | null = null;
-  private jobName = '';
+  jobName = '';
   private rest = 0;
   private seq = 0;
   readonly ctl = {
@@ -95,11 +96,11 @@ export class Bot {
   private reads = 0;
   private lastCheck = 0;
   private lastLook = 0;
-  private lastSaid = -Infinity;
+  lastSaid = -Infinity;
   /** Answers to people, each with the tick it is said (a moment to "type" it). */
-  private replies: { at: number; text: string }[] = [];
+  replies: { at: number; text: string }[] = [];
   /** Something a person asked it to do, and who asked. */
-  private errand: { what: Errand; from: number; until: number } | null = null;
+  errand: { what: Errand; from: number; until: number } | null = null;
   private votedIn = -1;
   private voteAt = 0;
   /** Ticks into a round, so a saboteur does not strike in its first moments. */
@@ -108,6 +109,8 @@ export class Bot {
   private wanderAt = 0;
   /** Nodes something is in the way of, with the tick to try them again. */
   private readonly blocked = new Map<number, number>();
+  /** Talking with people (see `BotChat`). */
+  readonly chat: BotChat;
   /** Small jobs (see `Chores`). */
   readonly chores: Chores;
   /** Finding and reading the pages (see `PageJobs`). */
@@ -127,6 +130,7 @@ export class Bot {
     seed: number,
   ) {
     this.random = makeRng(seed * 7919 + id);
+    this.chat = new BotChat(this);
     this.chores = new Chores(this);
     this.pageJobs = new PageJobs(this);
     this.building = new Building(this);
@@ -135,7 +139,7 @@ export class Bot {
   }
 
   /** Drops the job in hand, letting go of what it claimed. */
-  private stop(): void {
+  stop(): void {
     this.job?.return(undefined as never);
     this.job = null;
   }
@@ -167,7 +171,7 @@ export class Bot {
     const room = this.squad.game;
     const round = room.round;
     this.seq++;
-    this.speak();
+    this.chat.speak();
     if (room.phase !== 'building' || !round) {
       this.stop();
       return;
@@ -298,255 +302,12 @@ export class Bot {
     this.squad.trace?.(this.id, `says: ${text}`);
     // Only when people are there to read it, and not too often.
     if (this.squad.tick - this.lastSaid < 8 * 60) return;
-    if (!this.peopleHere()) return;
+    if (!this.chat.peopleHere()) return;
     this.lastSaid = this.squad.tick;
     this.squad.game.handle(this.id, { t: 'chat', text });
   }
 
   // ---------------------------------------------------------------- chat
-
-  /** Queues an answer to say after `seconds` (about the time it takes to type). */
-  reply(text: string, seconds = 1.5 + text.length / 25): void {
-    if (this.replies.length >= 3 || !this.peopleHere()) return;
-    this.replies.push({ at: this.squad.tick + Math.round(seconds * 60), text });
-  }
-
-  /** Whether anyone reads the chat (bots between themselves say nothing). */
-  private peopleHere(): boolean {
-    return [...this.squad.game.clients.values()].some((c) => c.connected && !c.bot);
-  }
-
-  /** Says the next queued answer when its time comes. */
-  private speak(): void {
-    const next = this.replies[0];
-    if (!next || this.squad.tick < next.at || this.squad.tick - this.lastSaid < 90) return;
-    this.replies.shift();
-    if (!this.peopleHere()) return;
-    this.lastSaid = this.squad.tick;
-    this.squad.trace?.(this.id, `says: ${next.text}`);
-    this.squad.game.handle(this.id, { t: 'chat', text: next.text });
-  }
-
-  /**
-   * Something a person said that it heard (see `Squad.hear`, which has already weighed any claim
-   * in it). `direct`: said to this bot by name.
-   */
-  answer(h: Heard, from: number, direct: boolean): void {
-    const round = this.squad.game.round;
-    const who = this.nameOf(from);
-    switch (h.kind) {
-      case 'greet':
-        if (direct || this.random() < 0.5) this.reply(`Hi ${who}!`);
-        return;
-      case 'accuse':
-        if (h.target === this.id) {
-          const other = this.topSuspect(from);
-          this.reply(
-            other ? `Not me! If anyone, ${this.nameOf(other)}.` : 'Not me! I was just building.',
-          );
-        } else if (this.saboteur && round?.partners(this.id).includes(h.target)) {
-          // Covers for a fellow saboteur.
-          this.reply(`${this.nameOf(h.target)}? They were with me the whole time.`);
-        } else if (direct || this.random() < 0.4) {
-          const sure = (this.squad.suspicion.get(h.target) ?? 0) >= this.skill.accuse;
-          this.reply(
-            sure
-              ? `I think so too. Let's vote ${this.nameOf(h.target)} off.`
-              : `Noted, I'll keep an eye on ${this.nameOf(h.target)}.`,
-          );
-        }
-        return;
-      case 'clear':
-        if (direct) this.reply(`OK, if you say so.`);
-        return;
-      case 'vote':
-      case 'skip':
-        return;
-      case 'ask':
-        if (h.about === 'suspect') this.reply(this.suspectLine(from));
-        else if (h.about === 'doing') this.reply(this.doingLine());
-        else {
-          const stamp = this.team.realStamp;
-          this.reply(
-            stamp && !this.saboteur
-              ? `The real stamp is ${stamp}.`
-              : 'Nobody has read the master index yet, so I am not sure.',
-          );
-        }
-        return;
-      case 'page':
-        this.reply(this.pageLine(h.step, from));
-        return;
-      case 'errand':
-        this.takeErrand(h.errand, from);
-        return;
-    }
-  }
-
-  /** The player it suspects most (other than `but`), if it suspects anyone at all. */
-  private topSuspect(but: number): number | null {
-    const round = this.squad.game.round;
-    if (!round) return null;
-    let best: number | null = null;
-    let top = 0.25;
-    for (const id of round.onSite) {
-      if (id === this.id || id === but || round.partners(this.id).includes(id)) continue;
-      const s = this.squad.suspicion.get(id) ?? 0;
-      if (s > top) {
-        top = s;
-        best = id;
-      }
-    }
-    return best;
-  }
-
-  private suspectLine(asker: number): string {
-    const round = this.squad.game.round!;
-    if (this.saboteur) {
-      // Points at an innocent: whoever looks worst already, or now and then whoever hangs about
-      // the build most.
-      const blame = this.topSuspect(-1);
-      if (blame !== null) return `I suspect ${this.nameOf(blame)}.`;
-      if (this.random() < 0.5 * this.skill.mischief) {
-        const near = [...this.squad.nearBuild]
-          .filter(([id]) => id !== this.id && id !== asker && round.onSite.includes(id))
-          .filter(([id]) => !round.partners(this.id).includes(id))
-          .sort((a, b) => b[1] - a[1])[0];
-        if (near) return `Maybe ${this.nameOf(near[0])}? They keep hanging around the build.`;
-      }
-      return 'No idea yet.';
-    }
-    const top = this.topSuspect(-1);
-    if (top === null) return 'No idea yet. Nobody has done anything I could see.';
-    const s = this.squad.suspicion.get(top) ?? 0;
-    const why = this.squad.why.get(top);
-    return s >= 0.5
-      ? `I suspect ${this.nameOf(top)}${why ? `: ${why}` : ''}.`
-      : `Maybe ${this.nameOf(top)}${why ? ` (${why})` : ''}, but I am not sure.`;
-  }
-
-  private doingLine(): string {
-    const doing = this.jobName;
-    const said: Record<string, string> = {
-      build: 'Putting bricks on the build.',
-      'fix a brick': 'Taking a wrong brick off the build.',
-      'read the page': 'Reading a page and pinning it up.',
-      'feed the dog': 'Feeding the dog.',
-      'fix the panel': 'Fixing the power.',
-      'ring the bell': 'Calling a meeting.',
-      'press Done': 'Pressing Done, it is finished.',
-      wait: 'Waiting for more pages to turn up.',
-      'come over': 'Coming over.',
-    };
-    return said[doing] ?? 'Looking for pages.';
-  }
-
-  /** Where a page is, as far as it knows (a saboteur keeps the pages it hid to itself). */
-  private pageLine(step: number, asker: number): string {
-    const sim = this.squad.game.sim;
-    const name = step < 0 ? 'The master index' : `Page ${step + 1}`;
-    const page = [...sim.pages.values()].find((pg) => pg.printed && pg.printed.step === step);
-    if (!page) return `I have not seen ${name.toLowerCase()} anywhere.`;
-    if (page.carriedBy === this.id) return `I have it.`;
-    if (page.carriedBy === asker) return `You have it!`;
-    if (page.carriedBy !== null) return `${this.nameOf(page.carriedBy)} has it.`;
-    if (page.pinned !== null) return `${name} is pinned on the board.`;
-    if (sim.dog.page === page.id) return `The dog has ${name.toLowerCase()}!`;
-    const seen = this.team.sightings.get(page.id);
-    if (seen && !(this.saboteur && this.random() < 0.5))
-      return `${name} is ${this.where(seen.pos)}.`;
-    return step >= 0 && this.team.notes.has(step)
-      ? `I have not seen it, but someone read it already.`
-      : `Not seen ${name.toLowerCase()} yet.`;
-  }
-
-  /** "near the silo", "up high near the board": where a spot is, by the nearest landmark. */
-  private where(at: Vec3): string {
-    const sim = this.squad.game.sim;
-    const marks: [string, Vec3][] = [
-      ['the build', sim.buildCentre(sim.build(this.site))],
-      ['the dog bowl', sim.level.dog.treatJar],
-    ];
-    const kinds: Record<string, string> = {
-      press: 'the moulding machines',
-      silo: 'the silo',
-      dispenser: 'the mould dispenser',
-      printer: 'the printer',
-    };
-    for (const m of sim.machines.values())
-      marks.push([kinds[m.def.kind] ?? 'the brick works', m.def.pos]);
-    for (const b of levelBoards(sim.level)) marks.push(['the board', b.pos]);
-    if (sim.panel) marks.push(['the power panel', sim.panel]);
-    const flat = (v: Vec3) => Math.hypot(v.x - at.x, v.z - at.z);
-    const [mark, pos] = marks.sort((a, b) => flat(a[1]) - flat(b[1]))[0]!;
-    const d = flat(pos);
-    const height = at.y > pos.y + 1.6 ? 'up high ' : at.y < pos.y - 1.6 ? 'down below ' : '';
-    return d < 3 ? `${height}by ${mark}` : `${height}about ${Math.round(d)} m from ${mark}`;
-  }
-
-  private takeErrand(what: Errand, from: number): void {
-    const sim = this.squad.game.sim;
-    if (what === 'dog' && sim.dog.leashed) return this.reply('The dog is on its leash already.');
-    if (what === 'panel' && sim.power.on) return this.reply('The power is on.');
-    if (what === 'bell' && !this.saboteur && this.accused() === null)
-      return this.reply('I am not sure who it is yet.');
-    // A saboteur goes along with it now and then, to look helpful.
-    if (this.saboteur && what !== 'come' && this.random() < 0.5) return this.reply('In a moment.');
-    this.errand = { what, from, until: this.squad.tick + 20 * 60 };
-    // Drops what it was doing for it, unless it has a brick in hand to put on.
-    if (!this.me()?.holding) this.stop();
-    this.reply(
-      {
-        dog: 'On it, feeding the dog.',
-        panel: 'On it.',
-        search: 'OK, looking for pages.',
-        come: 'Coming!',
-        bell: 'Calling a meeting.',
-      }[what],
-      1,
-    );
-  }
-
-  /** The job a person asked for, if one is waiting. */
-  private runErrand(): Job<unknown> | null {
-    const e = this.errand;
-    this.errand = null;
-    if (!e || this.squad.tick > e.until) return null;
-    switch (e.what) {
-      case 'dog':
-        return this.named('feed the dog', this.onDuty('dogBy', this.chores.feedDog()));
-      case 'panel':
-        if (!this.squad.game.sim.panel) return null;
-        return this.named('fix the panel', this.onDuty('panelBy', this.chores.fixPanel()));
-      case 'search':
-        return this.pageJobs.search();
-      case 'bell':
-        return this.named('ring the bell', this.onDuty('bellBy', this.ringBell()));
-      case 'come':
-        return this.named('come over', this.comeOver(e.from));
-    }
-  }
-
-  /** Walks over to a player. */
-  private *comeOver(id: number): Job {
-    const p = this.squad.game.sim.players.get(id);
-    if (!p) return false;
-    const at = p.body.translation();
-    const goals = this.squad.nav.around(at, 2, 2, 0.6);
-    const close = () => {
-      const q = this.squad.game.sim.players.get(id)?.body.translation();
-      return !!q && length(sub(q, this.feet())) < 2.2;
-    };
-    const ok = yield* this.walk(goals, close, 30);
-    const q = this.squad.game.sim.players.get(id)?.body.translation();
-    if (q) {
-      const f = this.feet();
-      this.ctl.yaw = Math.atan2(-(q.x - f.x), -(q.z - f.z));
-    }
-    // Waits a little for whatever they wanted.
-    for (let k = 0; k < 180; k++) yield;
-    return ok;
-  }
 
   // ---------------------------------------------------------------- the world
 
@@ -714,7 +475,7 @@ export class Bot {
     this.squad.game.handle(this.id, { t: 'vote', target });
     // Says how it votes, and why, for the people in the meeting.
     const why = this.saboteur ? undefined : this.squad.why.get(target);
-    this.reply(
+    this.chat.reply(
       target
         ? `I vote ${this.nameOf(target)}${why ? `: ${why}` : ''}.`
         : 'I skip, I am not sure yet.',
@@ -761,7 +522,7 @@ export class Bot {
       if (fits) return this.named('build', this.building.buildOne(fits));
       return this.named('let go', this.chores.letGo());
     }
-    const errand = this.runErrand();
+    const errand = this.chat.runErrand();
     if (errand) return errand;
     // Free build: no plans and no clock, so nothing to build to; it keeps people company.
     if (round.mode === 'free') return this.named('wait', this.loiter());
@@ -1591,7 +1352,7 @@ export class Bot {
     return this.accused() !== null;
   }
 
-  private accused(): number | null {
+  accused(): number | null {
     const round = this.squad.game.round!;
     let best: number | null = null;
     let top = 0;
@@ -1606,7 +1367,7 @@ export class Bot {
     return top >= this.skill.accuse ? best : null;
   }
 
-  private *ringBell(): Job {
+  *ringBell(): Job {
     const sim = this.squad.game.sim;
     const who = this.accused();
     const site = levelSites(sim.level)[this.site]!;

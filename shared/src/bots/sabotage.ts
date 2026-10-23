@@ -87,7 +87,7 @@ export class Sabotage {
       .filter(([id]) => !round.partners(this.bot.id).includes(id))
       .sort((a, b) => b[1] - a[1])[0];
     if (near)
-      this.bot.reply(
+      this.bot.chat.reply(
         `Did anyone else see ${this.bot.nameOf(near[0])} fiddling with the build?`,
         20,
       );

@@ -343,7 +343,7 @@ export class Squad {
         h.kind === 'accuse' && this.bots.has(h.target) && bots.some((b) => b.id === h.target)
           ? this.bots.get(h.target)!
           : answerer;
-      if (bot && (building || h.kind === 'greet')) bot.answer(h, from, said.to === bot.id);
+      if (bot && (building || h.kind === 'greet')) bot.chat.answer(h, from, said.to === bot.id);
     }
   }
 }
