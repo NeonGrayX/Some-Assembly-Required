@@ -250,7 +250,7 @@ export class BotChat {
       const q = this.bot.squad.game.sim.players.get(id)?.body.translation();
       return !!q && length(sub(q, this.bot.feet())) < 2.2;
     };
-    const ok = yield* this.bot.walk(goals, close, 30);
+    const ok = yield* this.bot.walking.walk(goals, close, 30);
     const q = this.bot.squad.game.sim.players.get(id)?.body.translation();
     if (q) {
       const f = this.bot.feet();

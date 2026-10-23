@@ -263,7 +263,7 @@ export class Building {
           .filter(
             (n) =>
               !tried.has(n) &&
-              !this.bot.overPlate(nav.xs[n]!, nav.ys[n]!, nav.zs[n]!) &&
+              !this.bot.walking.overPlate(nav.xs[n]!, nav.ys[n]!, nav.zs[n]!) &&
               this.holdClear(nav.pos(n), at),
           )
           .map((n) => {
@@ -286,7 +286,10 @@ export class Building {
           .map((s) => s.n);
         if (!goals.length) return false;
         for (const g of goals) tried.add(g);
-        yield* this.bot.walk(goals, () => !!this.placement(b) || !!this.placement(b, JUMP_LIFT));
+        yield* this.bot.walking.walk(
+          goals,
+          () => !!this.placement(b) || !!this.placement(b, JUMP_LIFT),
+        );
       }
       // Stand still, Shift up (it may be down from running, and no layer may stay locked from
       // before), and find the aim again from where it stopped.
@@ -503,7 +506,7 @@ export class Building {
     const to = v3(me.x + ((me.x - centre.x) / d) * 0.4, me.y, me.z + ((me.z - centre.z) / d) * 0.4);
     const n = nav.closest(to, 0.4, 0.4);
     if (n === null) return false;
-    yield* this.bot.walk([n], undefined, 5);
+    yield* this.bot.walking.walk([n], undefined, 5);
     this.bot.halt();
     for (let k = 0; k < 10; k++) yield;
     return true;

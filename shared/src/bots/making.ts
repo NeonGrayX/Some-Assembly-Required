@@ -145,7 +145,7 @@ export class BrickMaking {
         if (!(yield* this.getMould(type))) return false;
         const near = presses()[0];
         if (near)
-          yield* this.bot.walk(
+          yield* this.bot.walking.walk(
             this.bot.stands(this.machineTarget(near.def.id).point()!, () => true, 1.6).slice(0, 3),
             undefined,
             20,
@@ -230,7 +230,7 @@ export class BrickMaking {
         (o.kind === 'machine' || o.kind === 'output') && o.machineId === id;
       const inReach = (): boolean =>
         !!this.bot.aim(front.point()!, front.ok) && !!this.bot.aim(out, near);
-      if (!inReach()) yield* this.bot.walk(this.bot.stands(out, near).slice(0, 3), inReach);
+      if (!inReach()) yield* this.bot.walking.walk(this.bot.stands(out, near).slice(0, 3), inReach);
       if (!(yield* this.makeRoom(m, wanted, able)) || this.has(wanted)) continue;
       // Things change while it waits.
       if (!able()) return false;

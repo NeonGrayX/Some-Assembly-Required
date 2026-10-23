@@ -159,7 +159,7 @@ export class Sabotage {
       );
     if (!stands.length) return false;
     const goal = stands[Math.floor(this.bot.random() * stands.length)]!;
-    yield* this.bot.walk([goal], undefined, 25);
+    yield* this.bot.walking.walk([goal], undefined, 25);
     if (!(yield* this.alone(8))) return false;
     // A brick in view that has a look-alike colour; one of the earlier steps, already checked.
     const bricks = [...build.grid.bricks.values()].filter((b) => !BRICK_TYPES[b.type].fixture);
@@ -194,7 +194,7 @@ export class Sabotage {
       .around(centre, 1.7, 1.5, 0.5)
       .filter((n) => Math.hypot(nav.xs[n]! - centre.x, nav.zs[n]! - centre.z) > 1.0);
     if (!stands.length) return false;
-    yield* this.bot.walk(stands.slice(0, 4), undefined, 20);
+    yield* this.bot.walking.walk(stands.slice(0, 4), undefined, 20);
     // A trip looks like anyone's: only a careless saboteur waits to be alone for it.
     if (!this.bot.skill.bold && !(yield* this.alone(6))) return false;
     const f = this.bot.feet();
@@ -218,7 +218,7 @@ export class Sabotage {
     const mid = add(centre, scale(sub(press, centre), 0.35 + this.bot.random() * 0.3));
     const n = this.bot.squad.nav.closest(v3(mid.x, centre.y - 0.3, mid.z), 1.5, 1);
     if (n === null) return false;
-    yield* this.bot.walk([n], undefined, 20);
+    yield* this.bot.walking.walk([n], undefined, 20);
     if (!(yield* this.alone(5))) return false;
     this.bot.ctl.yaw = Math.atan2(-(centre.x - mid.x), -(centre.z - mid.z));
     this.bot.act({ kind: 'sabotage', tool: 'trap' });
@@ -247,7 +247,7 @@ export class Sabotage {
     const at = target.point()!;
     const goals = this.bot.stands(at, target.ok);
     if (!goals.length) return false;
-    yield* this.bot.walk(goals.slice(0, 3), () => !!this.bot.aim(at, target.ok), 25);
+    yield* this.bot.walking.walk(goals.slice(0, 3), () => !!this.bot.aim(at, target.ok), 25);
     if (!(yield* this.alone(8, at))) return false;
     const sol = this.bot.aim(at, target.ok);
     if (!sol) return false;

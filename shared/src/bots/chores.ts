@@ -34,7 +34,7 @@ export class Chores {
         continue;
       if (this.bot.avoided(`debris|${a.id}`)) continue;
       const at = a.body.worldCom();
-      if (!this.bot.overPlate(at.x, at.y, at.z)) continue;
+      if (!this.bot.walking.overPlate(at.x, at.y, at.z)) continue;
       const d = length(sub(at, me));
       if (!best || d < best.d) best = { id: a.id, d };
     }
@@ -106,7 +106,7 @@ export class Chores {
             Math.hypot(nav.xs[a]! - me.x, nav.zs[a]! - me.z) -
             Math.hypot(nav.xs[b]! - me.x, nav.zs[b]! - me.z),
         );
-      if (spots.length) yield* this.bot.walk(spots.slice(0, 4), undefined, 15);
+      if (spots.length) yield* this.bot.walking.walk(spots.slice(0, 4), undefined, 15);
       me = this.bot.feet();
     }
     this.bot.halt();

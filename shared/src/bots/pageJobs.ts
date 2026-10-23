@@ -198,7 +198,7 @@ export class PageJobs {
         const spot = add(b.pos, out);
         const n = this.bot.squad.nav.closest(v3(spot.x, b.pos.y - 1.3, spot.z), 1, 1.5);
         if (n === null) continue;
-        yield* this.bot.walk([n], undefined, 20);
+        yield* this.bot.walking.walk([n], undefined, 20);
         this.bot.ctl.yaw = Math.atan2(-(b.pos.x - spot.x), -(b.pos.z - spot.z));
         for (let k = 0; k < 20; k++) yield;
         this.bot.look();
@@ -241,7 +241,7 @@ export class PageJobs {
         for (const n of spots) {
           if (this.bot.memory?.step === step) break;
           if (n === null) continue;
-          yield* this.bot.walk([n], undefined, 20);
+          yield* this.bot.walking.walk([n], undefined, 20);
           const from = nav.pos(n);
           this.bot.ctl.yaw = Math.atan2(-(at.x - from.x), -(at.z - from.z));
           for (let k = 0; k < 20; k++) yield;
@@ -270,7 +270,7 @@ export class PageJobs {
       .map((n) => ({ n, rank: seen(n, 1.6) ? 0 : seen(n, 2.3) ? 1 : 2 }))
       .sort((a, b) => a.rank - b.rank)
       .map((o) => o.n);
-    const there = n.length ? yield* this.bot.walk(n.slice(0, 4), undefined, 25) : false;
+    const there = n.length ? yield* this.bot.walking.walk(n.slice(0, 4), undefined, 25) : false;
     // Turn round once there, in case it lies behind something.
     for (let k = 0; k < 4; k++) {
       this.bot.ctl.yaw += Math.PI / 2;
