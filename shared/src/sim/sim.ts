@@ -42,7 +42,7 @@ import { DogWorld } from './dogworld.ts';
 import { GearHunt } from './gearhunt.ts';
 import { HidingPlaces } from './hiding.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
-import { DOWN_TICKS, KnockDowns } from './knockdowns.ts';
+import { KnockDowns } from './knockdowns.ts';
 import { Movement } from './movement.ts';
 import { Pages } from './pages.ts';
 import { Placing } from './placing.ts';
@@ -53,7 +53,6 @@ import { Replication } from './replication.ts';
 import { SUCK_TICKS, VacuumCleaner } from './vacuum.ts';
 import type { MachineAct } from './operate.ts';
 import { DT } from './time.ts';
-import type { StealTarget, WreckTarget } from './dog.ts';
 import type { Connection, Placement, PlacedBrick } from '../grid.ts';
 import { BrickGrid, localCentre } from '../grid.ts';
 import { canFlip } from '../snap.ts';
@@ -189,7 +188,7 @@ function actOf(
   return kind === 'printer' && took ? { act: 'take', at: -1 } : { act: 'work', at: -1 };
 }
 
-// Knock-downs
+// Railings, floors and ceilings
 /**
  * How far over a guarded railing (round a stairwell or a roof) players meet a wall they cannot
  * see. At the top of a jump (1.3 m up) a player steps onto anything up to `STEP_UP` higher,
@@ -236,6 +235,7 @@ export function doorOffset(door: SlidingDoorDef, t: number): Vec3 {
   return add(scale(out, split ? eased(t, 0, split) : 0), scale(along, eased(t, split, 1)));
 }
 
+// Bricks
 /**
  * A held brick sits in front of the player's chest, between the hands: `up` above the middle
  * of the body, its near face `front` ahead of it. Where the player looks does not move it.
@@ -371,7 +371,7 @@ export interface Player {
    * Working a machine (or the broken electrical panel) they clicked, as patting the dog: walking
    * up to it to stand before where they clicked, then working it there with their hands a while
    * (see `Work`), or with a wrench till it is fixed. At a machine they stay till they are done,
-   * whatever they press (see `movePlayer`); at the panel, moving off ends it.
+   * whatever they press (see `Movement.movePlayer`); at the panel, moving off ends it.
    */
   work: Work | null;
   /** How many times they have set to work, so a client takes up each once (see `Work.n`). */
@@ -417,7 +417,8 @@ export interface Player {
   pendingInputs: PlayerInput[] | null;
   /**
    * While Shift (the sprint key) is held with something in hand: the layer of a build that
-   * snapping keeps to, taken from where it snapped when the key went down (see `trackSnapLock`).
+   * snapping keeps to, taken from where it snapped when the key went down (see
+   * `Placing.trackSnapLock`).
    */
   snapLock: (SnapLayer & { targetId: number }) | null;
   /** Shift was down with something in hand at the last step, to lock only as it goes down. */
@@ -944,7 +945,7 @@ export class Sim {
   vacuum: VacuumState;
 
   /** How players move (see `Movement`). */
-  private readonly movement: Movement;
+  readonly movement: Movement;
   /** The brick works at work (see `BrickWorks`). */
   readonly works: BrickWorks;
   /** What players see and aim at (see `Sight`). */
@@ -956,7 +957,7 @@ export class Sim {
   /** Players knocked down and pulled up (see `KnockDowns`). */
   readonly knocks: KnockDowns;
   /** The world as the dog meets it (see `DogWorld`). */
-  private readonly dogWorld: DogWorld;
+  readonly dogWorld: DogWorld;
   /** The round's pages (see `Pages`). */
   readonly pageWork: Pages;
   /** The hiding places and the scenery's gadgets (see `HidingPlaces`). */
@@ -967,7 +968,9 @@ export class Sim {
   readonly carrying: Carrying;
   /** Players at work, and the power (see `Working`). */
   readonly working: Working;
+  /** Sabotage, and machines breaking down (see `Sabotage`). */
   readonly sabotage: Sabotage;
+  /** The world as clients are told it, and mirror it (see `Replication`). */
   readonly replication: Replication;
 
   readonly replica: boolean;
@@ -2278,241 +2281,5 @@ export class Sim {
         this.events.push({ kind: 'break', pos: a.body.worldCom(), count: pieces.length });
       // A piece that broke off a held build falls; only the main piece stays in hand.
     }
-  }
-
-  /**
-   * Where the player's camera is: behind their shoulder, pulled in where it would be in
-   * something (see `sightline`). Aiming starts here, so clicks land on the crosshair.
-   */
-  camera(p: Player, eye: Vec3 = this.eye(p), input: PlayerInput = p.input): Vec3 {
-    return this.sight.camera(p, eye, input);
-  }
-
-  /**
-   * Where on the way from `from` (somewhere the player sees from, like their eyes) to `to` a
-   * camera can sit. It stays out at `to` whatever is between it and the player (a post, a
-   * lamp, a machine), and comes in only where it would itself be in something: then to just
-   * short of where the line goes into that. Two things it never sees through: the ground, a
-   * floor or a ceiling; and the walls and windows between a building's inside and the outside,
-   * so that it stays in with a player who is in, and out with one who is out. With a `radius`
-   * the camera also keeps that much clear of what it would be in, so it slides along a surface
-   * it approaches instead of jumping the moment it touches; the client's camera uses that to
-   * ease in and out gently. Players, the dog and anything the sim does not own (a client's
-   * ragdolls) are never in the way.
-   */
-  sightline(p: Player, from: Vec3, to: Vec3, radius = 0): Vec3 {
-    return this.sight.sightline(p, from, to, radius);
-  }
-
-  /** What the player is aiming at, within reach (or would aim at with the view `ask`). */
-  aim(p: Player, ask?: ViewAsk): AimHit | null {
-    return this.sight.aim(p, ask);
-  }
-
-  /**
-   * Where the held brick, or the held piece of bricks clutched together, would snap right now,
-   * if anywhere. A build with the baseplate in it is never snapped onto anything. While a layer
-   * is locked (Shift), the bricks keep to it for as long as they still clutch something there.
-   */
-  snapPreview(p: Player, ask?: ViewAsk): SnapPreview | null {
-    return this.placing.snapPreview(p, ask);
-  }
-
-  /**
-   * Where the head of the vacuum a player carries rests: on the floor where their crosshair
-   * meets it, kept within reach in front of them. Looking up or far off, it goes as far out as
-   * it reaches.
-   */
-  vacuumHead(p: Player): Vec3 {
-    return this.vacuuming.vacuumHead(p);
-  }
-
-  /** Mirrors who carries the vacuum, or where it stands or lies, and how full it is. */
-  replicaVacuum(
-    heldBy: number | null,
-    pos: Vec3,
-    yaw: number,
-    leaning: boolean,
-    load: number,
-  ): void {
-    return this.vacuuming.replicaVacuum(heldBy, pos, yaw, leaning, load);
-  }
-
-  /**
-   * Knocks a player over: what they carry keeps flying the way they fell, they slide a little
-   * along `push` and lie there for `ticks`. Returns false if they were already down.
-   */
-  knockDown(p: Player, push: Vec3, ticks = DOWN_TICKS): boolean {
-    return this.knocks.knockDown(p, push, ticks);
-  }
-
-  /**
-   * The saboteur's clumsy mode: a trip like any other, except that whatever is just in front
-   * takes the stumble. Loose builds get shoved; the job-site build loses what its weaker joints
-   * held. Returns where it happened, or null if the player is already down.
-   */
-  clumsyTrip(p: Player): Vec3 | null {
-    return this.knocks.clumsyTrip(p);
-  }
-
-  /** The saboteur's barefoot trap: a few small bricks spilled on the floor in front. */
-  dropTrap(p: Player): Vec3 | null {
-    return this.knocks.dropTrap(p);
-  }
-
-  /**
-   * Whether nothing solid (walls, furniture, bins) lies between two points, for the dog; with
-   * `wide`, across its whole width too, so a gap a thin line slips through but the dog does not,
-   * a post it would walk into, or a corner it would brush, does not count as clear.
-   */
-  clearForDog(a: Vec3, b: Vec3, wide = false): boolean {
-    return this.dogWorld.clearForDog(a, b, wide);
-  }
-
-  /**
-   * Where the hungry dog stands to wreck the build: just off one side of the baseplate, the side
-   * with the most bricks in its reach (the one nearest `from` if several tie), and clear of bins.
-   */
-  wreckTarget(from: Vec3): WreckTarget | null {
-    return this.dogWorld.wreckTarget(from);
-  }
-
-  /**
-   * The hungry dog's paws on the build: every brick in its reach comes off whatever holds it
-   * up (taking what sits on it along), and is knocked away from the dog.
-   */
-  dogWreck(at: WreckTarget): boolean {
-    return this.dogWorld.dogWreck(at);
-  }
-
-  /**
-   * Where a page pinned to `slot` hangs: two rows of four on each face of a board, the front
-   * (the side its `facing` looks toward) first, board after board.
-   */
-  slotPose(slot: number): { pos: Vec3; rot: Quat } {
-    return this.pageWork.slotPose(slot);
-  }
-
-  /**
-   * Pages the dog can jump up and take: those in the bottom row of either face (the top row is
-   * out of its reach), with the spot on the floor in front of each where it stands to jump.
-   */
-  stealTargets(): StealTarget[] {
-    return this.pageWork.stealTargets();
-  }
-
-  /**
-   * Demo mode: pins a page straight to a corkboard slot, wherever it is (lying about, in a
-   * pocket or shut in a hiding place). Whatever already hangs in that slot is left where it is.
-   */
-  pinToBoard(page: PageItem, slot: number): void {
-    return this.pageWork.pinToBoard(page, slot);
-  }
-
-  /** Puts a printed page (step -1 is the master index) into the world, lying at `pos`. */
-  spawnPage(printed: PrintedPage | null, pos: Vec3, yaw = 0, id = this.newId()): PageItem {
-    return this.pageWork.spawnPage(printed, pos, yaw, id);
-  }
-
-  /** Puts a printed page straight into a hiding place, shut. */
-  spawnPageInHideout(printed: PrintedPage | null, hideoutId: number): PageItem {
-    return this.pageWork.spawnPageInHideout(printed, hideoutId);
-  }
-
-  /** Opens a hiding place (whatever is inside comes out) or shuts it again. */
-  toggleHideout(id: number, playerId?: number): void {
-    return this.hiding.toggleHideout(id, playerId);
-  }
-
-  /** Padlocks a hiding place (Gear Hunt), until someone with the key ring opens it. */
-  lockHideout(id: number): void {
-    return this.hiding.lockHideout(id);
-  }
-
-  /** Tucks a piece of gear into a hiding place and shuts it. */
-  hideGearInHideout(item: GearItem, id: number): void {
-    return this.hiding.hideGearInHideout(item, id);
-  }
-
-  /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
-  hideInHideout(page: PageItem, id: number): void {
-    return this.hiding.hideInHideout(page, id);
-  }
-
-  /** Puts a piece of gear into the world (Gear Hunt), lying at `pos`. */
-  spawnGear(kind: GearId, pos: Vec3, yaw = 0, id = this.newId()): GearItem {
-    return this.gearHunt.spawnGear(kind, pos, yaw, id);
-  }
-
-  /** Puts a piece of gear straight into a hiding place, shut. */
-  spawnGearInHideout(kind: GearId, hideoutId: number): GearItem {
-    return this.gearHunt.spawnGearInHideout(kind, hideoutId);
-  }
-
-  /** Takes a piece of gear off and drops it at the player's feet, for someone else. */
-  dropGear(p: Player, kind: GearId): void {
-    return this.gearHunt.dropGear(p, kind);
-  }
-
-  /** Where the dog's pole stands: by its kennel, at its starting point. */
-  dogPole(): Vec3 {
-    return this.gearHunt.dogPole();
-  }
-
-  /**
-   * The leash's wearer clicked the dog: the leash goes on the pole with the dog at the end of
-   * it, for the rest of the round. Returns false if the dog is leashed already.
-   */
-  leashDog(p: Player): boolean {
-    return this.gearHunt.leashDog(p);
-  }
-
-  /**
-   * Scatters a gear hunt's litter: small loose bricks around every dog point, which between
-   * them cover every path through the yard and house. Returns how many were put down.
-   */
-  spawnLitter(perPoint: number, rng: () => number): number {
-    return this.gearHunt.spawnLitter(perPoint, rng);
-  }
-
-  /** Whether the build is too heavy for this player to carry at more than a careful pace. */
-  heavyFor(p: Player): boolean {
-    return this.carrying.heavyFor(p);
-  }
-
-  /** Whether player `id` is fixing something: clearing a jammed machine, or the panel. */
-  fixing(id: number): boolean {
-    return this.working.fixing(id);
-  }
-
-  /** Who is fixing machine `machineId` (null: the electrical panel), if anyone. */
-  fixerOf(machineId: number | null): number | null {
-    return this.working.fixerOf(machineId);
-  }
-
-  /** The electrical panel breaks down: the lights stay out until someone fixes it. */
-  breakPower(): void {
-    return this.working.breakPower();
-  }
-
-  /**
-   * The panel dies for the round (a gear hunt): the lights go out for good, and the brick
-   * works run on a circuit of their own.
-   */
-  killPower(): void {
-    return this.working.killPower();
-  }
-
-  /** The power comes back without anyone fixing the panel. */
-  restorePower(): void {
-    return this.working.restorePower();
-  }
-
-  /**
-   * Whether the brick works' machines have power: they stop while the panel is out, but run on
-   * a circuit of their own while it is dead for the round (`PowerState.dead`).
-   */
-  get machinesPowered(): boolean {
-    return this.working.machinesPowered;
   }
 }

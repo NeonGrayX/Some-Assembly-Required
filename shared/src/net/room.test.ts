@@ -698,7 +698,7 @@ describe('Room demo mode', () => {
     const shut = hideoutPartInWorld(fridge.def, false).centre;
 
     // Pick up a page lying in front of the fridge.
-    const page = sim.spawnPage(
+    const page = sim.pageWork.spawnPage(
       { step: 0, added: [], stamp: room.round!.stamp },
       dropSpot(sim.level, fridge.def),
     );
@@ -1124,7 +1124,7 @@ describe('cheating', () => {
     expect(sent(b)).toHaveLength(seen);
 
     // Tucked away in a hiding place, nobody can read it until it is found.
-    sim.hideInHideout(page, [...sim.hideouts.keys()][0]!);
+    sim.hiding.hideInHideout(page, [...sim.hideouts.keys()][0]!);
     run(1);
     for (const id of [a, b])
       expect(sent(id).at(-1)!.p).toMatchObject({ hidden: true, printed: null });

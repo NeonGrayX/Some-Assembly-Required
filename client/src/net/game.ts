@@ -620,7 +620,7 @@ export class ClientGame {
         const ahead = this.seq - msg.ack;
         p.down = Math.max(0, down - ahead);
         p.limp = Math.max(0, limp - ahead);
-        // Carried on (or rested) through the inputs predicted since, as `Sim.tire` does.
+        // Carried on (or rested) through the inputs predicted since, as `Carrying.tire` does.
         const a = holding ? this.sim.assemblies.get(held) : undefined;
         const build = a !== undefined && !isLooseBrick(a);
         p.fatigue = Math.max(0, fatigue + (build ? ahead : -ahead));
@@ -670,7 +670,13 @@ export class ClientGame {
     this.sim.dog.page = dogPage || null;
     this.sim.dog.patBy = patBy || null;
     const [vacuumBy, bx, by, bz, byaw, leaning, load] = msg.vacuum;
-    this.sim.replicaVacuum(vacuumBy || null, { x: bx, y: by, z: bz }, byaw, leaning === 1, load);
+    this.sim.vacuuming.replicaVacuum(
+      vacuumBy || null,
+      { x: bx, y: by, z: bz },
+      byaw,
+      leaning === 1,
+      load,
+    );
 
     if (msg.round && this.round) {
       this.round.timeLeft = msg.round.timeLeft;

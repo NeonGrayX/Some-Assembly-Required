@@ -480,18 +480,18 @@ describe('bots at the brick works', () => {
       return job.result;
     };
     // Without power, or jammed, the silo fills nothing: the red one stays where it is.
-    sim.breakPower();
+    sim.working.breakPower();
     expect(tryBlue()).toBe(false);
     expect(silo.m.out[0]).toBe(red);
-    sim.restorePower();
+    sim.working.restorePower();
     silo.m.jammed = true;
     expect(tryBlue()).toBe(false);
     expect(silo.m.out[0]).toBe(red);
     silo.m.jammed = false;
     // The same if the power goes while it waits for someone to come for the red one.
-    expect(tryBlue(() => sim.breakPower())).toBe(false);
+    expect(tryBlue(() => sim.working.breakPower())).toBe(false);
     expect(silo.m.out[0]).toBe(red);
-    sim.restorePower();
+    sim.working.restorePower();
     expect(tryBlue()).toBe(true);
     expect(sim.players.get(bot.id)!.tool).toEqual(blue);
   });
@@ -614,7 +614,7 @@ describe('bots in the chat', () => {
 
   it('lets go of the panel when it drops the job for an errand', () => {
     const { room, ada, run } = round();
-    room.sim.breakPower();
+    room.sim.working.breakPower();
     run(1);
     const fixer = room.squad.panelBy;
     expect(fixer).not.toBeNull();

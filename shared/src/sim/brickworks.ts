@@ -328,7 +328,7 @@ export class BrickWorks {
 
   /** The machine the player aims at, if it is one of this kind they may use. */
   private aimedMachine(p: Player, kind: MachineDef['kind']): MachineState | null {
-    const hit = this.sim.aim(p);
+    const hit = this.sim.sight.aim(p);
     if (hit?.owner.kind !== 'machine' || !this.sim.mayUse(p, hit.point)) return null;
     const m = this.sim.machines.get(hit.owner.machineId);
     return m?.def.kind === kind && !m.jammed ? m : null;

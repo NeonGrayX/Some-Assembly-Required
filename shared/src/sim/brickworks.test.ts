@@ -478,7 +478,10 @@ describe('the brick works', () => {
           for (const view of ['third', 'first']) {
             if (view === 'third') aimFromBehind(sim, p, middle);
             else aimAt(sim, p, middle);
-            expect(sim.aim(p)?.owner, `${kind} ${slot} from ${dist} m, ${view} person`).toEqual({
+            expect(
+              sim.sight.aim(p)?.owner,
+              `${kind} ${slot} from ${dist} m, ${view} person`,
+            ).toEqual({
               kind: 'output',
               machineId: m.def.id,
               slot,
@@ -489,7 +492,7 @@ describe('the brick works', () => {
     }
     // Aimed at the machine itself, a click is still for the machine.
     lookAt(sim, p, at.press.stand, at.press.target);
-    expect(sim.aim(p)?.owner).toEqual({ kind: 'machine', machineId: at.press.m.def.id });
+    expect(sim.sight.aim(p)?.owner).toEqual({ kind: 'machine', machineId: at.press.m.def.id });
   });
 
   it('keeps what waits in an output area out of the way of a player walking up to it', () => {
@@ -677,7 +680,11 @@ describe('the brick works', () => {
     me.body.setTranslation({ x: press.stand.x, y: 0.86, z: press.stand.z }, true);
     replica.step();
     aimAt(replica, me, press.outs[0]!);
-    expect(replica.aim(me)?.owner).toEqual({ kind: 'output', machineId: press.m.def.id, slot: 0 });
+    expect(replica.sight.aim(me)?.owner).toEqual({
+      kind: 'output',
+      machineId: press.m.def.id,
+      slot: 0,
+    });
     // Once it is taken, the tray is empty there too.
     replica.replication.replicaFurniture({
       ...told,
@@ -686,7 +693,7 @@ describe('the brick works', () => {
       ) as typeof told.machines,
     });
     aimAt(replica, me, press.outs[0]!);
-    expect(replica.aim(me)?.owner.kind).not.toBe('output');
+    expect(replica.sight.aim(me)?.owner.kind).not.toBe('output');
   });
 
   it('keeps each place in an output area inside the machine but for a lip out of its front', () => {

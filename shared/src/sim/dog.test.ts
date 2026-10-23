@@ -78,7 +78,11 @@ describe('the dog', () => {
     bystander(sim);
     run(sim, 10 * 60); // its first lookout for pages starts after a while
     const at = sim.dog.feet;
-    const page = sim.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: at.x + 1, y: 0, z: at.z });
+    const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, 2, '★'), {
+      x: at.x + 1,
+      y: 0,
+      z: at.z,
+    });
     for (let t = 0; t < 20 * 60 && sim.dog.page !== page.id; t++) sim.step();
     expect(sim.dog.page).toBe(page.id);
     // Carried by no player: the dog alone says it has it.
@@ -94,7 +98,11 @@ describe('the dog', () => {
     const p = bystander(sim);
     run(sim, 10 * 60);
     const at = sim.dog.feet;
-    const page = sim.spawnPage(realPage(LIGHTHOUSE, 2, '★'), { x: at.x + 1, y: 0, z: at.z });
+    const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, 2, '★'), {
+      x: at.x + 1,
+      y: 0,
+      z: at.z,
+    });
     for (let t = 0; t < 20 * 60 && sim.dog.page === null; t++) sim.step();
     expect(sim.dog.page).toBe(page.id);
 
@@ -221,8 +229,8 @@ describe('the dog', () => {
 
 /** Pins a fresh page to a corkboard slot. */
 function pinned(sim: Sim, slot: number) {
-  const page = sim.spawnPage(realPage(LIGHTHOUSE, slot % 8, '★'), { x: 14, y: 0, z: 14 });
-  sim.pinToBoard(page, slot);
+  const page = sim.pageWork.spawnPage(realPage(LIGHTHOUSE, slot % 8, '★'), { x: 14, y: 0, z: 14 });
+  sim.pageWork.pinToBoard(page, slot);
   return page;
 }
 
@@ -349,7 +357,7 @@ describe('the dog and the corkboard', () => {
     const sim = new Sim(RAPIER, HOUSE, 1);
     bystander(sim);
     for (let slot = 0; slot < 16; slot++) pinned(sim, slot);
-    const targets = sim.stealTargets();
+    const targets = sim.pageWork.stealTargets();
     expect(targets.map((t) => t.page.pinned).sort((a, b) => a! - b!)).toEqual([
       4, 5, 6, 7, 12, 13, 14, 15,
     ]);
@@ -416,13 +424,16 @@ describe('the dog and the corkboard', () => {
             point.z + 0.35 * Math.sin((a * Math.PI) / 4),
           );
           const up = (q: Vec3) => v3(q.x, q.y + 0.25, q.z);
-          if (sim.clearForDog(up(point), up(front))) spots.push(front);
+          if (sim.dogWorld.clearForDog(up(point), up(front))) spots.push(front);
         }
         for (const spot of spots) {
           const where = `dog point ${i} (${spot.x.toFixed(2)}, ${spot.z.toFixed(2)})`;
           const stand = standNear(spot);
           expect(stand, `nowhere to stand near ${where}`).not.toBeNull();
-          const page = sim.spawnPage(realPage(LIGHTHOUSE, 0, '★'), v3(spot.x, 0.02, spot.z));
+          const page = sim.pageWork.spawnPage(
+            realPage(LIGHTHOUSE, 0, '★'),
+            v3(spot.x, 0.02, spot.z),
+          );
           sim.teleportPlayer(p, stand!);
           run(sim, 3);
           clickOn(sim, p, page.body!.translation());
@@ -490,7 +501,7 @@ describe('the hungry dog and the build', () => {
     const sim = withBuild(1);
     const c = sim.buildCentre();
     for (const from of [v3(10, 0, 0), v3(-10, 0, 0), v3(0, 0, 10), v3(0, 0, -10)]) {
-      const at = sim.wreckTarget(from)!;
+      const at = sim.dogWorld.wreckTarget(from)!;
       expect(at).not.toBeNull();
       const out = Math.max(Math.abs(at.stand.x - c.x), Math.abs(at.stand.z - c.z));
       expect(out).toBeGreaterThan(0.8);
@@ -498,6 +509,6 @@ describe('the hungry dog and the build', () => {
     }
     // Nothing on the baseplate: nothing to wreck.
     const empty = new Sim(RAPIER, HOUSE, 1);
-    expect(empty.wreckTarget(v3(5, 0, 0))).toBeNull();
+    expect(empty.dogWorld.wreckTarget(v3(5, 0, 0))).toBeNull();
   });
 });

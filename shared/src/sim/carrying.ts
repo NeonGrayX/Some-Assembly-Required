@@ -12,7 +12,7 @@ export const TUG_CLICKS = 6;
 const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
 /** The knock (velocity change, m/s) a build takes when it is picked up. */
 const LIFT_SEVERITY = 1;
-/** One tug of war (see `Sim.tugged`): who tugs whom, how many clicks so far, and when the last. */
+/** One tug of war (see `Carrying.tugged`): who tugs whom, how many clicks so far, and when the last. */
 interface Tug {
   by: number;
   from: number;

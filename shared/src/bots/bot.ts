@@ -1457,7 +1457,7 @@ export class Bot {
         -MAX_PITCH,
         Math.min(MAX_PITCH, Math.atan2(d.y, Math.hypot(d.x, d.z))),
       );
-      const hit = sim.aim(p, { eye, yaw, pitch, firstPerson: true });
+      const hit = sim.sight.aim(p, { eye, yaw, pitch, firstPerson: true });
       if (hit && ok(hit.owner)) return { yaw, pitch };
     }
     return null;
@@ -1557,7 +1557,7 @@ export class Bot {
         sol = now ? this.aim(now, t.ok) : null;
         if (!sol) {
           const f = this.feet();
-          const hit = this.me() && now ? this.squad.game.sim.aim(this.me()!) : null;
+          const hit = this.me() && now ? this.squad.game.sim.sight.aim(this.me()!) : null;
           this.squad.trace?.(
             this.id,
             `no aim on ${t.key} from ${f.x.toFixed(1)},${f.y.toFixed(1)},${f.z.toFixed(1)} (${hit?.owner.kind})`,
@@ -2313,7 +2313,7 @@ export class Bot {
     // in it.
     const able = (): boolean =>
       !m.jammed &&
-      sim.machinesPowered &&
+      sim.working.machinesPowered &&
       (wanted.kind !== 'part' ||
         (m.mould === wanted.type && m.colour === wanted.colour && m.shots > 0));
     for (let tries = 0; tries < 3; tries++) {
@@ -2602,9 +2602,9 @@ export class Bot {
     const eighths = b.frame || eighth ? [eighth, !eighth] : [eighth];
     const fits = (ask: ViewAsk): boolean => {
       // The click must not land on something it would use instead (a button behind the spot).
-      const hit = sim.aim(p, ask);
+      const hit = sim.sight.aim(p, ask);
       if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return false;
-      const preview = sim.snapPreview(p, ask);
+      const preview = sim.placing.snapPreview(p, ask);
       const got = preview?.bricks[0]?.placement;
       if (!preview || preview.targetId !== build.id || preview.bricks.length !== 1 || !got)
         return false;
@@ -2644,13 +2644,13 @@ export class Bot {
       if (!a) continue;
       for (let k = 0; k < 4; k++) {
         const unlocked = view(a, k, null, false, false);
-        const hit = sim.aim(p, unlocked);
+        const hit = sim.sight.aim(p, unlocked);
         if (hit?.owner.kind !== 'brick' || hit.owner.assemblyId !== build.id) break;
         if (rotate(rot, v3(0, 1, 0)).y < 0.9 || hit.normal.y < 0.7) break;
         // The face it lands on must be the one at the brick's height (not something on it).
         const up = rotate(conj(rot), sub(hit.point, pos)).y;
         if (Math.round(up / PLATE_H) !== b.y) break;
-        if (!sim.snapPreview(p, unlocked)) continue;
+        if (!sim.placing.snapPreview(p, unlocked)) continue;
         if (fits(view(spot, k, { y: b.y, down: false, targetId: build.id }, false, false)))
           return { ...spot, turns: k, flip: flipped, eighth, lock: a };
       }
@@ -2768,8 +2768,8 @@ export class Bot {
     const sim = this.squad.game.sim;
     if (!p?.holding || !p.snapLock) return null;
     const ask = { yaw: sol.yaw, pitch: sol.pitch };
-    const got = sim.snapPreview(p, ask)?.bricks[0]?.placement;
-    const hit = sim.aim(p, ask);
+    const got = sim.placing.snapPreview(p, ask)?.bricks[0]?.placement;
+    const hit = sim.sight.aim(p, ask);
     if (hit && !['brick', 'static', 'player'].includes(hit.owner.kind)) return null;
     return got && got.type === b.type && sameCells(got as TargetBrick, b)
       ? { yaw: sol.yaw, pitch: sol.pitch, turns: 0 }

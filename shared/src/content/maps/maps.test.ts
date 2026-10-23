@@ -259,7 +259,7 @@ function placesOnBaseplate(level: LevelDef): boolean {
   if (!p.holding) return false;
   stand(at, { x: c.x, y: y + 0.04, z: c.z });
   steps(30);
-  if (!sim.snapPreview(p)) return false;
+  if (!sim.placing.snapPreview(p)) return false;
   const before = plate.grid.size;
   sim.act(p.id, { kind: 'place' });
   return plate.grid.size === before + 1;
@@ -509,7 +509,7 @@ describe('the Chevron Street map', () => {
         p.input.firstPerson = true;
         p.input.yaw = Math.atan2(-dx, -dz);
         p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
-        const hit = sim.aim(p);
+        const hit = sim.sight.aim(p);
         return hit?.owner.kind === 'carDoor' && hit.owner.group === group;
       });
       if (!aimed) {
@@ -546,7 +546,7 @@ describe('the Chevron Street map', () => {
         p.input.firstPerson = true;
         p.input.yaw = Math.atan2(-dx, -dz);
         p.input.pitch = Math.atan2(dy, Math.hypot(dx, dz));
-        const hit = sim.aim(p);
+        const hit = sim.sight.aim(p);
         return hit?.owner.kind === 'gadget' && hit.owner.gadgetId === id;
       });
     const missed: string[] = [];
