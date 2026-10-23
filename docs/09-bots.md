@@ -45,6 +45,8 @@ Bots also say who they saw use a tool with a tell, and in a meeting how they vot
 
 Every tick a bot runs one job (a generator) and sends one input. Jobs: put away a tool, read a page, fix the panel, feed the dog, ring the bell, press Done, take off a wrong brick, search for pages, build a brick, or wait.
 
+`bot.ts` holds the bot itself: its tick, what it notices, how it votes and which job it picks. What the jobs do lives in a file each: `walking.ts`, `clicking.ts` (aiming and clicking), `making.ts` (the brick works), `building.ts`, `pageJobs.ts`, `chores.ts` (the small jobs), `chat.ts` and `sabotage.ts`.
+
 - **Walking**: a walking map of the level (`nav.ts`), A\* with costs for other players, loose bricks and the baseplate, cutting corners where the way is clear, getting off pushed crates. The searches run in WebAssembly (`shared/assembly/nav.ts`, AssemblyScript, built into `navcore.wasm.ts` by `npm run build:wasm -w @sar/shared`), which works them out exactly as the JavaScript in `nav.ts` does; the JavaScript runs until the module is loaded, or where there is no WebAssembly.
 - **Sloped ground** (the island): the walking map stands on any ground no steeper than a player can climb, and a step through the sea costs several times a step on land, so bots wade only where it is much shorter.
 - **A build carried off its job site** (to the inspector, say) is loose, and one knock breaks it: bots walk carefully within a couple of metres of it and go on building it where it stands.

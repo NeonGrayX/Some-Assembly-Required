@@ -10,6 +10,9 @@ import type { Bot, Job } from './bot.ts';
 export class PageJobs {
   constructor(private readonly bot: Bot) {}
 
+  /** What this bot is busy finding, so the others pick something else. */
+  searching = '';
+
   /** The next thing to do about pages nobody has read: one lying about, or a hiding place to open. */
   search(): Job | null {
     const sim = this.bot.squad.game.sim;
@@ -114,11 +117,6 @@ export class PageJobs {
     for (let k = 0; k < 20; k++) yield;
     this.bot.look();
     return ok;
-  }
-
-  /** What this bot is busy finding, so the others pick something else. */
-  get searching(): string {
-    return this.bot.searchKey;
   }
 
   /**

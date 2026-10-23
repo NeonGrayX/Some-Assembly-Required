@@ -13,7 +13,6 @@ import { TICK_RATE } from '../sim/sim.ts';
 import type { Action, Player, SimEvent } from '../sim/sim.ts';
 import { ACTIONS_PER_SECOND, ACTION_BURST } from '../net/protocol.ts';
 import { FEET } from './nav.ts';
-import type { Plate } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
 import type { Squad, Team } from './squad.ts';
 import type { Errand } from './talk.ts';
@@ -307,8 +306,6 @@ export class Bot {
     this.squad.game.handle(this.id, { t: 'chat', text });
   }
 
-  // ---------------------------------------------------------------- chat
-
   // ---------------------------------------------------------------- the world
 
   me(): Player | undefined {
@@ -507,6 +504,48 @@ export class Bot {
     return top && top[1] >= 0.5 && (!suspects[1] || suspects[1][1] < top[1] - 0.15) ? top[0] : 0;
   }
 
+  /** Whether it is sure enough of someone to ring the bell. */
+  private mayAccuse(): boolean {
+    const round = this.squad.game.round!;
+    if (round.rival || round.mode === 'gear' || !this.squad.game.sim.bell) return false;
+    if ((round.meetingsLeft.get(this.id) ?? 0) <= 0) return false;
+    // Another bot is on its way to ring it.
+    if (this.squad.bellBy !== null && this.squad.bellBy !== this.id) return false;
+    return this.accused() !== null;
+  }
+
+  accused(): number | null {
+    const round = this.squad.game.round!;
+    let best: number | null = null;
+    let top = 0;
+    for (const id of round.onSite) {
+      if (id === this.id) continue;
+      const s = this.squad.suspicion.get(id) ?? 0;
+      if (s > top) {
+        top = s;
+        best = id;
+      }
+    }
+    return top >= this.skill.accuse ? best : null;
+  }
+
+  *ringBell(): Job {
+    const sim = this.squad.game.sim;
+    const who = this.accused();
+    const site = levelSites(sim.level)[this.site]!;
+    const point = add(site.bell, v3(0, 0.85, 0));
+    const ok = yield* this.clicking.use(
+      {
+        key: 'bell',
+        point: () => point,
+        ok: (o) => o.kind === 'button' && o.buttonId === 'bell',
+      },
+      { kind: 'grab' },
+    );
+    if (ok && who !== null) this.say(`I think it is ${this.nameOf(who)}.`);
+    return ok;
+  }
+
   // ---------------------------------------------------------------- deciding
 
   private decide(): Job<unknown> {
@@ -615,8 +654,8 @@ export class Bot {
   /** Runs `job` busy finding `key` (see `PageJobs.searching`), so the others pick something else. */
   searchingFor<T>(key: string, job: Job<T>): Job<T> {
     return this.claiming(
-      () => (this.searchKey = key),
-      () => (this.searchKey = ''),
+      () => (this.pageJobs.searching = key),
+      () => (this.pageJobs.searching = ''),
       job,
     );
   }
@@ -857,64 +896,6 @@ export class Bot {
     );
     const pool = half.length ? half : early;
     return pool[Math.floor(this.random() * Math.min(pool.length, 3))]!;
-  }
-
-  // ---------------------------------------------------------------- moving
-
-  plates: { tick: number; list: (Plate | null)[] } | null = null;
-
-  // ---------------------------------------------------------------- aiming and clicking
-
-  // ---------------------------------------------------------------- jobs: small ones
-
-  // ---------------------------------------------------------------- jobs: pages
-
-  searchKey = '';
-
-  // ---------------------------------------------------------------- jobs: building
-
-  // ---------------------------------------------------------------- meetings: calling one
-
-  /** Whether it is sure enough of someone to ring the bell. */
-  private mayAccuse(): boolean {
-    const round = this.squad.game.round!;
-    if (round.rival || round.mode === 'gear' || !this.squad.game.sim.bell) return false;
-    if ((round.meetingsLeft.get(this.id) ?? 0) <= 0) return false;
-    // Another bot is on its way to ring it.
-    if (this.squad.bellBy !== null && this.squad.bellBy !== this.id) return false;
-    return this.accused() !== null;
-  }
-
-  accused(): number | null {
-    const round = this.squad.game.round!;
-    let best: number | null = null;
-    let top = 0;
-    for (const id of round.onSite) {
-      if (id === this.id) continue;
-      const s = this.squad.suspicion.get(id) ?? 0;
-      if (s > top) {
-        top = s;
-        best = id;
-      }
-    }
-    return top >= this.skill.accuse ? best : null;
-  }
-
-  *ringBell(): Job {
-    const sim = this.squad.game.sim;
-    const who = this.accused();
-    const site = levelSites(sim.level)[this.site]!;
-    const point = add(site.bell, v3(0, 0.85, 0));
-    const ok = yield* this.clicking.use(
-      {
-        key: 'bell',
-        point: () => point,
-        ok: (o) => o.kind === 'button' && o.buttonId === 'bell',
-      },
-      { kind: 'grab' },
-    );
-    if (ok && who !== null) this.say(`I think it is ${this.nameOf(who)}.`);
-    return ok;
   }
 }
 

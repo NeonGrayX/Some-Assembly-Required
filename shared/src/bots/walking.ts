@@ -14,6 +14,9 @@ import type { Bot, Job } from './bot.ts';
 export class Walking {
   constructor(private readonly bot: Bot) {}
 
+  /** The job sites' baseplates as `platesNow` last found them, and on which tick. */
+  private plates: { tick: number; list: (Plate | null)[] } | null = null;
+
   /**
    * Walks to the nearest of `goals` (nodes), or until `done` says it is close enough. Returns
    * whether it got there.
@@ -179,7 +182,7 @@ export class Walking {
   /** The job sites' baseplates where they are this tick. */
   private platesNow(): readonly (Plate | null)[] {
     const sim = this.bot.squad.game.sim;
-    if (this.bot.plates?.tick !== this.bot.squad.tick) {
+    if (this.plates?.tick !== this.bot.squad.tick) {
       const list = sim.sites.map((_, site) => {
         const build = sim.build(site);
         const plate = [...build.grid.bricks.values()].find((b) => BRICK_TYPES[b.type].fixture);
@@ -192,9 +195,9 @@ export class Walking {
           hd: (d * STUD) / 2 + 0.3,
         };
       });
-      this.bot.plates = { tick: this.bot.squad.tick, list };
+      this.plates = { tick: this.bot.squad.tick, list };
     }
-    return this.bot.plates.list;
+    return this.plates.list;
   }
 
   /** Whether a spot is within a couple of metres of a build that is off its job site, unheld. */
