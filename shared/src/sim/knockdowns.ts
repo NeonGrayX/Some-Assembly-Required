@@ -5,8 +5,14 @@ import { planBreaks } from '../breaking.ts';
 import { DT, TICK_RATE } from './time.ts';
 import { add, length, scale, sub, v3, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
-import { PLAYER_RADIUS, PLAYER_FEET, viewDir, isLooseBrick, assemblyMass } from './body.ts';
-import { collidersOf } from './body.ts';
+import {
+  PLAYER_RADIUS,
+  PLAYER_FEET,
+  viewDir,
+  isLooseBrick,
+  assemblyMass,
+  collidersOf,
+} from './body.ts';
 import type { Sim, Player } from './sim.ts';
 
 /** How long a trip or a hit keeps a player on the ground. */

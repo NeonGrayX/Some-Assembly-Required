@@ -37,10 +37,12 @@ import {
   collidersOf,
   PAGE_SIZE,
   GEAR_SIZE,
+  MAX_LOOSE_BRICKS,
   restingOn,
 } from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
 import { DogWorld } from './dogworld.ts';
+import { GearHunt } from './gearhunt.ts';
 import { HidingPlaces } from './hiding.ts';
 import { BrickWorks, UNJAM_SECONDS } from './brickworks.ts';
 import { DOWN_TICKS, KnockDowns } from './knockdowns.ts';
@@ -119,6 +121,7 @@ export { CAMERA_DISTANCE, CAMERA_LIFT, CAMERA_SHOULDER, cameraPosition } from '.
 export { BUCKET_SHOTS, MAKE_SECONDS, MAKE_TICKS, UNJAM_SECONDS } from './brickworks.ts';
 export {
   GEAR_SIZE,
+  MAX_LOOSE_BRICKS,
   PAGE_SIZE,
   TIRED_DROP_TICKS,
   TIRED_TICKS,
@@ -211,11 +214,6 @@ const TUG_GAP_TICKS = Math.round(0.5 * TICK_RATE);
  * they went over it.
  */
 const RAIL_GUARD = 1;
-/** The litter of a gear hunt: small bricks scattered around every dog point, this far out. */
-const LITTER_SPREAD = 1.1;
-const LITTER_TYPES: BrickTypeId[] = ['1x1', '1x2', 'plate1x2'];
-/** The colours litter comes in: the everyday ones. */
-const LITTER_COLOURS: ColourId[] = ['red', 'white', 'yellow', 'blue', 'light-grey', 'black'];
 
 /** What a floor or a ceiling is, for the camera: a box no thicker than this, and this wide both ways. */
 const SLAB = { thick: 0.6, wide: 1.5 };
@@ -274,12 +272,6 @@ const LAND_SPEED = 1.2;
 const LAND_GAP_TICKS = 8;
 /** Bricks below this height are deleted. */
 const KILL_Y = -20;
-/**
- * The machines never run out of moulds or pellets, so this keeps the world from filling up:
- * past this many single bricks lying loose, making one tidies away the one that has lain there
- * longest.
- */
-export const MAX_LOOSE_BRICKS = 200;
 /**
  * How far above a rubbish bin's rim a loose piece's centre may be and still go in (a brick
  * resting across the opening has its centre this low), and how far below it (a piece falling
@@ -999,6 +991,8 @@ export class Sim {
   readonly pageWork: Pages;
   /** The hiding places and the scenery's gadgets (see `HidingPlaces`). */
   readonly hiding: HidingPlaces;
+  /** The gear of a gear hunt (see `GearHunt`). */
+  readonly gearHunt: GearHunt;
 
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
@@ -1032,6 +1026,7 @@ export class Sim {
     this.dogWorld = new DogWorld(this);
     this.pageWork = new Pages(this);
     this.hiding = new HidingPlaces(this);
+    this.gearHunt = new GearHunt(this);
     this.rng = makeRng(seed);
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogWorld.dogHost(), level.dog, PLAYER_GROUPS);
@@ -1589,7 +1584,7 @@ export class Sim {
       this.works.putToolAway(p);
       this.vacuuming.putVacuumDown(p);
       this.pageWork.dropPage(p);
-      for (const kind of [...p.gear]) this.dropGear(p, kind);
+      for (const kind of [...p.gear]) this.gearHunt.dropGear(p, kind);
     }
     this.owners.delete(p.collider.handle);
     this.world.removeCollider(p.slim, false);
@@ -1895,7 +1890,7 @@ export class Sim {
       case 'dropPage':
         return this.pageWork.dropPage(p);
       case 'unequip':
-        return this.dropGear(p, action.gear);
+        return this.gearHunt.dropGear(p, action.gear);
       case 'fill':
         return p.handsOff ? undefined : this.works.fillBucket(p, action.colour);
       case 'mould':
@@ -1958,11 +1953,11 @@ export class Sim {
     }
     if (hit?.owner.kind === 'gear') {
       const item = this.gear.get(hit.owner.gearId);
-      if (item) this.takeGear(p, item);
+      if (item) this.gearHunt.takeGear(p, item);
       return true;
     }
     if (hit?.owner.kind === 'dog') {
-      if (p.gear.has('leash') && !this.dog.leashed) this.leashDog(p);
+      if (p.gear.has('leash') && !this.dog.leashed) this.gearHunt.leashDog(p);
       else this.dog.clicked(p);
       return true;
     }
@@ -2328,139 +2323,6 @@ export class Sim {
 
   // ---------------------------------------------------------------- gear
 
-  /** Puts a piece of gear into the world (Gear Hunt), lying at `pos`. */
-  spawnGear(kind: GearId, pos: Vec3, yaw = 0, id = this.newId()): GearItem {
-    const item = this.newGear(kind, id);
-    this.placeGear(item, restingOn(pos, GEAR_SIZE), yawQuat(yaw));
-    return item;
-  }
-
-  /** Puts a piece of gear straight into a hiding place, shut. */
-  spawnGearInHideout(kind: GearId, hideoutId: number): GearItem {
-    const item = this.newGear(kind, this.newId());
-    this.hiding.hideGearInHideout(item, hideoutId);
-    return item;
-  }
-
-  /** A piece of gear that is nowhere yet. */
-  private newGear(kind: GearId, id: number): GearItem {
-    const item: GearItem = {
-      id,
-      kind,
-      body: null,
-      wornBy: null,
-      hidden: false,
-      hideout: null,
-      placed: false,
-      version: 0,
-    };
-    this.gear.set(item.id, item);
-    return item;
-  }
-
-  /** Puts a piece of gear into the world with its middle at `centre`. */
-  placeGear(item: GearItem, at: Vec3, rot: Quat, linvel: Vec3 = v3()): void {
-    const { R } = this;
-    const centre = this.aboveGround(at, GEAR_SIZE.y / 2 + 0.01, GEAR_SIZE.x / 2);
-    const body = this.world.createRigidBody(
-      (this.replica ? R.RigidBodyDesc.kinematicPositionBased() : R.RigidBodyDesc.dynamic())
-        .setTranslation(centre.x, centre.y, centre.z)
-        .setRotation(rot)
-        .setLinvel(linvel.x, linvel.y, linvel.z)
-        .setLinearDamping(1.5)
-        .setAngularDamping(3),
-    );
-    const c = this.world.createCollider(
-      R.ColliderDesc.cuboid(GEAR_SIZE.x / 2, GEAR_SIZE.y / 2, GEAR_SIZE.z / 2)
-        .setDensity(120)
-        .setFriction(1),
-      body,
-    );
-    this.owners.set(c.handle, { kind: 'gear', gearId: item.id });
-    item.body = body;
-    item.wornBy = null;
-    item.placed = false;
-  }
-
-  /** Takes a piece of gear out of the world, and off whoever wears it. */
-  detachGear(item: GearItem): void {
-    if (item.body) {
-      this.owners.delete(item.body.collider(0).handle);
-      this.world.removeRigidBody(item.body);
-      item.body = null;
-    }
-    if (item.wornBy !== null) this.players.get(item.wornBy)?.gear.delete(item.kind);
-    item.wornBy = null;
-    item.placed = false;
-  }
-
-  /** Picking gear up puts it on: it works at once, and shows on the builder. */
-  private takeGear(p: Player, item: GearItem): void {
-    if (!item.body || p.gear.has(item.kind)) return;
-    const pos = item.body.translation();
-    this.detachGear(item);
-    item.wornBy = p.id;
-    item.version++;
-    p.gear.add(item.kind);
-    this.events.push({ kind: 'gearOn', pos, playerId: p.id, gear: item.kind });
-  }
-
-  /** Takes a piece of gear off and drops it at the player's feet, for someone else. */
-  dropGear(p: Player, kind: GearId): void {
-    const item = [...this.gear.values()].find((g) => g.wornBy === p.id && g.kind === kind);
-    if (!item) return;
-    const yaw = p.input.yaw;
-    const f = v3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    // Let go of a little below the hands.
-    const pos = add(this.eye(p), add(scale(f, 0.5), v3(0, -0.5, 0)));
-    this.detachGear(item);
-    this.placeGear(item, restingOn(pos, GEAR_SIZE), yawQuat(yaw), scale(f, 0.8));
-    item.version++;
-    this.events.push({ kind: 'gearOff', pos, playerId: p.id, gear: kind });
-  }
-
-  /** Where the dog's pole stands: by its kennel, at its starting point. */
-  dogPole(): Vec3 {
-    return this.level.dog.points[this.level.dog.start]!;
-  }
-
-  /**
-   * The leash's wearer clicked the dog: the leash goes on the pole with the dog at the end of
-   * it, for the rest of the round. Returns false if the dog is leashed already.
-   */
-  leashDog(p: Player): boolean {
-    const item = [...this.gear.values()].find((g) => g.wornBy === p.id && g.kind === 'leash');
-    if (!item || this.dog.leashed) return false;
-    this.detachGear(item);
-    item.placed = true;
-    item.version++;
-    this.dog.leash(this.dogPole());
-    this.events.push({ kind: 'leash', pos: this.dog.feet, playerId: p.id, gear: 'leash' });
-    return true;
-  }
-
-  /**
-   * Scatters a gear hunt's litter: small loose bricks around every dog point, which between
-   * them cover every path through the yard and house. Returns how many were put down.
-   */
-  spawnLitter(perPoint: number, rng: () => number): number {
-    const points = this.level.dog.points;
-    let n = 0;
-    for (const point of points) {
-      for (let i = 0; i < perPoint; i++) {
-        const type = LITTER_TYPES[Math.floor(rng() * LITTER_TYPES.length)]!;
-        const colour = LITTER_COLOURS[Math.floor(rng() * LITTER_COLOURS.length)]!;
-        const angle = rng() * Math.PI * 2;
-        const out = 0.3 + rng() * LITTER_SPREAD;
-        const at = add(point, v3(Math.cos(angle) * out, 0.12, Math.sin(angle) * out));
-        this.spawnBrick(type, colour, at, yawQuat(rng() * Math.PI));
-        n++;
-      }
-    }
-    this.looseLimit = MAX_LOOSE_BRICKS + n;
-    return n;
-  }
-
   // ---------------------------------------------------------------- sabotage
 
   /**
@@ -2658,7 +2520,7 @@ export class Sim {
     pos: Vec3,
     rot: Quat,
   ): void {
-    const item = this.gear.get(id) ?? this.newGear(kind, id);
+    const item = this.gear.get(id) ?? this.gearHunt.newGear(kind, id);
     if (item.body) {
       this.owners.delete(item.body.collider(0).handle);
       this.world.removeRigidBody(item.body);
@@ -2670,12 +2532,12 @@ export class Sim {
     if (where.placed) {
       item.placed = true;
       item.wornBy = null;
-      if (!this.dog.leashed) this.dog.leash(this.dogPole());
+      if (!this.dog.leashed) this.dog.leash(this.gearHunt.dogPole());
       return;
     }
     item.placed = false;
     item.wornBy = wornBy;
-    if (wornBy === null && !where.hidden) this.placeGear(item, pos, rot);
+    if (wornBy === null && !where.hidden) this.gearHunt.placeGear(item, pos, rot);
   }
 
   /**
@@ -3157,5 +3019,41 @@ export class Sim {
   /** Tucks a page into a hiding place and shuts it, out of everyone's sight. */
   hideInHideout(page: PageItem, id: number): void {
     return this.hiding.hideInHideout(page, id);
+  }
+
+  /** Puts a piece of gear into the world (Gear Hunt), lying at `pos`. */
+  spawnGear(kind: GearId, pos: Vec3, yaw = 0, id = this.newId()): GearItem {
+    return this.gearHunt.spawnGear(kind, pos, yaw, id);
+  }
+
+  /** Puts a piece of gear straight into a hiding place, shut. */
+  spawnGearInHideout(kind: GearId, hideoutId: number): GearItem {
+    return this.gearHunt.spawnGearInHideout(kind, hideoutId);
+  }
+
+  /** Takes a piece of gear off and drops it at the player's feet, for someone else. */
+  dropGear(p: Player, kind: GearId): void {
+    return this.gearHunt.dropGear(p, kind);
+  }
+
+  /** Where the dog's pole stands: by its kennel, at its starting point. */
+  dogPole(): Vec3 {
+    return this.gearHunt.dogPole();
+  }
+
+  /**
+   * The leash's wearer clicked the dog: the leash goes on the pole with the dog at the end of
+   * it, for the rest of the round. Returns false if the dog is leashed already.
+   */
+  leashDog(p: Player): boolean {
+    return this.gearHunt.leashDog(p);
+  }
+
+  /**
+   * Scatters a gear hunt's litter: small loose bricks around every dog point, which between
+   * them cover every path through the yard and house. Returns how many were put down.
+   */
+  spawnLitter(perPoint: number, rng: () => number): number {
+    return this.gearHunt.spawnLitter(perPoint, rng);
   }
 }

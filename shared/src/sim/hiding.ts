@@ -1,7 +1,6 @@
 import { hideoutPartInWorld, dropSpot } from '../content/hideouts.ts';
 import { add, scale, v3, yawQuat } from '../math.ts';
-import { PAGE_SIZE, restingOn } from './body.ts';
-import { GEAR_SIZE } from './body.ts';
+import { PAGE_SIZE, restingOn, GEAR_SIZE } from './body.ts';
 import type { Sim, PageItem, GearItem, HideoutState, GadgetState, ColliderOwner } from './sim.ts';
 
 /**
@@ -52,7 +51,7 @@ export class HidingPlaces {
       item.hidden = false;
       item.hideout = null;
       const at = add(drop, v3(-0.1 - i * 0.15, 0.1, 0));
-      this.sim.placeGear(item, restingOn(at, GEAR_SIZE), yawQuat(h.def.facing));
+      this.sim.gearHunt.placeGear(item, restingOn(at, GEAR_SIZE), yawQuat(h.def.facing));
       item.version++;
     });
     h.gear = [];
@@ -70,7 +69,7 @@ export class HidingPlaces {
   hideGearInHideout(item: GearItem, id: number): void {
     const h = this.sim.hideouts.get(id);
     if (!h) return;
-    this.sim.detachGear(item);
+    this.sim.gearHunt.detachGear(item);
     item.hidden = true;
     item.hideout = id;
     item.version++;

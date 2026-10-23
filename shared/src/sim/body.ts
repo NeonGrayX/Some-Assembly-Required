@@ -109,3 +109,10 @@ export function restingOn(at: Vec3, size: { y: number }): Vec3 {
 
 /** Size of a piece of gear lying about (its collider, and about what the client draws). */
 export const GEAR_SIZE = { x: 0.3, y: 0.14, z: 0.3 };
+
+/**
+ * The machines never run out of moulds or pellets, so this keeps the world from filling up:
+ * past this many single bricks lying loose, making one tidies away the one that has lain there
+ * longest.
+ */
+export const MAX_LOOSE_BRICKS = 200;

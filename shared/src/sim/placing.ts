@@ -13,8 +13,7 @@ import type { SnapLayer } from '../snap.ts';
 import { frameQuat, unframeMetres, unframeTurn } from '../frames.ts';
 import type { Frame } from '../frames.ts';
 import { conj, length, mulQuat, rotate, scale, sub, v3, yawOf } from '../math.ts';
-import { QUARTER } from './body.ts';
-import { REACH, assemblyMass, collidersOf, isLooseBrick, viewDir } from './body.ts';
+import { QUARTER, REACH, assemblyMass, collidersOf, isLooseBrick, viewDir } from './body.ts';
 import type { Sim, Player, Assembly, SnapPreview, ViewAsk } from './sim.ts';
 
 const THROW_SPEED = 7;
