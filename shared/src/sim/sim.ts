@@ -3,7 +3,6 @@ import type {
   Collider,
   ColliderDesc,
   KinematicCharacterController,
-  Shape,
   RigidBody,
   World,
 } from '@dimforge/rapier3d-compat';
@@ -13,8 +12,31 @@ import type { GearId } from '../gear.ts';
 import type { FurnitureState } from '../net/protocol.ts';
 import type { SabotageTool } from '../round.ts';
 import { planBreaks } from '../breaking.ts';
+import {
+  TIRED_DROP_TICKS,
+  TIRED_TICKS,
+  BRICK_DENSITY,
+  CONTROLLER_OFFSET,
+  EYE_OFFSET,
+  G_PLAYER,
+  HELD_GROUPS,
+  MAX_CLIMB,
+  NOT_PLAYER_GROUPS,
+  PLAYER_FEET,
+  PLAYER_GROUPS,
+  PLAYER_HALF_HEIGHT,
+  PLAYER_ONLY_GROUPS,
+  PLAYER_RADIUS,
+  SQUEEZE,
+  STEP_UP,
+  WORLD_GROUPS,
+  assemblyMass,
+  groups,
+  isLooseBrick,
+  viewDir,
+} from './body.ts';
 import { DOG_RADIUS, Dog } from './dog.ts';
-import { GRAVITY } from './gravity.ts';
+import { Movement } from './movement.ts';
 import { ACT_STAND, ACT_TIMES, actStation } from './operate.ts';
 import type { MachineAct } from './operate.ts';
 import { DT, TICK_RATE, seconds } from './time.ts';
@@ -48,25 +70,20 @@ import {
   BOARD_SIZE,
   BOARD_SLOTS,
   BUTTON_SIZE,
-  STAIRS,
-  UPPER_FLOOR,
   groundPieces,
   indoors,
   CATAPULT,
-  catapultBucket,
   catapultSolids,
   isTrashBin,
   levelBoards,
   trashBinMouth,
   levelSites,
-  stairsAxes,
 } from '../content/house.ts';
 import type {
   BoxDef,
   FloorRect,
   GadgetDef,
   HideoutDef,
-  LadderDef,
   LevelDef,
   MachineDef,
   MachineKind,
@@ -81,7 +98,7 @@ import type {
 import { meshOf } from '../content/maps/meshes.ts';
 import { makeableColours } from '../builds/variant.ts';
 import { sideOf } from '../content/rival.ts';
-import { groundHeight, groundSlope, inSea, terrainTriangles } from '../content/terrain.ts';
+import { groundHeight, groundSlope, terrainTriangles } from '../content/terrain.ts';
 import {
   hideoutBody,
   hideoutPartInWorld,
@@ -111,78 +128,23 @@ import type { Quat, Vec3 } from '../math.ts';
 type Rapier = typeof RAPIER;
 
 export { DT, TICK_RATE, catchUp } from './time.ts';
+export { STAIRS_MARGIN, STAIRS_SLIDE, WALK_SPEED } from './movement.ts';
+export {
+  TIRED_DROP_TICKS,
+  TIRED_TICKS,
+  tiredFactor,
+  PLAYER_RADIUS,
+  PLAYER_HALF_HEIGHT,
+  PLAYER_FEET,
+  EYE_OFFSET,
+  CONTROLLER_OFFSET,
+  MAX_CLIMB,
+  PLAYER_GROUPS,
+  viewDir,
+  isLooseBrick,
+  assemblyMass,
+} from './body.ts';
 
-// Player
-export const PLAYER_RADIUS = 0.3;
-export const PLAYER_HALF_HEIGHT = 0.55;
-/** How far below the centre of a player's capsule their feet are. */
-export const PLAYER_FEET = PLAYER_HALF_HEIGHT + PLAYER_RADIUS;
-/** Eye height above the capsule centre. */
-export const EYE_OFFSET = 0.6;
-/** The gap the character controller keeps between a player and what they stand on or touch. */
-export const CONTROLLER_OFFSET = 0.02;
-/**
- * How fast players move: at once at the pace asked for, on the ground and in the air alike
- * (m/s).
- */
-export const WALK_SPEED = 4.2;
-const SPRINT_SPEED = 7.5;
-const CAREFUL_SPEED = 1.3;
-const JUMP_SPEED = 6.2;
-const CLIMB_SPEED = 2.4;
-/**
- * How high a player steps up without jumping (m), no higher than there is room overhead; held
- * up on the ground, they try stepping up by each of `CLIMB_TRIES` in turn (see `climb`).
- */
-const STEP_UP = 0.45;
-const CLIMB_TRIES = [0.2, 0.32, STEP_UP];
-/**
- * Caught inside something they walk into: how deep in it they are, at least (m), and how far off
- * a way out is looked for (m), nearest first, each way round them and then up (see `wayOut`).
- * Less deep than that, the controller sees to it (stepping up leaves them a little way in now
- * and then).
- */
-const CAUGHT = 0.05;
-const WAY_OUT = [0.04, 0.08, 0.12, 0.18, 0.25, 0.35];
-const WAYS_OUT = [
-  ...Array.from({ length: 8 }, (_, k) =>
-    v3(Math.cos((k * Math.PI) / 4), 0, Math.sin((k * Math.PI) / 4)),
-  ),
-  v3(0, 1, 0),
-];
-/**
- * How far round their middle a player's feet stand (m), and how far below them the ground may
- * be there for them to stand: the capsule's round foot reaches out past theirs, and can rest on
- * an edge their feet are well clear of, which they slip off at `SLIP_SPEED` (m/s).
- */
-const FOOT = 0.16;
-const UNDERFOOT = 0.05;
-const SLIP_SPEED = 2.5;
-/**
- * Squeezing through a gap narrower than their shoulders: how far their shoulders reach out to
- * each side, how deep they are side-on (half of it), how fast they edge along (m/s), and how far
- * before and behind them a gap's sides are looked for (m).
- */
-const SQUEEZE = { shoulder: 0.37, slim: 0.17, edge: 1.4, reach: 0.3 };
-/** A ladder is taken from the ground when facing within this (as a cosine: about 70°) of it. */
-const LADDER_FACING_COS = 0.35;
-/**
- * How much further out to the sides and back from a ladder a player stepping backwards off
- * whatever it reaches is still caught by it, so backing off the top at an angle climbs down
- * rather than missing it and dropping to the ground.
- */
-const LADDER_CATCH = 0.6;
-/**
- * How much further out to either side of a ladder a player walking into it from the
- * ground still takes hold of it (and is drawn onto it), so it need not be met dead centre.
- */
-const LADDER_REACH = 0.3;
-/** How far in past a ladder's top a player pushing on is still taken straight in off it. */
-const LADDER_TOP_IN = 0.8;
-/** How straight at a ladder (as a cosine: about 45°) that takes walking. */
-const LADDER_INTO = 0.7;
-/** How fast (per second, of the distance left) a caught climber is drawn onto the ladder. */
-const LADDER_PULL = 8;
 /** What bricks, pages and the rest fall by; players and the dog fall by their own (`GRAVITY`). */
 const WORLD_GRAVITY = 9.81;
 const REACH = 2.6;
@@ -194,8 +156,6 @@ export const UNJAM_SECONDS = 4;
 // Working a machine
 /** How far out from where they click a machine a player stands to work it (m). */
 export const WORK_STANDOFF = 0.55;
-/** Near enough to where they stand to work a machine to stop walking there (m). */
-const WORK_CLOSE = 0.08;
 /** How long they walk up to a machine at most before working it where they are. */
 const WORK_WALK_TICKS = seconds(1.5);
 /** How long they stay at a machine working it, once there (clearing a jam: till it is clear). */
@@ -213,11 +173,6 @@ const WAIT_TICKS = seconds(0.5);
  * hold, drop their page, take gear off.
  */
 const HANDS_FREE: Action['kind'][] = ['rotate', 'flip', 'dropPage', 'unequip'];
-
-/** What a player presses while they work a machine, but for turning to look: none of it moves them. */
-function stayPut(i: PlayerInput): PlayerInput {
-  return { ...i, forward: 0, right: 0, jump: false, sprint: false };
-}
 
 /**
  * What a player does at a machine (see `MachineAct`), by what it did for them (`done`, the
@@ -260,10 +215,6 @@ function actOf(
 // Knock-downs
 /** How long a trip or a hit keeps a player on the ground. */
 export const DOWN_TICKS = Math.round(2.5 * TICK_RATE);
-/** A hard landing (jumping off the roof) keeps them down for less. */
-const LANDING_DOWN_TICKS = Math.round(1.4 * TICK_RATE);
-/** Falling faster than this (m/s) when landing knocks a player over. */
-const HARD_LANDING_SPEED = 8.5;
 /** Hits from assemblies at least this heavy (kg) and fast (m/s) knock a player over. */
 const HIT_MASS = 5;
 const HIT_SPEED = 3.5;
@@ -273,16 +224,6 @@ const TRIP_CHANCE_PER_KG = 0.012;
 const FALL_SLIDE = 2.2;
 /** Limping after stepping on a brick: slower, and no sprinting. */
 export const LIMP_TICKS = 10 * TICK_RATE;
-const LIMP_FACTOR = 0.45;
-/**
- * Carry fatigue: after this long carrying a build (not a single brick) arms tire and the
- * carrier slows down, at `TIRED_DROP_TICKS` they set it down, and a tired player cannot lift a
- * build again until rested below the first mark. Rest takes as long as the carrying did.
- */
-export const TIRED_TICKS = 45 * TICK_RATE;
-export const TIRED_DROP_TICKS = 60 * TICK_RATE;
-/** Speed at the drop mark, against fresh arms. */
-const TIRED_SPEED = 0.5;
 /** Clicks on a build someone else carries that tug it out of their hands. */
 export const TUG_CLICKS = 6;
 /** The most time between two clicks of one tug before it starts over. */
@@ -301,12 +242,6 @@ const WRECK_REACH = 1.1;
 const WRECK_HEIGHT = 0.95;
 /** Loose bricks lower than this above the floor under a player's feet hurt to step on. */
 const STEP_HEIGHT = 0.2;
-/**
- * On a flight of stairs a player is kept this far in from either edge of the steps (to the
- * handrail on the open side), and brought back in by at most `STAIRS_SLIDE` a tick.
- */
-export const STAIRS_MARGIN = 0.08;
-export const STAIRS_SLIDE = 0.05;
 /**
  * How far over a guarded railing (round a stairwell or a roof) players meet a wall they cannot
  * see. At the top of a jump (1.3 m up) a player steps onto anything up to `STEP_UP` higher,
@@ -408,8 +343,6 @@ export function doorOffset(door: SlidingDoorDef, t: number): Vec3 {
   return add(scale(out, split ? eased(t, 0, split) : 0), scale(along, eased(t, split, 1)));
 }
 
-// Bricks
-const BRICK_DENSITY = 300;
 /**
  * A held brick sits in front of the player's chest, between the hands: `up` above the middle
  * of the body, its near face `front` ahead of it. Where the player looks does not move it.
@@ -426,8 +359,6 @@ const LIFT_SEVERITY = 1;
 const BREAK_GRACE_TICKS = 20;
 /** Half the thickness of the plank `clearForDog` sweeps across the dog's width. */
 const DOG_PLANK = 0.005;
-/** The steepest slope a player walks up (in radians): steeper ground they slide back down. */
-export const MAX_CLIMB = (50 * Math.PI) / 180;
 /** How long the pieces are that `clearForDog` follows the terrain in. */
 const DOG_PIECE = 0.75;
 /** The steepest ground the dog is sent over, as its rise over its run (about 38°). */
@@ -462,40 +393,12 @@ export const MAX_LOOSE_BRICKS = 200;
 const BIN_CATCH = 0.45;
 const BIN_DEPTH = 0.3;
 
-// Collision groups: membership in the high 16 bits, filter in the low 16 bits.
-const G_WORLD = 0x1;
-const G_PLAYER = 0x2;
-const G_HELD = 0x4;
-const groups = (member: number, filter: number) => (member << 16) | filter;
-const WORLD_GROUPS = groups(G_WORLD, 0xffff);
-export const PLAYER_GROUPS = groups(G_PLAYER, G_WORLD | G_PLAYER);
-const HELD_GROUPS = groups(G_HELD, G_WORLD | G_HELD);
-/** In the way of players (and the dog), and nothing else; and of everything else but them. */
-const PLAYER_ONLY_GROUPS = groups(G_WORLD, G_PLAYER);
-const NOT_PLAYER_GROUPS = groups(G_WORLD, 0xffff & ~G_PLAYER);
-
-const UP = v3(0, 1, 0);
-const DOWN = v3(0, -1, 0);
-
 /** One tug of war (see `Sim.tugged`): who tugs whom, how many clicks so far, and when the last. */
 interface Tug {
   by: number;
   from: number;
   clicks: number;
   tick: number;
-}
-
-/** A flight of stairs as `keepOnStairs` sees it: its foot, the way it climbs and its extent. */
-interface Flight {
-  pos: Vec3;
-  /** Unit vectors on the floor: the way the flight climbs, and the climber's right. */
-  along: { x: number; z: number };
-  across: { x: number; z: number };
-  /** How far the flight runs, and the height of the floor it comes out on. */
-  run: number;
-  top: number;
-  /** Players with their centre this far out past the edge of the steps still count as on them. */
-  reach: number;
 }
 
 export interface PlayerInput {
@@ -1095,12 +998,6 @@ export function meshDescs(R: typeof RAPIER, place: MeshDef): ColliderDesc[] {
   ];
 }
 
-/** Direction the player is looking. Yaw 0 looks down -z, positive pitch looks up. */
-export function viewDir(yaw: number, pitch: number): Vec3 {
-  const c = Math.cos(pitch);
-  return v3(-Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c);
-}
-
 /** Camera position for a player, before any wall clipping the client may add. */
 export function cameraPosition(
   eye: Vec3,
@@ -1144,33 +1041,6 @@ export interface SimOptions {
   replica?: boolean;
   /** Whether the job site has its meeting bell (not in a gear hunt). */
   bell?: boolean;
-}
-
-/** How fast tired arms let a player go (1: not tired), from `TIRED_TICKS` down to the drop. */
-export function tiredFactor(p: Player): number {
-  if (p.fatigue <= TIRED_TICKS) return 1;
-  const t = Math.min(1, (p.fatigue - TIRED_TICKS) / (TIRED_DROP_TICKS - TIRED_TICKS));
-  return 1 - (1 - TIRED_SPEED) * t;
-}
-
-/**
- * A single loose brick, carried in the hands. A baseplate on its own is still a build: it is
- * carried in front, set down gently and goes back on the job site.
- */
-export function isLooseBrick(a: Assembly): boolean {
-  if (a.grid.size !== 1) return false;
-  const only = a.grid.bricks.values().next().value!;
-  return !BRICK_TYPES[only.type].fixture;
-}
-
-/** Mass of an assembly computed from its bricks, so client and server agree on it. */
-export function assemblyMass(a: Assembly): number {
-  let volume = 0;
-  for (const b of a.grid.bricks.values()) {
-    const t = BRICK_TYPES[b.type];
-    volume += t.studsX * t.studsZ * STUD * STUD * t.plates * PLATE_H;
-  }
-  return volume * BRICK_DENSITY;
 }
 
 /** All of an assembly's colliders. */
@@ -1256,7 +1126,7 @@ export class Sim {
   events: SimEvent[] = [];
   /** Whether the catapult throws (between rounds only; the room and the client set this). */
   catapultArmed = false;
-  private catapultCooldown = 0;
+  catapultCooldown = 0;
   tick = 0;
   /** Tugs going on at carried builds (by assembly id) and at pockets (by player id). */
   private readonly buildTugs = new Map<number, Tug>();
@@ -1270,6 +1140,9 @@ export class Sim {
   /** Clicking it picks the vacuum up; only there while nobody carries it. */
   private readonly vacuumCollider: Collider;
 
+  /** How players move (see `Movement`). */
+  private readonly movement: Movement;
+
   readonly replica: boolean;
   /** Whether the job site has its meeting bell. */
   readonly bell: boolean;
@@ -1281,18 +1154,11 @@ export class Sim {
   private readonly rng: () => number;
   /** The level, with the round's pictures for the UV printer once a round is under way. */
   level: LevelDef;
-  /** The level's flights of stairs, as `keepOnStairs` sees them. */
-  private readonly flights: Flight[];
   /** Every corkboard, site by site (see `levelBoards`): slots run board by board. */
   private readonly boards: { site: number; pos: Vec3; facing: number }[];
-  /**
-   * A player's capsule, and their slim shape side-on, each `CAUGHT` in from its surface all
-   * round: what is caught inside something overlaps it even so (see `wayOut`).
-   */
-  private readonly cores: { capsule: Shape; slim: Shape };
 
   constructor(
-    private readonly R: Rapier,
+    readonly R: Rapier,
     level: LevelDef,
     seed = 1,
     opts: SimOptions = {},
@@ -1304,19 +1170,8 @@ export class Sim {
     this.bell = opts.bell ?? true;
     this.world = new R.World({ x: 0, y: -WORLD_GRAVITY, z: 0 });
     this.world.timestep = DT;
-    this.cores = {
-      capsule: new R.Capsule(PLAYER_HALF_HEIGHT, PLAYER_RADIUS - CAUGHT),
-      slim: new R.RoundCylinder(PLAYER_FEET - 0.04 - CAUGHT, SQUEEZE.slim - 0.04 - CAUGHT, 0.04),
-    };
+    this.movement = new Movement(this);
     this.rng = makeRng(seed);
-    this.flights = (level.stairs ?? []).map((s) => ({
-      ...stairsAxes(s),
-      pos: s.pos,
-      run: STAIRS.steps * STAIRS.tread,
-      top: s.pos.y + UPPER_FLOOR,
-      // Stepping onto the first step from the side, say, still counts (`keepOnStairs`).
-      reach: PLAYER_RADIUS + 0.1,
-    }));
     const fixed = this.buildLevel();
     this.dog = new Dog(this.dogHost(), level.dog, PLAYER_GROUPS);
     this.owners.set(this.dog.collider.handle, { kind: 'dog' });
@@ -1960,593 +1815,8 @@ export class Sim {
     return walls;
   }
 
-  private heldAssembly(p: Player): Assembly | undefined {
+  heldAssembly(p: Player): Assembly | undefined {
     return p.holding ? this.assemblies.get(p.holding.assemblyId) : undefined;
-  }
-
-  /**
-   * Moves a player one tick per input (several when the server catches up on a backlog). Each
-   * tick is its own controller move with its own input, exactly like a client predicting one
-   * tick at a time, so both end up in the same place.
-   */
-  private movePlayer(p: Player, inputs: PlayerInput[]): void {
-    const held = this.heldAssembly(p);
-    const load = held && !isLooseBrick(held) ? assemblyMass(held) : 0;
-    const start = p.collider.translation();
-    let total = v3();
-    for (let k = 0; k < inputs.length; k++) {
-      // Working a machine, they stay put (but for walking where they work it) till they are done.
-      const i = p.work?.machineId != null && p.down === 0 ? stayPut(inputs[k]!) : inputs[k]!;
-      const limping = p.limp > 0;
-      // A gear hunt's heavy build keeps whoever carries it without the back brace to a careful pace.
-      const careful = i.careful || (load > 0 && this.heavyFor(p));
-      const pace = careful ? CAREFUL_SPEED : i.sprint && !limping ? SPRINT_SPEED : WALK_SPEED;
-      const speed =
-        (pace / (1 + load / 40)) * (limping && !careful ? LIMP_FACTOR : 1) * tiredFactor(p);
-      const f = v3(-Math.sin(i.yaw), 0, -Math.cos(i.yaw));
-      const r = v3(Math.cos(i.yaw), 0, -Math.sin(i.yaw));
-      let move = add(scale(f, i.forward), scale(r, i.right));
-      const len = length(move);
-      if (len > 1) move = scale(move, 1 / len);
-      // Working something: walking up to it unless they move off themselves (at the panel), which
-      // ends it, as falling over does.
-      const w = p.work;
-      if (w && (len > 0 || i.jump || p.down > 0 || p.ladder !== null)) p.work = null;
-      else if (w && !w.there) {
-        const way = sub(w.spot, add(start, total));
-        const off = Math.hypot(way.x, way.z);
-        if (off < WORK_CLOSE || --w.walk <= 0) this.arrive(w);
-        else move = scale(v3(way.x, 0, way.z), Math.min(1, off / (speed * DT)) / off);
-      } else if (w && --w.ticks <= 0 && this.fixerOf(w.machineId) !== p.id) {
-        this.workDone(p, w);
-      }
-      // At a ladder's top, pushing on more or less toward what it reaches takes them straight
-      // in off it, whichever way they look, between its rails.
-      const top = i.forward > 0 ? this.ladderTopAt(add(start, total)) : undefined;
-      if (top) {
-        const into = v3(-Math.sin(top.facing), 0, -Math.cos(top.facing));
-        const k = length(move);
-        if (k > 0 && (move.x * into.x + move.z * into.z) / k > LADDER_FACING_COS)
-          move = scale(into, k);
-      }
-      /** The way they ask to go, up to a unit long. */
-      const dir = move;
-      // Wading: as slow as walking carefully.
-      move = scale(move, this.inWater(add(start, total)) ? Math.min(speed, CAREFUL_SPEED) : speed);
-      if (p.limp > 0) p.limp--;
-      // Lying on the ground: no control, just the slide from the fall.
-      const down = p.down > 0;
-      if (down) {
-        p.down--;
-        move = p.slide;
-        p.slide = scale(p.slide, 0.9);
-      }
-      // Standing in the catapult's bucket between rounds: off you go.
-      if (this.catapultArmed && this.catapultCooldown === 0 && p.grounded && !down) {
-        const c = this.level.catapult;
-        if (c && this.inBucket(c, add(start, total))) {
-          p.vy = CATAPULT.launch.up;
-          p.fling = scale(viewDir(c.facing, 0), CATAPULT.launch.along);
-          this.catapultCooldown = CATAPULT.rearmTicks;
-          if (!this.replica) {
-            this.events.push({ kind: 'catapult', pos: this.eye(p), playerId: p.id });
-          }
-        }
-      }
-      // Flung: carried along until landing, with a little steering.
-      if (p.fling.x !== 0 || p.fling.z !== 0) move = add(scale(move, 0.4), p.fling);
-      let at = add(start, total);
-      // Walking straight into a ladder takes hold of it a little to one side of it too (and
-      // keeps hold while drawn onto it), and backing off its top catches hold of it even further
-      // to one side.
-      const reached = p.grounded || p.ladder !== null ? this.ladderAt(at, 0, LADDER_REACH) : null;
-      const ladderId = down
-        ? null
-        : (this.ladderAt(at) ??
-          (i.forward < 0 && !p.grounded && p.vy <= 0
-            ? this.ladderAt(at, LADDER_CATCH)
-            : reached !== null && (p.ladder !== null || this.walksInto(dir, reached))
-              ? reached
-              : null));
-      const ladder = ladderId === null ? undefined : this.level.ladders[ladderId];
-      // Jumping lets go of the ladder. From the ground a ladder is taken only by walking into
-      // it, more or less facing it, so walking past its foot does not start a climb.
-      const facingIt = ladder !== undefined && Math.cos(i.yaw - ladder.facing) > LADDER_FACING_COS;
-      // Pushing on up top, they let go as soon as there is room before them to stand on what
-      // it reaches.
-      const onLadder =
-        ladder !== undefined &&
-        !i.jump &&
-        (!p.grounded || facingIt) &&
-        !(i.forward > 0 && !p.grounded && this.offTheTop(p, ladder, at));
-      // Lying down, flung or on a ladder moves exactly as told; otherwise they go at once the
-      // way the input asks, on the ground and in the air.
-      const climbing = onLadder && !p.grounded;
-      const steered = !down && p.fling.x === 0 && p.fling.z === 0 && !climbing;
-      if (steered) p.vel = v3(move.x, 0, move.z);
-      // Squeezing and slipping are for walking: lying down, flung or climbing, they stop.
-      if (!steered || onLadder) p.squeeze = p.slip = null;
-      if (onLadder) {
-        // On a ladder: forward climbs, back climbs down, otherwise hang on.
-        p.vy = i.forward > 0 ? CLIMB_SPEED : i.forward < 0 ? -CLIMB_SPEED : 0;
-        // Hands on the rungs: a climber off the ground goes up or down and nowhere else, so a
-        // ladder standing clear of any wall (up to a deck or a treehouse) holds them as well
-        // as one leaning on a house does. The top is where it lets go: past the ladder's
-        // height they walk on, onto whatever it reaches.
-        // Pushing on while climbing carries them on over the top, at a walk. Setting off up it
-        // from its foot, they go onto it whichever way they look.
-        if (climbing || (p.grounded && i.forward > 0)) {
-          p.vel = v3(move.x, 0, move.z);
-          move = this.ontoLadder(ladder, at);
-        }
-      } else if (p.grounded && i.jump && !down && !p.squeeze) p.vy = JUMP_SPEED;
-      // Standing on something: no push into it (snap-to-ground keeps the feet down). Pushing
-      // into the floor every tick makes the controller stall now and then.
-      else if (p.grounded && p.vy <= 0) p.vy = 0;
-      else p.vy -= GRAVITY * DT;
-      // Side-on in a gap, they edge along it, whichever way they ask to go along it.
-      const a = p.squeeze;
-      const along = a ? Math.max(-1, Math.min(1, dir.x * a.x + dir.z * a.z)) : 0;
-      const desired = a
-        ? v3(a.x * along * SQUEEZE.edge * DT, p.vy * DT, a.z * along * SQUEEZE.edge * DT)
-        : this.keepOnStairs(at, v3(move.x * DT, p.vy * DT, move.z * DT));
-      // Slipping off an edge: off it, whichever way they ask to go.
-      const slip = p.slip;
-      if (slip) {
-        const back = Math.min(0, desired.x * slip.x + desired.z * slip.z);
-        desired.x += (SLIP_SPEED * DT - back) * slip.x;
-        desired.z += (SLIP_SPEED * DT - back) * slip.z;
-      }
-      const c = a ? p.slim : p.collider;
-      // Caught inside what they walk into (in among the triangles of a car's wheel arch, say):
-      // out to the nearest place clear of it first. Started inside, the controller slides about
-      // in there for every pass it makes, each pass going over every triangle round them, and a
-      // wheel arch has thousands: most of a second a move.
-      const out = this.wayOut(p, c, at);
-      if (out) {
-        at = add(at, out);
-        total = add(total, out);
-      }
-      // Stuck fast (no way out): a single pass, and nothing more tried this tick (stepping up,
-      // turning side-on), each a move as dear.
-      const stuck = !out;
-      let m = this.walk(p, c, at, desired, true, !stuck);
-      const wasFalling = !p.grounded ? p.vy : 0;
-      // Rising, they are not on the ground, whatever they brush against on the way up.
-      p.grounded = p.controller.computedGrounded() && (onLadder || p.vy <= 0);
-      // Held up on the ground: a step up, perhaps, that the controller would not take.
-      const flat = Math.hypot(desired.x, desired.z);
-      const heldUp = flat > 1e-4 && Math.hypot(m.x, m.z) < flat * 0.9;
-      if (steered && !onLadder && p.grounded && heldUp && !stuck) {
-        const up = this.climb(p, c, at, desired);
-        if (up && up.x * desired.x + up.z * desired.z > m.x * desired.x + m.z * desired.z) m = up;
-      }
-      // On the ground only under the capsule's rim, nothing under their feet, and not getting
-      // on onto it (as up a narrow step): they slip off.
-      if (steered && !onLadder && p.grounded && !a) {
-        const off = this.perched(p, add(at, m));
-        p.slip = off && m.x * off.x + m.z * off.z > -0.005 ? off : null;
-        if (p.slip) p.grounded = false;
-      } else if (p.grounded) p.slip = null;
-      // Into a gap narrower than their shoulders, they turn side-on to squeeze through; out of
-      // it, they turn back.
-      const asked = Math.hypot(dir.x, dir.z);
-      if (a) m = add(m, this.edge(p, a, along, add(at, m), asked));
-      else if (steered && !onLadder && p.grounded && asked > 0.5 && !stuck)
-        this.wedged(p, add(at, m), dir.x / asked, dir.z / asked);
-      p.ladder = onLadder && !p.grounded ? ladderId : null;
-      if (p.grounded && wasFalling < -HARD_LANDING_SPEED && !this.replica) {
-        this.knockDown(p, scale(f, 0.6), LANDING_DOWN_TICKS);
-      }
-      if (p.grounded && p.vy < 0) {
-        p.vy = 0;
-        p.fling = v3();
-      }
-      // Bumped our head.
-      if (p.vy > 0 && m.y < desired.y * 0.5) p.vy = 0;
-      // Flew into something: what got through is all the momentum left (sliding along a wall
-      // keeps the part along it). Not on the ground, where steps and slopes turn some of the
-      // walk into climbing and the input keeps it up anyway.
-      if (steered && !p.grounded) {
-        const got = v3(m.x / DT, 0, m.z / DT);
-        if (length(got) < length(p.vel) - 1e-3) p.vel = got;
-      } else if (!climbing) p.vel = down ? v3() : v3(move.x, 0, move.z);
-      total = add(total, m);
-      // Slide the collider along so the next tick's move starts from the right place (and put
-      // back from wherever stepping up tried it).
-      p.collider.setTranslation(add(start, total));
-    }
-    p.body.setNextKinematicTranslation(add(p.body.translation(), total));
-  }
-
-  /**
-   * Moves `c` (a player's capsule, or side-on their slim shape) with its middle at `at` by
-   * `delta` as far as it goes; how far it went. Stepping up no higher than there is room
-   * overhead: the controller steps up only where it can rise the whole way, which under a
-   * stair's upper flight or a low ceiling it could not. Without `slide`, it stops at the first
-   * thing in the way, in a single pass.
-   */
-  private walk(p: Player, c: Collider, at: Vec3, delta: Vec3, step = true, slide = true): Vec3 {
-    c.setTranslation(at);
-    if (!slide) p.controller.setSlideEnabled(false);
-    if (!step) p.controller.disableAutostep();
-    const over = !step
-      ? null
-      : this.world.castShape(
-          at,
-          IDENTITY,
-          UP,
-          c.shape,
-          0,
-          STEP_UP,
-          false,
-          this.R.QueryFilterFlags.EXCLUDE_SENSORS,
-          PLAYER_GROUPS,
-          p.collider,
-        );
-    const room = over ? over.time_of_impact - 0.01 : STEP_UP;
-    if (step) p.controller.enableAutostep(Math.max(0.01, Math.min(STEP_UP, room)), 0.1, false);
-    p.controller.computeColliderMovement(
-      c,
-      delta,
-      undefined,
-      PLAYER_GROUPS,
-      (o) => o !== p.collider,
-    );
-    if (!slide) p.controller.setSlideEnabled(true);
-    const m = p.controller.computedMovement();
-    return v3(m.x, m.y, m.z);
-  }
-
-  /**
-   * How far `c` (a player's capsule, or side-on their slim shape) with its middle at `at` must go
-   * not to be caught inside what they walk into (`CAUGHT` deep or more): nowhere if it is not,
-   * else the nearest way out of those `WAY_OUT` and `WAYS_OUT` try; or null if none of those is.
-   */
-  private wayOut(p: Player, c: Collider, at: Vec3): Vec3 | null {
-    const core = c === p.slim ? this.cores.slim : this.cores.capsule;
-    const caught = (q: Vec3) =>
-      !!this.world.intersectionWithShape(
-        q,
-        IDENTITY,
-        core,
-        this.R.QueryFilterFlags.EXCLUDE_SENSORS | this.R.QueryFilterFlags.EXCLUDE_DYNAMIC,
-        groups(G_PLAYER, G_WORLD),
-        p.collider,
-      );
-    if (!caught(at)) return v3();
-    for (const r of WAY_OUT) {
-      for (const way of WAYS_OUT) {
-        const out = scale(way, r);
-        if (!caught(add(at, out))) return out;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Moves `c` with its middle at `at` by `delta` (along the ground) up onto what holds it up, if
-   * it can: lifted as little as gets it on (so that on a steep stair it is not lifted into the
-   * flight over), on, and down onto it. How far it went, standing at the end; or null if it gets
-   * no further on so.
-   */
-  private climb(p: Player, c: Collider, at: Vec3, delta: Vec3): Vec3 | null {
-    const flat = Math.hypot(delta.x, delta.z);
-    for (const h of CLIMB_TRIES) {
-      const up = this.walk(p, c, at, v3(0, h, 0), false);
-      if (up.y < h * 0.5) return null;
-      const lifted = add(at, v3(0, up.y, 0));
-      // Lifted already: no stepping up again on top of that.
-      const on = this.walk(p, c, lifted, v3(delta.x, 0, delta.z), false);
-      // On the way they go: slid back off a sloping face is no step up.
-      if ((on.x * delta.x + on.z * delta.z) / flat < flat * 0.5) continue;
-      const down = this.walk(p, c, add(lifted, on), v3(0, -up.y - on.y - 0.05, 0), false);
-      if (!p.controller.computedGrounded()) continue;
-      return v3(on.x, up.y + on.y + down.y, on.z);
-    }
-    return null;
-  }
-
-  /**
-   * Standing with their middle at `centre` on nothing within their feet's reach (the capsule
-   * resting on an edge out past them by its rim), the way off the edge (x, z, a unit long);
-   * else null.
-   */
-  private perched(p: Player, centre: Vec3): { x: number; z: number } | null {
-    const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
-    const bottom = centre.y - PLAYER_FEET;
-    // A thin disc as wide as their feet, from just over the capsule's foot down.
-    const lift = 0.05;
-    const under = this.world.castShape(
-      v3(centre.x, bottom + lift, centre.z),
-      IDENTITY,
-      DOWN,
-      new this.R.Cylinder(0.005, FOOT),
-      0,
-      lift + CONTROLLER_OFFSET + UNDERFOOT,
-      true,
-      flags,
-      PLAYER_GROUPS,
-      p.collider,
-    );
-    if (under) return null;
-    // What the capsule rests on, and away from it.
-    const rest = this.world.castShape(
-      centre,
-      IDENTITY,
-      DOWN,
-      p.collider.shape,
-      0,
-      CONTROLLER_OFFSET + 0.05,
-      false,
-      flags,
-      PLAYER_GROUPS,
-      p.collider,
-    );
-    const on =
-      rest?.witness1 ??
-      this.world.projectPoint(
-        v3(centre.x, bottom + PLAYER_RADIUS, centre.z),
-        true,
-        flags,
-        PLAYER_GROUPS,
-        p.collider,
-      )?.point;
-    if (!on) return null;
-    const [dx, dz] = [centre.x - on.x, centre.z - on.z];
-    const d = Math.hypot(dx, dz);
-    return d > 1e-3 ? { x: dx / d, z: dz / d } : null;
-  }
-
-  /** Whether a player could stand upright with their middle at `centre`, clear of everything. */
-  private roomAt(p: Player, centre: Vec3): boolean {
-    return !this.world.intersectionWithShape(
-      v3(centre.x, centre.y + 0.05, centre.z),
-      IDENTITY,
-      p.collider.shape,
-      this.R.QueryFilterFlags.EXCLUDE_SENSORS | this.R.QueryFilterFlags.EXCLUDE_DYNAMIC,
-      PLAYER_GROUPS,
-      p.collider,
-    );
-  }
-
-  /**
-   * Whether, with their middle at `centre` and going along (`ux`, `uz`), something is in the way
-   * of their shoulders on both sides: over the height they step up and up to their head, out
-   * past where the capsule keeps them from but within their shoulders' reach, and within
-   * `SQUEEZE.reach` before or behind them (so that a gap across their way at a slant is found,
-   * its sides one before the other); and nothing in the way between (as a wall before them would
-   * be, rather than a gap).
-   */
-  private tight(p: Player, centre: Vec3, ux: number, uz: number): boolean {
-    const turn = yawQuat(Math.atan2(-uz, ux));
-    const inner = 0.1;
-    const bottom = centre.y - PLAYER_FEET;
-    const half = (2 * PLAYER_FEET - STEP_UP) / 2;
-    const y = bottom + STEP_UP + half;
-    const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS | this.R.QueryFilterFlags.EXCLUDE_DYNAMIC;
-    const hits = (shape: Shape, out: number) =>
-      !!this.world.intersectionWithShape(
-        v3(centre.x - uz * out, y, centre.z + ux * out),
-        turn,
-        shape,
-        flags,
-        PLAYER_GROUPS,
-        p.collider,
-      );
-    const side = new this.R.Cuboid(SQUEEZE.reach, half, (SQUEEZE.shoulder - inner) / 2);
-    const between = new this.R.Cuboid(SQUEEZE.reach, half, inner * 0.8);
-    return (
-      [-1, 1].every((s) => hits(side, (s * (inner + SQUEEZE.shoulder)) / 2)) && !hits(between, 0)
-    );
-  }
-
-  /**
-   * Going along (`ux`, `uz`) from `centre` into a gap narrower than their shoulders (held up by
-   * it, or only brushing it either side) where side-on they would get on, they turn side-on to
-   * squeeze through.
-   */
-  private wedged(p: Player, centre: Vec3, ux: number, uz: number): void {
-    if (!this.tight(p, v3(centre.x + ux * 0.1, centre.y, centre.z + uz * 0.1), ux, uz)) return;
-    const on = this.walk(p, p.slim, centre, v3(ux * 0.06, 0, uz * 0.06));
-    if (on.x * ux + on.z * uz >= 0.03) p.squeeze = { x: ux, z: uz };
-  }
-
-  /**
-   * Edged `along` the gap `a` to `centre`, they turn back to walk on once there is room to stand
-   * upright (shouldered a little aside, if need be: how far is what this returns) and their
-   * shoulders are clear, there and a little further on the way they go; or, asking to go off
-   * another way (`asked` that hard), once there is room where they stand.
-   */
-  private edge(
-    p: Player,
-    a: { x: number; z: number },
-    along: number,
-    centre: Vec3,
-    asked: number,
-  ): Vec3 {
-    const aside = [0, 0.04, -0.04, 0.08, -0.08];
-    const at = (s: number, k: number) =>
-      v3(centre.x + a.x * s - a.z * k, centre.y, centre.z + a.z * s + a.x * k);
-    const room = (s: number) => {
-      for (const k of aside) {
-        const q = at(s, k);
-        if (this.roomAt(p, q) && !this.tight(p, q, a.x, a.z)) return q;
-      }
-      return null;
-    };
-    if (Math.abs(along) <= 0.3 && asked > 0.5) {
-      // Off another way: as soon as they can stand upright.
-      for (const k of aside) {
-        const q = at(0, k);
-        if (!this.roomAt(p, q)) continue;
-        p.squeeze = null;
-        return sub(q, centre);
-      }
-      return v3();
-    }
-    const here = room(0);
-    if (!here) return v3();
-    const out = Math.abs(along) > 0.3 ? room(Math.sign(along) * 0.1) : room(0.1) && room(-0.1);
-    if (!out) return v3();
-    p.squeeze = null;
-    return sub(here, centre);
-  }
-
-  /**
-   * Whether a climber at `centre` on `l` could step off it, on the way it is climbed: room for
-   * them a little before them, a step above where their feet are, with something to stand on
-   * no more than a step below that, up toward its top (not the ground round its foot, under a
-   * deck it climbs to).
-   */
-  private offTheTop(p: Player, l: LadderDef, centre: Vec3): boolean {
-    const out = PLAYER_RADIUS + 0.2;
-    const ahead = v3(
-      centre.x - Math.sin(l.facing) * out,
-      centre.y + 0.1,
-      centre.z - Math.cos(l.facing) * out,
-    );
-    if (centre.y - PLAYER_FEET < l.pos.y + l.height / 2 || !this.roomAt(p, ahead)) return false;
-    return !!this.world.castShape(
-      ahead,
-      IDENTITY,
-      DOWN,
-      p.collider.shape,
-      0,
-      0.1 + STEP_UP,
-      false,
-      this.R.QueryFilterFlags.EXCLUDE_SENSORS,
-      PLAYER_GROUPS,
-      p.collider,
-    );
-  }
-
-  /**
-   * How a climber at `centre` moves across the ladder: not at all while they are on it, or back
-   * onto it (between its rails, close to its plane) if they caught hold of it from one side.
-   */
-  private ontoLadder(l: LadderDef, centre: Vec3): Vec3 {
-    const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
-    const rail = l.width / 2 - 0.05;
-    const near = PLAYER_RADIUS + 0.2;
-    const dx = Math.max(-rail, Math.min(rail, local.x)) - local.x;
-    const dz = Math.max(-near, Math.min(near, local.z)) - local.z;
-    if (dx === 0 && dz === 0) return v3();
-    return rotate(yawQuat(l.facing), v3(dx * LADDER_PULL, 0, dz * LADDER_PULL));
-  }
-
-  /** Whether a player whose centre is at `centre` has their feet in the level's water. */
-  private inWater(centre: Vec3): boolean {
-    const feet = centre.y - PLAYER_FEET;
-    // Out on the sea round an island: wherever the ground is under it and the feet are too.
-    const { sea } = this.level;
-    if (sea !== undefined && feet < sea + 0.15 && inSea(this.level, centre.x, centre.z))
-      return true;
-    const water = this.level.water;
-    if (!water) return false;
-    if (feet > 0.15) return false;
-    return water.some(
-      (w) => centre.x >= w.x0 && centre.x <= w.x1 && centre.z >= w.z0 && centre.z <= w.z1,
-    );
-  }
-
-  /** Whether a player whose centre is at `centre` stands in the catapult's bucket. */
-  private inBucket(c: NonNullable<LevelDef['catapult']>, centre: Vec3): boolean {
-    const local = rotate(conj(yawQuat(c.facing)), sub(centre, c.pos));
-    const bucket = catapultBucket();
-    const feet = local.y - PLAYER_FEET;
-    return (
-      Math.hypot(local.x - bucket.x, local.z - bucket.z) < CATAPULT.bucket.radius &&
-      feet > CATAPULT.frame.size.y - 0.15 &&
-      feet < CATAPULT.frame.size.y + 0.4
-    );
-  }
-
-  /**
-   * Keeps a player on a flight of stairs between its handrail and its wall: the move `desired`
-   * for a player with their centre at `at`, with its sideways part cut so that it leaves them
-   * no further out than a hand's width in from either edge of the steps (and brings them back
-   * in a little if they are out past that). Nothing solid does this. A player stepping up a
-   * step while brushing against something solid beside them (the wall, or a railing that
-   * collided) stalls now and then, as the physics engine's step up fails when its casts graze
-   * whatever they touch, so there is nothing to brush against: the handrail is drawn only, and
-   * at the limit the move is straight up the flight. That also keeps every part of them clear
-   * of the edges of the ceiling beside the well and over the wall, which used to catch their
-   * head and jam them there.
-   */
-  private keepOnStairs(at: Vec3, desired: Vec3): Vec3 {
-    const feetY = at.y - PLAYER_FEET;
-    for (const s of this.flights) {
-      if (feetY < s.pos.y - 0.2 || feetY > s.top + 0.5) continue;
-      const dx = at.x - s.pos.x;
-      const dz = at.z - s.pos.z;
-      const along = dx * s.along.x + dz * s.along.z;
-      if (along < 0 || along > s.run) continue;
-      const across = dx * s.across.x + dz * s.across.z;
-      const half = STAIRS.width / 2;
-      if (Math.abs(across) > half + s.reach) continue;
-      // Beside the steps on the floor they start from is off them: walking along the flight or
-      // away from it there is no business of the stairs.
-      if (Math.abs(across) > half && feetY < s.pos.y + 0.05) continue;
-      // Nor is beside the well on the floor it comes out on: held there, a player who walked up
-      // to the railing could only slide along it, pulled back toward the steps.
-      if (Math.abs(across) > half && feetY > s.top - 0.05) continue;
-      const limit = half - PLAYER_RADIUS - STAIRS_MARGIN;
-      const sideways = desired.x * s.across.x + desired.z * s.across.z;
-      let want = across + sideways;
-      if (want > limit) want = Math.max(limit, across - STAIRS_SLIDE);
-      else if (want < -limit) want = Math.min(-limit, across + STAIRS_SLIDE);
-      const d = want - across - sideways;
-      return d === 0
-        ? desired
-        : v3(desired.x + s.across.x * d, desired.y, desired.z + s.across.z * d);
-    }
-    return desired;
-  }
-
-  /**
-   * The ladder (its index in the level's `ladders`) a player's centre is on, if any; with
-   * `slack`, one they are within that much of out from (not behind) it, and `side` to either
-   * side of it (as much as `slack` unless given). They hold on till their feet are all but at
-   * its top, so that pushing on they walk off onto what it reaches rather than up against its
-   * edge (where, their feet over nothing, they would slip back off it).
-   */
-  private ladderAt(centre: Vec3, slack = 0, side = slack): number | null {
-    const i = this.level.ladders.findIndex((l) => {
-      const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
-      return (
-        Math.abs(local.x) < l.width / 2 + side &&
-        local.z > -(PLAYER_RADIUS + 0.25) &&
-        local.z < PLAYER_RADIUS + 0.25 + slack &&
-        local.y > 0 &&
-        local.y - PLAYER_FEET < l.height - 0.05
-      );
-    });
-    return i < 0 ? null : i;
-  }
-
-  /**
-   * The ladder whose top a player with their middle at `centre` is at, if any: their feet about
-   * level with it, over it or just off it onto what it reaches.
-   */
-  private ladderTopAt(centre: Vec3): LadderDef | undefined {
-    return this.level.ladders.find((l) => {
-      const local = rotate(conj(yawQuat(l.facing)), sub(centre, l.pos));
-      const feet = local.y - PLAYER_FEET - l.height;
-      return (
-        Math.abs(local.x) < l.width / 2 + LADDER_REACH &&
-        local.z > -LADDER_TOP_IN &&
-        local.z < PLAYER_RADIUS + 0.25 &&
-        feet > -0.5 &&
-        feet < 0.6
-      );
-    });
-  }
-
-  /** Whether going the way `dir` asks (up to a unit long) is walking more or less straight into a ladder. */
-  private walksInto(dir: Vec3, ladder: number): boolean {
-    const { facing } = this.level.ladders[ladder]!;
-    return -(dir.x * Math.sin(facing) + dir.z * Math.cos(facing)) > LADDER_INTO;
   }
 
   /**
@@ -2942,7 +2212,7 @@ export class Sim {
    * They have got to where they work (or as near as they could): what the machine was asked to
    * make is begun as their hands set it going (see `ACT_TIMES`), and done that much later.
    */
-  private arrive(w: Work): void {
+  arrive(w: Work): void {
     w.there = true;
     const m = w.machineId === null ? undefined : this.machines.get(w.machineId);
     if (!w.delays || !m?.making) return;
@@ -2955,7 +2225,7 @@ export class Sim {
    * it making (see `Work.awaits`), and once it is done take it (on the server, which says so:
    * see `collect`); otherwise they are done.
    */
-  private workDone(p: Player, w: Work): void {
+  workDone(p: Player, w: Work): void {
     const m = w.machineId === null || w.awaits === null ? null : this.machines.get(w.machineId);
     if (!m || w.awaits === null) {
       p.work = null;
@@ -5293,7 +4563,7 @@ export class Sim {
     if (this.replica) {
       for (const p of this.players.values()) {
         if (p.replicated) continue;
-        this.movePlayer(p, [p.input]);
+        this.movement.movePlayer(p, [p.input]);
         this.trackSnapLock(p);
         this.tire(p);
       }
@@ -5310,7 +4580,7 @@ export class Sim {
     for (const p of this.players.values()) {
       const inputs = p.pendingInputs ?? [p.input];
       p.pendingInputs = null;
-      if (inputs.length) this.movePlayer(p, inputs);
+      if (inputs.length) this.movement.movePlayer(p, inputs);
       this.applyHold(p);
       this.trackSnapLock(p);
       this.tire(p);
