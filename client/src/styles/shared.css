@@ -1,0 +1,143 @@
+/*
+ * The pieces every screen shares: panel headers, buttons, keys, fields, player dots and tags (see
+ * ../style.css).
+ */
+
+/* Each screen's file places its panels; a theme's corner marks (::before, ::after) hang off them. */
+.box,
+.dialog {
+  pointer-events: auto;
+}
+
+/* A panel's header: title on the left, a note or a button on the right, on the theme's rule. */
+#menu .cover,
+#results .sheet > header,
+#lobby h3,
+#editor-panel h3,
+#settings h2,
+#report h3,
+#meeting h2,
+#picker h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: var(--bw) solid var(--rule);
+  font-family: var(--font-display);
+  line-height: 1.1;
+  color: var(--text);
+  text-wrap: balance;
+}
+
+.close-x {
+  align-self: center;
+  flex: none;
+  font-size: 15px;
+}
+
+/* A fingertip needs a bigger target than a mouse pointer. */
+body.touch .close-x {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.meta {
+  margin-left: auto;
+  font-family: var(--font);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+/* Keys: small keycaps. */
+kbd {
+  display: inline-block;
+  min-width: 1.75em;
+  margin: 0 1px;
+  padding: 1px 5px 2px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: min(var(--r-ctl), 5px);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 11px/1.4 var(--font-mono);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* A button in a header keeps the size of the panel's text, not of the heading's. */
+:is(h2, h3, header) :is(.btn, .icon-btn) {
+  font-size: 14px;
+}
+
+/* Buttons over the game take the pointer even where the layer under them lets it through. */
+.btn,
+.icon-btn,
+.segmented {
+  pointer-events: auto;
+}
+
+/* A toggle that is on (Careful, Same layer, Place or Remove): the theme's pressed tint. */
+.btn[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--text);
+}
+
+/* Main menu asks once in a game: the second click leaves. */
+.btn.armed,
+.btn.armed:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+/* Fields: a select or text box takes its label's width. */
+.field :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Player colours as dots. */
+#lobby li .dot,
+#meeting li .dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1.5px var(--surface),
+    0 0 0 2.5px var(--border);
+}
+
+/* Tags over the game: the theme's toast colours. */
+#hint,
+#role,
+#notice,
+#banner,
+#spectating,
+#mic,
+#appbar .where,
+#appbar .esc-hint,
+#reader .caption,
+#results .stage span {
+  border-radius: var(--r-ctl);
+  background: var(--toast-bg);
+  color: var(--toast-fg);
+  font-family: var(--font);
+  font-weight: 700;
+}

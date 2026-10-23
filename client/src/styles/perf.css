@@ -1,0 +1,333 @@
+/* The performance graphs (see ../style.css). */
+
+/* A card that drags by its title bar; until it is dragged it sits here. */
+#perf {
+  position: fixed;
+  /* Beside the lobby and report panels on the left, so it never covers their buttons. */
+  left: 384px;
+  bottom: 10px;
+  /* Over the game's panels wherever it is dragged, under the app bar and the dialogs. */
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 80px);
+  background: var(--perf-surface);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  color: var(--sar-hud-ink);
+  pointer-events: auto;
+  font: 11px var(--font-mono);
+}
+
+#perf[hidden],
+#perf [hidden],
+body[data-screen]:not([data-screen='game']) > #perf {
+  display: none;
+}
+
+#perf .perf-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 12px;
+  border-bottom: 1px solid var(--perf-grid);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+#perf.moving,
+#perf.moving * {
+  user-select: none;
+}
+
+#perf.moving .perf-bar {
+  cursor: grabbing;
+}
+
+#perf .perf-bar strong {
+  flex: 1;
+  color: var(--perf-muted);
+  font-weight: bold;
+  letter-spacing: 0.04em;
+}
+
+#perf .perf-close {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--perf-text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#perf .perf-close:hover {
+  background: var(--perf-grid);
+}
+
+/* Resize handles along each edge and at each corner, just inside the card. */
+#perf .perf-edge {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+#perf .perf-edge-n,
+#perf .perf-edge-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+#perf .perf-edge-e,
+#perf .perf-edge-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+#perf .perf-edge-n {
+  top: -3px;
+}
+
+#perf .perf-edge-s {
+  bottom: -3px;
+}
+
+#perf .perf-edge-e {
+  right: -3px;
+}
+
+#perf .perf-edge-w {
+  left: -3px;
+}
+
+#perf :is(.perf-edge-ne, .perf-edge-nw, .perf-edge-se, .perf-edge-sw) {
+  width: 14px;
+  height: 14px;
+}
+
+#perf .perf-edge-ne {
+  top: -3px;
+  right: -3px;
+  cursor: nesw-resize;
+}
+
+#perf .perf-edge-sw {
+  bottom: -3px;
+  left: -3px;
+  cursor: nesw-resize;
+}
+
+#perf .perf-edge-nw {
+  top: -3px;
+  left: -3px;
+  cursor: nwse-resize;
+}
+
+#perf .perf-edge-se {
+  right: -3px;
+  bottom: -3px;
+  cursor: nwse-resize;
+}
+
+/* A hint of a grip in the bottom right corner. */
+#perf .perf-edge-se::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--perf-muted);
+  border-bottom: 2px solid var(--perf-muted);
+  opacity: 0.6;
+}
+
+#perf .perf-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 10px 6px 10px 12px;
+}
+
+#perf .perf-cols,
+#perf .perf-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+}
+
+/* Two columns once the card is wide enough: the whole frame and its breakdowns, to start with. */
+#perf .perf-cols.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 16px;
+}
+
+/* While a graph is dragged, an empty column still has room to drop it in. */
+#perf .perf-cols.docking .perf-col {
+  min-height: 40px;
+  border-radius: 5px;
+  outline: 1px dashed var(--perf-grid);
+  outline-offset: 2px;
+}
+
+/* Each graph a small card of its own. */
+#perf .perf-tile {
+  padding: 6px 8px 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 5px;
+}
+
+#perf .perf-tile.lifted {
+  position: fixed;
+  z-index: 3;
+  background: var(--perf-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  outline: 1px solid var(--perf-grid);
+  pointer-events: none;
+}
+
+/* Where the dragged graph will go. */
+#perf .perf-slot {
+  border: 1px dashed var(--perf-muted);
+  border-radius: 5px;
+}
+
+#perf .perf-grip {
+  align-self: stretch;
+  width: 8px;
+  margin: -2px 0 -2px -2px;
+  background: radial-gradient(var(--perf-muted) 1px, transparent 1.5px) 0 0 / 4px 4px;
+  opacity: 0.5;
+  cursor: grab;
+  touch-action: none;
+}
+
+#perf summary:hover .perf-grip {
+  opacity: 1;
+}
+
+#perf summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+#perf summary::-webkit-details-marker {
+  display: none;
+}
+
+#perf .perf-name {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  font-weight: bold;
+}
+
+/* A caret that turns as the graph opens. */
+#perf .perf-name::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-inline-start: 5px solid var(--perf-muted);
+  transition: transform 0.1s;
+}
+
+#perf details[open] .perf-name::before {
+  transform: rotate(90deg);
+}
+
+#perf .perf-name i,
+#perf .perf-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+#perf .perf-name {
+  white-space: nowrap;
+}
+
+/* In a narrow column the readout gives way to the graph's name. */
+#perf .perf-readout {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--perf-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#perf .perf-body {
+  margin-top: 6px;
+}
+
+#perf canvas {
+  display: block;
+  width: 100%;
+  cursor: crosshair;
+}
+
+#perf .perf-time {
+  display: flex;
+  justify-content: space-between;
+  /* Under the plot, clear of the axis labels on its right. */
+  width: calc(100% - 30px);
+  color: var(--perf-muted);
+  font-size: 10px;
+}
+
+#perf .perf-legend {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+#perf .perf-legend td {
+  padding: 1px 0;
+  color: var(--perf-text);
+}
+
+#perf .perf-legend i {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+#perf .perf-legend td + td {
+  width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#perf .perf-legend thead td {
+  color: var(--perf-muted);
+}
+
+#perf .perf-note,
+#perf .perf-slowest {
+  margin: 6px 0 0;
+  color: var(--perf-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+#perf .perf-slowest {
+  color: var(--perf-text);
+}

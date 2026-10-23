@@ -1,0 +1,222 @@
+/* Small screens (see ../style.css). */
+
+/* Phones, either way up: panels hug the edges, and How to play becomes a page of its own. */
+@media (max-width: 600px), (max-height: 500px) {
+  /* The app bar (Settings, and Back on the pages off the cover) sits above the card. */
+  #menu {
+    padding-top: 64px;
+  }
+
+  #menu .card {
+    padding: 14px 18px 18px;
+  }
+
+  #menu h1 {
+    font-size: 36px;
+  }
+
+  #menu .stamp {
+    width: 52px;
+    height: 52px;
+    font-size: 21px;
+  }
+
+  #menu :is(.modes, #community) small {
+    font-size: 10px;
+  }
+
+  #menu .rooms .filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #menu .rooms .filters .find {
+    grid-column: 1 / -1;
+  }
+
+  #menu .rooms .create-row .btn {
+    width: 100%;
+  }
+
+  #menu .forum-list {
+    grid-template-columns: 1fr;
+  }
+
+  #menu .forum .filters {
+    grid-template-columns: 1fr;
+  }
+
+  #menu .forum-post .post-head {
+    grid-template-columns: 110px 1fr;
+    gap: 12px;
+  }
+
+  #menu .forum-post h3.name {
+    font-size: 20px;
+  }
+
+  #menu .forum .share-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #appbar {
+    top: calc(env(safe-area-inset-top) + 6px);
+    right: calc(env(safe-area-inset-right) + 6px);
+  }
+
+  /* The where tag would sit on the round clock; the screen shows where you are anyway. */
+  #appbar .where {
+    display: none;
+  }
+
+  #appbar .actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    max-width: calc(100vw - 12px);
+  }
+
+  #appbar .btn {
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  #dock {
+    left: calc(env(safe-area-inset-left) + 8px);
+    top: 8px;
+    width: min(340px, calc(100vw - 16px));
+    max-height: calc(100% - 16px);
+  }
+
+  /* While the dock is up, the box art would sit under it. */
+  body:not(.playing) #target {
+    display: none;
+  }
+
+  #timer {
+    top: 8px;
+    padding: 2px 12px 3px;
+    font-size: 24px;
+  }
+
+  #role {
+    top: 52px;
+    max-width: calc(100vw - 24px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+  }
+
+  #reveal {
+    padding: 0 16px;
+  }
+
+  #reveal h1 {
+    font-size: 36px;
+  }
+
+  #reveal p {
+    font-size: 15px;
+  }
+
+  #reader canvas {
+    width: auto;
+    height: auto;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 60px);
+  }
+
+  #meeting {
+    max-height: calc(100% - 16px);
+    overflow-y: auto;
+  }
+
+  #notice {
+    top: 22%;
+    font-size: 15px;
+  }
+
+  #results h1 {
+    font-size: 34px;
+  }
+
+  #results .stage canvas {
+    max-height: 40vh;
+  }
+
+  #editor-panel {
+    left: 0;
+    top: 0;
+    width: 300px;
+    max-height: 100%;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+}
+
+/* A phone held upright: the panels drop below the app bar, the editor's panel is a bottom sheet. */
+@media (max-width: 600px) {
+  #dock {
+    top: 64px;
+    max-height: calc(100% - 72px);
+  }
+
+  #editor-panel {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-height: 46%;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  body.touch #tools {
+    right: 12px;
+    bottom: auto;
+    top: 140px;
+    width: min(250px, calc(100vw - 24px));
+  }
+
+  body.touch #chat {
+    width: calc(100vw - 24px);
+  }
+
+  body.touch #touch .tools-row {
+    top: 92px;
+    max-width: calc(100vw - 24px);
+  }
+
+  body.touch #role {
+    top: 140px;
+  }
+
+  /* Beside the Menu button, clear of the box art. */
+  body.touch #timer {
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 80px);
+    transform: none;
+  }
+
+  /* The frame counter would sit on the buttons. */
+  body.touch #status {
+    display: none;
+  }
+}
+
+/* The build editor's touch tools: place or remove, rotate, and keep to the layer. */
+#editor-panel .ed-touch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 8px;
+  margin: 4px 0 12px;
+}
+
+@media (max-width: 600px) {
+  #editor-panel .ed-touch {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px 6px;
+  }
+
+  #editor-panel .ed-touch .btn {
+    padding: 0 4px;
+    font-size: 13px;
+  }
+}

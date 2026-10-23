@@ -1,0 +1,57 @@
+/* The page itself: the game's own tokens, and the body and canvas (see ../style.css). */
+
+:root {
+  /* Text drawn straight on the 3D world (chat, captions): light with a shadow. */
+  --sar-hud-ink: #fdfbf4;
+  /* The rival teams: the colours their bins and bibs have in the world. */
+  --sar-team-red: #d8392b;
+  --sar-team-blue: #1e5bc6;
+  /* Frame rate and ping graphs (always on their own dark panel). */
+  --perf-surface: #1b1d23;
+  --perf-fps: #3987e5;
+  --perf-ping: #d95926;
+  --perf-grid: rgba(255, 255, 255, 0.1);
+  --perf-muted: #8f8e86;
+  --perf-text: #c3c2b7;
+  /* The parts of a frame, in this fixed order (checked together for colour blindness on the
+     panel's surface); what the game does not account for is grey. */
+  --perf-1: #3987e5;
+  --perf-2: #d95926;
+  --perf-3: #199e70;
+  --perf-4: #c98500;
+  --perf-5: #d55181;
+  --perf-6: #008300;
+  --perf-rest: #77766f;
+  /* The benchmark's graph lines, on the theme's panels: categorical slots in a fixed order. */
+  --bench-1: #3987e5;
+  --bench-2: #d95926;
+  --bench-3: #199e70;
+  --bench-4: #c98500;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--text);
+}
+
+.hidden {
+  display: none !important;
+}
+
+#game,
+#game canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}

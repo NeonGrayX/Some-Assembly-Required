@@ -1,0 +1,504 @@
+/* The benchmark (see ../style.css). */
+
+/* While the bot plays, the help and hint panels stay out of its way (and out of the numbers). */
+body.benchmarking #dock,
+body.benchmarking #hint,
+body.benchmarking #touch,
+body.benchmarking #appbar .resume,
+body.benchmarking #appbar .end-round,
+body.benchmarking #appbar [data-open-settings] {
+  display: none !important;
+}
+
+#bench-hud {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background: var(--perf-surface);
+  border-radius: 4px;
+  color: var(--sar-hud-ink);
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The benchmark's pages (setup, results, bots' results) in the theme, like the menus and
+   settings: the theme's page behind, its panels (.box), buttons, tabs and fields on it. */
+.bench-sheet {
+  position: fixed;
+  inset: 0;
+  /* Over the menu, under the app bar (Back and Settings) like every other page. */
+  z-index: 7;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+.bench-sheet[hidden],
+.bench-sheet [hidden] {
+  display: none;
+}
+
+.bench-sheet .bench-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  /* Clear of the app bar. */
+  padding: 76px 20px 48px;
+}
+
+.bench-sheet h2,
+.bench-sheet h3 {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-display);
+  line-height: 1.1;
+}
+
+.bench-sheet h2 {
+  font-size: 26px;
+}
+
+.bench-sheet h3 {
+  font-size: 15px;
+}
+
+/* A panel's title on the theme's rule, as in the lobby and the side panels. */
+.bench-sheet .bench-box > h3,
+.bench-sheet .bench-table > h3 {
+  align-self: stretch;
+  padding-bottom: 8px;
+  border-bottom: var(--bw) solid var(--rule);
+}
+
+/* The page's own panel: its title and buttons, and under them the setup's tabs or the bots'
+   progress. The page is dark under the dark ink, so nothing stands on the page itself. */
+.bench-sheet .bench-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px 20px;
+  margin-bottom: 12px;
+}
+
+.bench-sheet .bench-head > .bench-tabs,
+.bench-sheet .bench-head > .bench-progress {
+  flex: 1 0 100%;
+  margin: 0;
+}
+
+.bench-sheet .bench-head > div:first-child {
+  flex: 1 1 320px;
+}
+
+.bench-sheet .bench-meta,
+.bench-sheet .bench-note {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bench-sheet .bench-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bench-sheet .bench-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.bench-sheet .bench-tile {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+/* A tile reads like the settings' section titles over a big number. */
+.bench-sheet .bench-tile .label {
+  color: var(--muted);
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.bench-sheet .bench-tile .value {
+  color: var(--text);
+  font: 800 26px var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-sheet .bench-tile .note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bench-sheet .bench-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bench-sheet .bench-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* The two graphs of frame rate and frame time read best across the whole width. */
+.bench-sheet .bench-chart:nth-child(-n + 2),
+.bench-sheet .bench-chart.bench-wide {
+  grid-column: 1 / -1;
+}
+
+/* A chart's own min-width would keep its grid column from shrinking with the window. */
+.bench-sheet .bench-chart {
+  min-width: 0;
+}
+
+.bench-sheet .bench-chart header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.bench-sheet .bench-chart-name small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bench-sheet .bench-readout {
+  color: var(--text);
+  font: 12px var(--font-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-sheet .bench-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bench-sheet .bench-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bench-sheet .bench-legend b {
+  color: var(--text);
+  font: 12px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-sheet .bench-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.bench-sheet canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+.bench-sheet .bench-table {
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.bench-sheet table {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-sheet th,
+.bench-sheet td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bench-sheet th {
+  color: var(--muted);
+  font: 600 11px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bench-sheet th:first-child,
+.bench-sheet td:first-child {
+  text-align: left;
+}
+
+.bench-sheet tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+#bench-report tbody tr {
+  cursor: pointer;
+}
+
+.bench-sheet tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.bench-sheet tr.worst td:first-child::after {
+  content: ' · slowest';
+  color: var(--danger);
+  font-weight: 700;
+}
+
+#bench-report td:nth-child(4) {
+  width: 120px;
+}
+
+/* Work done once: what each was in a column that takes the room left, wrapping if it must;
+   a texture's whole key opens under its name on a click. */
+.bench-sheet .bench-work th:nth-child(2),
+.bench-sheet .bench-work td:nth-child(2) {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+
+#bench-report .bench-work tbody tr:not(.bench-expands) {
+  cursor: default;
+}
+
+.bench-sheet .bench-more {
+  margin-left: 8px;
+  color: var(--muted);
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bench-sheet .bench-more::after {
+  content: ' ▸';
+}
+
+.bench-sheet .open .bench-more::after {
+  content: ' ▾';
+}
+
+.bench-sheet .bench-detail {
+  display: none;
+  margin-top: 6px;
+  color: var(--muted);
+  font: 11px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.bench-sheet .open .bench-detail {
+  display: block;
+}
+
+.bench-sheet .bench-bar {
+  display: block;
+  height: 8px;
+  background: var(--primary);
+  border-radius: 0 4px 4px 0;
+}
+
+@media (max-width: 760px) {
+  .bench-sheet .bench-tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .bench-sheet .bench-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .bench-sheet .bench-head {
+    flex-direction: column;
+  }
+
+  .bench-sheet .bench-buttons {
+    justify-content: flex-start;
+  }
+}
+
+/* The benchmark's setup page and the bots' results. */
+.bench-sheet .bench-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.bench-sheet .bench-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.bench-sheet .bench-box.bench-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .bench-sheet .bench-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bench-sheet .bench-box .bench-note {
+  margin: 0;
+}
+
+.bench-sheet .bench-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px 12px;
+  width: 100%;
+}
+
+/* A field with its label beside it, not above: the boxes hold several in a column. */
+.bench-sheet .bench-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bench-sheet .bench-field > span:first-child {
+  min-width: 100px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.bench-sheet .bench-field .select {
+  min-width: 180px;
+}
+
+.bench-sheet .bench-field input[type='number'] {
+  width: 100px;
+}
+
+.bench-sheet .bench-bot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  width: 100%;
+}
+
+.bench-sheet .bench-bot > span {
+  min-width: 50px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.bench-sheet .bench-bot .bench-field > span:first-child {
+  min-width: 0;
+}
+
+.bench-sheet .bench-bot .bench-field .select {
+  min-width: 150px;
+}
+
+.bench-sheet .bench-progress {
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.bench-sheet .bench-progress > div {
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width 0.3s;
+}
+
+#lobby .bot-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+#lobby .bot-buttons .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+#lobby li .remove-bot {
+  margin-left: auto;
+  flex: none;
+  padding: 0 7px;
+  min-height: 0;
+  font-size: 12px;
+}
+
+/* The host's picks under a player's name: a bot's level and, in a solo game, their role. */
+#lobby li[data-player] {
+  flex-wrap: wrap;
+}
+
+#lobby li .player-picks {
+  display: flex;
+  flex-basis: 100%;
+  gap: 10px;
+  padding: 2px 0 2px 22px;
+}
+
+#lobby li .player-picks label.field {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+}
+
+#lobby li .player-picks .select {
+  flex: 1;
+  min-width: 0;
+}
+
+#lobby li .player-picks select {
+  height: 30px;
+  padding: 0 26px 0 8px;
+  font-size: 12px;
+}
+
+#lobby li .player-picks .select::after {
+  right: 11px;
+  width: 6px;
+  height: 6px;
+}

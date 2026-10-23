@@ -1,0 +1,34 @@
+/* The frame test page (see ../style.css). */
+
+#frametest-panel {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: 320px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+#frametest-panel h2 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
+#frametest-panel label {
+  display: block;
+  margin-top: 6px;
+}
+
+#frametest-panel .hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Beside the page's own panel, as tall as the window allows. */
+body.frametest #perf {
+  left: 344px;
+  bottom: 12px;
+  max-height: calc(100vh - 24px);
+}
