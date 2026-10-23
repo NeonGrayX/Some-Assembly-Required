@@ -1,3 +1,5 @@
+import { downloadBlob } from '../ui/dom.ts';
+
 /**
  * Small pieces the benchmark's pages (setup, bot results) are made of, drawn in the same
  * style as the frame-rate report (`.bench-sheet` in style.css): the theme's panels (.box),
@@ -113,12 +115,7 @@ export function select<T extends string>(
 
 /** Saves `text` as a download. */
 export function download(text: string, name: string, type: string): void {
-  const blob = new Blob([text], { type });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  downloadBlob(new Blob([text], { type }), name);
 }
 
 /** A file name's date part: 2026-10-13-14-05-00. */

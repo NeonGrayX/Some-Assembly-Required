@@ -4,7 +4,7 @@ import { FLOOR, GROUND_LIGHT } from './ground.ts';
 import { BACKDROP } from './studio.ts';
 
 /**
- * How the car scene is lit and graded, as car-test.html draws it after the reference picture:
+ * How the car scene is lit and graded, after the reference picture:
  * a key light high on one side with soft shadows, the studio's light all round (and its
  * reflections in the paint and glass), a softbox on the camera's side, a pale warm floor greying
  * off into the studio's backdrop, and a soft grade. The game lights every level just so, and

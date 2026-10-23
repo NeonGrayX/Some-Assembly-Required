@@ -39,7 +39,7 @@ function onLawn(boxes: BoxDef[] = [], x = 0, z = 3.5) {
 const feet = (p: { body: { translation(): { y: number } } }) =>
   p.body.translation().y - PLAYER_FEET;
 
-describe('moving as in car-test.html', () => {
+describe('moving', () => {
   it('goes at once at the pace asked for, and stops at once', () => {
     const { sim, p } = onLawn();
     p.input.forward = 1;
@@ -81,7 +81,7 @@ describe('moving as in car-test.html', () => {
     expect(top - ground).toBeLessThan(1.35);
   });
 
-  // A step of 0.45 m, and their round foot rides up an edge a little higher, as in car-test.
+  // A step of 0.45 m, and their round foot rides up an edge a little higher.
   it('steps up onto anything a little over knee high, and no higher', () => {
     for (const [height, onto] of [
       [0.25, true],

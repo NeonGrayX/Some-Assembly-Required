@@ -163,8 +163,8 @@ const BAIL_GRIP = BUCKET.height - 0.04 + BUCKET.top + 0.008 + 0.03;
 const TIP = 1.95;
 /** How big a mould is in the hands, to its size in a machine (see `makeHeldTool`). */
 const HELD_MOULD = 0.75;
-/** How big a mould is in the dispenser's hatch (see `madeModel`). */
-const HATCH_MOULD = 0.5;
+/** How big a mould is in the dispenser's hatch, to its size on the shelves (see `madeModel`). */
+export const HATCH_MOULD = 0.5;
 /** A mould block's size. */
 const MOULD = { x: 0.4, y: 0.2, z: 0.4 };
 

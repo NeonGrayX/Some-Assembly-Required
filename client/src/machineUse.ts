@@ -7,8 +7,7 @@ import type { MachinePicker } from './ui/machinePicker.ts';
 /**
  * Using the brick works' machines: what a click on one does when it has to ask first (the
  * picker), and the hints saying what a click on a machine, on what waits in its output area,
- * or with a mould or a bucket in hand, would do. The game uses them, and so does the car test
- * map's brick works.
+ * or with a mould or a bucket in hand, would do.
  */
 
 /** What these need of a game: its simulation, and whether colours are named. */

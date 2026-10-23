@@ -92,7 +92,7 @@ describe('the car-style brick works', { timeout: 60_000 }, () => {
   it('keeps each machine inside its box, bar what stands proud of it', () => {
     for (const kind of KINDS) {
       const def = atOrigin(kind);
-      const view = new CarMachineView(def, undefined, false);
+      const view = new CarMachineView(def, false);
       view.update(state(def, true), {});
       const b = new THREE.Box3().setFromObject(view.group, true);
       const { x, y, z } = def.size;

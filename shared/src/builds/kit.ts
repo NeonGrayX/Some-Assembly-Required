@@ -1,5 +1,5 @@
 import type { BrickTypeId, ColourId, Rotation } from '../bricks.ts';
-import type { BuildStep, TargetBrick } from './types.ts';
+import type { TargetBrick } from './types.ts';
 
 /** One brick of a build, in baseplate grid coordinates. */
 export const b = (
@@ -79,27 +79,4 @@ export function run1(
   if (length - at >= 2) place(2);
   if (length - at >= 1) place(1);
   return out;
-}
-
-/**
- * Splits bricks, listed bottom up, into about `pages` pages of even size. A page never shows
- * more than four kinds of brick, so its parts list fits; such a page ends early.
- */
-export function paginate(bricks: TargetBrick[], pages: number): BuildStep[] {
-  const steps: BuildStep[] = [];
-  let page: TargetBrick[] = [];
-  let kinds = new Set<string>();
-  bricks.forEach((brick, i) => {
-    const kind = `${brick.type}|${brick.colour}`;
-    const due = Math.round(((steps.length + 1) * bricks.length) / pages);
-    if (page.length && (i >= due || (!kinds.has(kind) && kinds.size >= 4))) {
-      steps.push({ bricks: page });
-      page = [];
-      kinds = new Set();
-    }
-    page.push(brick);
-    kinds.add(kind);
-  });
-  if (page.length) steps.push({ bricks: page });
-  return steps;
 }

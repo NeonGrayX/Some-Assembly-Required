@@ -180,18 +180,6 @@ function inside(outline: THREE.Vector2[], p: THREE.Vector2): boolean {
   return odd;
 }
 
-/** What of `outline` lies `by` or more along `n`: on that side of the line across it. */
-export function clipLine(outline: THREE.Vector2[], n: THREE.Vector2, by: number): THREE.Vector2[] {
-  const out: THREE.Vector2[] = [];
-  const over = (p: THREE.Vector2) => p.dot(n) - by;
-  for (const [i, p] of outline.entries()) {
-    const q = outline[(i + 1) % outline.length]!;
-    if (over(p) >= 0) out.push(p.clone());
-    if (over(p) >= 0 !== over(q) >= 0) out.push(p.clone().lerp(q, over(p) / (over(p) - over(q))));
-  }
-  return out;
-}
-
 /**
  * `outline`'s points moved `by` in from it (each along the two edges' inward normals between,
  * mitred), and up to `floor` where they would be lower.

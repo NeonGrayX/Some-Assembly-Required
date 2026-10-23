@@ -30,7 +30,7 @@ import { addDecorations, addPrints } from './prints.ts';
 import { bevelBox, bevelFor } from './shapes.ts';
 import { MachineScreen, SCREEN_OFF, screenStatus } from './machineScreen.ts';
 import type { Doing } from './machineScreen.ts';
-import { BUCKET, HANDLED, HOPPER_STEP, HOPPER_STEP_SIZE } from './operate.ts';
+import { BUCKET, HANDLED, HATCH_MOULD, HOPPER_STEP, HOPPER_STEP_SIZE } from './operate.ts';
 import type { MachineControls } from './operate.ts';
 
 export { BUCKET };
@@ -519,10 +519,9 @@ export abstract class MachineLook {
   /** The part on the printer's bed is being printed on, its print not on it yet (see `inked`). */
   private inking = false;
 
-  constructor(
-    readonly def: MachineDef,
-    readonly group = new THREE.Group(),
-  ) {
+  readonly group = new THREE.Group();
+
+  constructor(readonly def: MachineDef) {
     this.places = outputSlots(def.kind, def.size);
   }
 
@@ -2304,8 +2303,6 @@ function partModel(type: BrickTypeId, colour: ColourId, size: number): THREE.Gro
 
 /** How big (at most, across) a part is drawn in a moulding machine's bay. */
 const BAY_PART = 0.13;
-/** How big a mould is drawn in the dispenser's hatch, to its size on the shelves. */
-export const HATCH_MOULD = 0.5;
 
 /**
  * A part in `colour` as it lies in a moulding machine's bay, `BAY_PART` across at most, the

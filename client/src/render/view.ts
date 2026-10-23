@@ -318,9 +318,9 @@ export class View {
   /** The studio's light all round, every level's (see `buildLevel`). */
   private studioLight: THREE.Texture | null = null;
   /**
-   * Every level is lit as car-test.html lights its scene (see `CarLook`), with a softbox beside
-   * the sun; a level drawn with the cars' models also stands against the studio's backdrop
-   * rather than the sky, its ground's soft shadows baked once it is built.
+   * Every level is lit as the car scene is (see `CarLook`), with a softbox beside the sun; a
+   * level drawn with the cars' models also stands against the studio's backdrop rather than the
+   * sky, its ground's soft shadows baked once it is built.
    */
   private readonly carStudio = {
     backdrop: buildBackdrop(),
@@ -564,8 +564,8 @@ export class View {
     this.inspectorScreens = built.inspectorScreens;
     this.pole = built.pole;
     this.pole.visible = this.gearMode;
-    // Every level is lit by the car studio's light all round too, as car-test.html lights its
-    // scene (and its reflections in paint, glass and plastic).
+    // Every level is lit by the car studio's light all round too, as the car scene is (and its
+    // reflections in paint, glass and plastic).
     if (!this.studioLight) {
       const pmrem = new THREE.PMREMGenerator(this.renderer);
       this.studioLight = pmrem.fromScene(studioEnvironment(KEY_LIGHT), 0.04).texture;
@@ -609,7 +609,7 @@ export class View {
   }
 
   /**
-   * Lights the level as car-test.html lights its scene, whatever it is drawn with: from the
+   * Lights the level as the car scene is lit (see `CarLook`), whatever it is drawn with: from the
    * key's side with a softbox and soft shadows, graded as the cars are. A level drawn with the
    * cars' models stands in their studio; the others keep their sky round them.
    */
@@ -940,7 +940,7 @@ export class View {
         this.vacuumBy === p.id ||
         this.patBy === p.id;
       if (v.facing.jumped) v.facing.snap(p.input.yaw);
-      // Squeezing through a gap, side-on to it, as car-test.html's mechanic does.
+      // Squeezing through a gap, side-on to it.
       const sq = p.squeeze;
       const hand = p.work?.hand;
       const heading =
@@ -1348,7 +1348,7 @@ export class View {
       return;
     }
     setTimeOfDay(this.scene, this.hemi, this.sun, this.night, this.realLamps, this.power);
-    // The lamps and glows go with the time of day; the light itself is car-test.html's.
+    // The lamps and glows go with the time of day; the light itself is the car scene's.
     const look = this.night ? NIGHT : DAY;
     setStudio(look);
     setLights(look, {

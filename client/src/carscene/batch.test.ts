@@ -13,7 +13,7 @@ const meshes = (root: THREE.Object3D) => {
 
 const { root } = buildCarScene();
 
-describe('baking the car test map together', () => {
+describe('baking the car scene together', () => {
   it('draws it in far fewer meshes, in the same place, its doors still apart', () => {
     const before = meshes(root);
     const bounds = new THREE.Box3().setFromObject(root);

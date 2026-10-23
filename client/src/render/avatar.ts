@@ -272,8 +272,8 @@ function spanner(): THREE.Group {
 }
 
 /**
- * Builds a player: car-test's mechanic, their `colour` lit in the visor's strip across their
- * eyes, with `nameTag` over their head (none for your own).
+ * Builds a player: the car scene's toy mechanic, their `colour` lit in the visor's strip across
+ * their eyes, with `nameTag` over their head (none for your own).
  */
 export function makeAvatar(colour: number, nameTag: THREE.Object3D | null): Avatar {
   const group = new THREE.Group();
@@ -861,8 +861,8 @@ export function reachPose(hands: Grip): { crouch: number; lean: number } {
 }
 
 /**
- * Swings arms and legs by how fast the avatar moved since the last frame, as car-test.html's
- * mechanic walks and runs: the knee of the leg swinging through folds, the body bobs as the legs
+ * Swings arms and legs by how fast the avatar moved since the last frame, as the mechanic walks
+ * and runs: the knee of the leg swinging through folds, the body bobs as the legs
  * pass and leans into the walk, and a run swings further. Walking carefully crouches a little on
  * bent knees with the arms out. Moving sideways (strafing) side-steps instead, the leading leg
  * stepping out and the other closing up to it, blending into the walk for a diagonal; squeezing

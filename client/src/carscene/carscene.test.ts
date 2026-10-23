@@ -76,7 +76,7 @@ function framesOf(body: typeof HOUSE_BODY, windows: Record<Face, Opening[]>, mar
   });
 }
 
-describe('the car test map', () => {
+describe('the car scene, as the reference picture lays it out', () => {
   it('builds every mesh with sound geometry', () => {
     const broken: string[] = [];
     scene.root.traverse((o) => {
