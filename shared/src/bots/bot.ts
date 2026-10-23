@@ -20,7 +20,6 @@ import { frameMetres } from '../frames.ts';
 import { add, conj, length, makeRng, rotate, scale, sub, v3, yawQuat } from '../math.ts';
 import type { Vec3 } from '../math.ts';
 import { WITNESS_RANGE } from '../round.ts';
-import type { SabotageTool } from '../round.ts';
 import { EYE_OFFSET, TICK_RATE, isLooseBrick } from '../sim/sim.ts';
 import type {
   Action,
@@ -38,12 +37,13 @@ import type { PathCosts, Plate, Waypoint } from './nav.ts';
 import type { Skill, BotLevel } from './skill.ts';
 import type { Squad, Team } from './squad.ts';
 import type { Errand, Heard } from './talk.ts';
+import { Sabotage } from './sabotage.ts';
 
 /** A job, run a tick at a time: yields once per tick, returns whether it worked. */
-type Job<T = boolean> = Generator<void, T>;
+export type Job<T = boolean> = Generator<void, T>;
 
 /** Something to click on: where it is, and what the aim must land on. */
-interface Target {
+export interface Target {
   key: string;
   point(): Vec3 | null;
   ok(o: ColliderOwner): boolean;
@@ -116,7 +116,7 @@ export class Bot {
   private jobName = '';
   private rest = 0;
   private seq = 0;
-  private readonly ctl = {
+  readonly ctl = {
     forward: 0,
     right: 0,
     jump: false,
@@ -130,7 +130,7 @@ export class Bot {
   private readonly view = { yaw: 0, pitch: -0.2 };
   /** Clicks it may make now, as the room counts them. */
   private credits = ACTION_BURST;
-  private readonly random: () => number;
+  readonly random: () => number;
   /** Things that did not work lately, by key, with the tick they may be tried again. */
   private readonly avoid = new Map<string, number>();
   /** Bricks of the build seen correct, by brick id, to notice one swapped. */
@@ -157,20 +157,23 @@ export class Bot {
   private votedIn = -1;
   private voteAt = 0;
   /** Ticks into a round, so a saboteur does not strike in its first moments. */
-  private roundTicks = 0;
+  roundTicks = 0;
   /** The tool cooldowns as the round reports them, read when needed. */
   private wanderAt = 0;
   /** Nodes something is in the way of, with the tick to try them again. */
   private readonly blocked = new Map<number, number>();
+  /** A saboteur's tricks (see `Sabotage`). */
+  readonly sabotage: Sabotage;
 
   constructor(
     readonly id: number,
     readonly level: BotLevel,
     readonly skill: Skill,
-    private readonly squad: Squad,
+    readonly squad: Squad,
     seed: number,
   ) {
     this.random = makeRng(seed * 7919 + id);
+    this.sabotage = new Sabotage(this);
   }
 
   /** Drops the job in hand, letting go of what it claimed. */
@@ -295,7 +298,7 @@ export class Bot {
     c.jump = false;
   }
 
-  private act(a: Action, yaw = this.ctl.yaw, pitch = this.ctl.pitch): void {
+  act(a: Action, yaw = this.ctl.yaw, pitch = this.ctl.pitch): void {
     this.acts.push({ a, yaw, pitch });
   }
 
@@ -345,7 +348,7 @@ export class Bot {
   // ---------------------------------------------------------------- chat
 
   /** Queues an answer to say after `seconds` (about the time it takes to type). */
-  private reply(text: string, seconds = 1.5 + text.length / 25): void {
+  reply(text: string, seconds = 1.5 + text.length / 25): void {
     if (this.replies.length >= 3 || !this.peopleHere()) return;
     this.replies.push({ at: this.squad.tick + Math.round(seconds * 60), text });
   }
@@ -589,15 +592,15 @@ export class Bot {
 
   // ---------------------------------------------------------------- the world
 
-  private me(): Player | undefined {
+  me(): Player | undefined {
     return this.squad.game.sim.players.get(this.id);
   }
 
-  private get team(): Team {
+  get team(): Team {
     return this.squad.teams[this.site] ?? this.squad.teams[0]!;
   }
 
-  private feet(): Vec3 {
+  feet(): Vec3 {
     const p = this.me()!;
     return sub(p.body.translation(), v3(0, FEET, 0));
   }
@@ -606,7 +609,7 @@ export class Bot {
     return this.squad.game.sim.eye(this.me()!);
   }
 
-  private nameOf(id: number): string {
+  nameOf(id: number): string {
     return this.squad.game.clients.get(id)?.name ?? 'someone';
   }
 
@@ -614,13 +617,13 @@ export class Bot {
     this.avoid.set(key, this.squad.tick + seconds * 60);
   }
 
-  private avoided(key: string): boolean {
+  avoided(key: string): boolean {
     const t = this.avoid.get(key);
     return t !== undefined && t > this.squad.tick;
   }
 
   /** Players other than its fellow saboteurs within `r` of a point. */
-  private watchers(at: Vec3, r = WITNESS_RANGE + this.skill.caution): number {
+  watchers(at: Vec3, r = WITNESS_RANGE + this.skill.caution): number {
     let n = 0;
     const round = this.squad.game.round!;
     for (const p of this.squad.game.sim.players.values()) {
@@ -805,7 +808,7 @@ export class Bot {
     // Free build: no plans and no clock, so nothing to build to; it keeps people company.
     if (round.mode === 'free') return this.named('wait', this.loiter());
     if (this.saboteur) {
-      const job = this.mischief();
+      const job = this.sabotage.mischief();
       if (job) return job;
     }
     if (p.page !== null) return this.named('read the page', this.pocketPage());
@@ -860,7 +863,7 @@ export class Bot {
     return this.named('wait', this.loiter());
   }
 
-  private *named<T>(name: string, job: Job<T>): Job<T> {
+  *named<T>(name: string, job: Job<T>): Job<T> {
     this.jobName = name;
     return yield* job;
   }
@@ -1142,7 +1145,7 @@ export class Bot {
    * Walks to the nearest of `goals` (nodes), or until `done` says it is close enough. Returns
    * whether it got there.
    */
-  private *walk(goals: number[], done?: () => boolean, seconds = 45): Job {
+  *walk(goals: number[], done?: () => boolean, seconds = 45): Job {
     yield* this.free();
     const nav = this.squad.nav;
     let start = nav.locate(this.feet());
@@ -1437,10 +1440,7 @@ export class Bot {
    * The view angles that put the crosshair on `point` (or near it, nudged the way a player
    * nudges the mouse) with the aim landing on what `ok` wants, from where the bot stands now.
    */
-  private aim(
-    point: Vec3,
-    ok: (o: ColliderOwner) => boolean,
-  ): { yaw: number; pitch: number } | null {
+  aim(point: Vec3, ok: (o: ColliderOwner) => boolean): { yaw: number; pitch: number } | null {
     const p = this.me();
     if (!p) return null;
     const sim = this.squad.game.sim;
@@ -1464,7 +1464,7 @@ export class Bot {
   }
 
   /** Nodes to stand on to reach `point`, best first: in reach, in view, not too close. */
-  private stands(point: Vec3, ok: (o: ColliderOwner) => boolean, near = 1.1, lift = 0): number[] {
+  stands(point: Vec3, ok: (o: ColliderOwner) => boolean, near = 1.1, lift = 0): number[] {
     const nav = this.squad.nav;
     const sim = this.squad.game.sim;
     const R = this.squad.rapier;
@@ -1514,7 +1514,7 @@ export class Bot {
    * Goes to where it can click on a target and clicks (or does all of `actions` there, in
    * order). Returns whether it got to click.
    */
-  private *use(t: Target, actions: Action | Action[], near?: number): Job {
+  *use(t: Target, actions: Action | Action[], near?: number): Job {
     const list = Array.isArray(actions) ? actions : [actions];
     if (this.avoided(t.key)) return false;
     yield* this.free();
@@ -1780,7 +1780,7 @@ export class Bot {
   }
 
   /** The page in its pocket: reads it, tells the others, and pins it on the board. */
-  private *pocketPage(): Job {
+  *pocketPage(): Job {
     const sim = this.squad.game.sim;
     const round = this.squad.game.round!;
     const p = this.me()!;
@@ -2183,7 +2183,7 @@ export class Bot {
   }
 
   /** A moulding machine's front, as somewhere to click. */
-  private machineTarget(id: number): Target {
+  machineTarget(id: number): Target {
     const sim = this.squad.game.sim;
     const m = sim.machines.get(id)!;
     const turn = yawQuat(m.def.facing);
@@ -2196,7 +2196,7 @@ export class Bot {
     };
   }
 
-  private machinesOf(kind: string): number[] {
+  machinesOf(kind: string): number[] {
     const sim = this.squad.game.sim;
     const p = this.me()!;
     return [...sim.machines.values()]
@@ -3026,259 +3026,6 @@ export class Bot {
     );
     if (ok && who !== null) this.say(`I think it is ${this.nameOf(who)}.`);
     return ok;
-  }
-
-  // ---------------------------------------------------------------- saboteur
-
-  private cooldown(tool: SabotageTool): number {
-    return this.squad.game.round!.cooldown(this.id, tool);
-  }
-
-  /** A saboteur's next trick, if now is the moment for one; otherwise it helps out like anyone. */
-  private mischief(): Job | null {
-    const round = this.squad.game.round!;
-    const sim = this.squad.game.sim;
-    const p = this.me()!;
-    const mood = this.skill.mischief;
-    // Not in the first half minute: everyone is still finding their feet.
-    if (this.roundTicks < 30 * 60) return null;
-    if (p.page !== null) {
-      const page = sim.pages.get(p.page);
-      const printed = page?.printed;
-      if (printed && this.watchers(p.body.translation()) === 0 && this.random() < 0.85 * mood) {
-        return this.named('hide a page', this.hidePage());
-      }
-      if (printed && printed.step >= 0 && this.cooldown('forge') === 0) {
-        return this.named('forge a page', this.forge());
-      }
-      return null;
-    }
-    const build = sim.build(this.site);
-    const centre = sim.buildCentre(build);
-    const bricks = build.grid.size - 1;
-    const late = round.timeLeft < 150;
-    // Tripping into the build leaves no tell, so it is worth most once there is a lot to break.
-    const charges = round.chargesLeft(this.id, 'clumsy') ?? 0;
-    const tall =
-      bricks >= Math.max(20, 0.4 * round.target.steps.reduce((n, s) => n + s.bricks.length, 0));
-    const people = round.onSite.some(
-      (id) => round.role(id) !== 'saboteur' && !this.squad.game.clients.get(id)?.bot,
-    );
-    const trip = late ? 0.5 : people ? this.skill.tripVsPeople : this.skill.trip;
-    // One trip while it builds up; the last is kept for the end.
-    if (
-      charges > 0 &&
-      bricks >= 10 &&
-      (late || (tall && charges > 1)) &&
-      this.random() < trip * mood
-    ) {
-      return this.named('trip into the build', this.clumsy(centre));
-    }
-    if (bricks >= 4 && this.cooldown('swap') === 0 && this.random() < Math.min(1, 0.6 * mood)) {
-      return this.named('swap a brick', this.swap());
-    }
-    if (this.cooldown('trap') === 0 && this.random() < 0.3 * mood) {
-      return this.named('drop a trap', this.trap());
-    }
-    if (this.cooldown('tamper') === 0 && this.random() < 0.3 * mood) {
-      return this.named('tamper', this.tamper());
-    }
-    // Pages pinned on the board: take one away to hide it.
-    const pinned = [...sim.pages.values()].filter((pg) => pg.pinned !== null && pg.body);
-    if (pinned.length && this.random() < 0.35 * mood) {
-      const pg = pinned[Math.floor(this.random() * pinned.length)]!;
-      return this.named('take a page', this.takePinned(pg.id));
-    }
-    return null;
-  }
-
-  /** Now and then, after a swap, blames whoever has been about the build most (a person to fool). */
-  private frame(): void {
-    const round = this.squad.game.round!;
-    if (this.random() > 0.3 * this.skill.mischief) return;
-    const near = [...this.squad.nearBuild]
-      .filter(([id, t]) => t > 2 && id !== this.id && round.onSite.includes(id))
-      .filter(([id]) => !round.partners(this.id).includes(id))
-      .sort((a, b) => b[1] - a[1])[0];
-    if (near)
-      this.reply(`Did anyone else see ${this.nameOf(near[0])} fiddling with the build?`, 20);
-  }
-
-  /** Waits until nobody but fellow saboteurs is close (up to `seconds`); returns whether it got its moment. */
-  private *alone(seconds: number, at?: Vec3): Job {
-    const end = this.squad.tick + seconds * 60;
-    while (this.squad.tick < end) {
-      const me = this.me()!.body.translation();
-      if (this.watchers(me) === 0 && (!at || this.watchers(at) === 0)) return true;
-      yield;
-    }
-    return false;
-  }
-
-  /** Puts the page in its pocket into a hiding place nobody is near. */
-  private *hidePage(): Job {
-    const sim = this.squad.game.sim;
-    const me = this.feet();
-    const options = [...sim.hideouts.values()]
-      .filter(
-        (h) => !h.locked && (sim.sideOf(h.def.pos) === null || sim.sideOf(h.def.pos) === this.site),
-      )
-      .filter((h) => this.watchers(h.def.pos) === 0 && !this.avoided(`hideout|${h.def.id}`))
-      .map((h) => ({ h, d: length(sub(h.def.pos, me)) }))
-      // Not right where it was found, and not across the map either.
-      .filter(({ d }) => d > 2 && d < 14)
-      .sort((a, b) => a.d - b.d);
-    const pick = options[Math.floor(this.random() * Math.min(3, options.length))];
-    if (!pick) return false;
-    const id = pick.h.def.id;
-    const centre = pick.h.def.pos;
-    const ok = yield* this.use(
-      {
-        key: `hideout|${id}`,
-        point: () => centre,
-        ok: (o) => o.kind === 'hideout' && o.hideoutId === id,
-      },
-      { kind: 'grab' },
-    );
-    return ok && this.me()?.page === null;
-  }
-
-  private *forge(): Job {
-    if (!(yield* this.alone(10))) return false;
-    this.act({ kind: 'sabotage', tool: 'forge' });
-    yield;
-    yield;
-    const p = this.me()!;
-    const page = p.page === null ? undefined : this.squad.game.sim.pages.get(p.page);
-    // Tells the others what the forgery says, as if it were the real page.
-    if (page?.printed) this.team.tell(page.printed, this.id);
-    return yield* this.pocketPage();
-  }
-
-  /** Swaps a brick of the build for its look-alike while nobody is watching. */
-  private *swap(): Job {
-    const sim = this.squad.game.sim;
-    const build = sim.build(this.site);
-    const centre = sim.buildCentre(build);
-    const stands = this.squad.nav
-      .around(centre, 1.9, 1.5, 0.5)
-      .filter(
-        (n) => Math.hypot(this.squad.nav.xs[n]! - centre.x, this.squad.nav.zs[n]! - centre.z) > 1.1,
-      );
-    if (!stands.length) return false;
-    const goal = stands[Math.floor(this.random() * stands.length)]!;
-    yield* this.walk([goal], undefined, 25);
-    if (!(yield* this.alone(8))) return false;
-    // A brick in view that has a look-alike colour; one of the earlier steps, already checked.
-    const bricks = [...build.grid.bricks.values()].filter((b) => !BRICK_TYPES[b.type].fixture);
-    const order = this.skill.cunning
-      ? // Low down first (a little shuffled): the higher bricks have to come off to fix it.
-        bricks
-          .map((b) => ({ b, k: b.y + this.random() * 4 }))
-          .sort((x, y) => x.k - y.k)
-          .map(({ b }) => b)
-      : bricks.sort(() => this.random() - 0.5);
-    for (const b of order.slice(0, 12)) {
-      const at = sim.brickPose(build, b).pos;
-      const sol = this.aim(
-        at,
-        (o) => o.kind === 'brick' && o.assemblyId === build.id && o.brickId === b.id,
-      );
-      if (!sol) continue;
-      // The tell shows where the brick is, which can be in sight of someone who cannot see it.
-      if (!(yield* this.alone(4, at))) return false;
-      this.act({ kind: 'sabotage', tool: 'swap' }, sol.yaw, sol.pitch);
-      yield;
-      yield;
-      this.frame();
-      return true;
-    }
-    return false;
-  }
-
-  private *clumsy(centre: Vec3): Job {
-    const nav = this.squad.nav;
-    const stands = nav
-      .around(centre, 1.7, 1.5, 0.5)
-      .filter((n) => Math.hypot(nav.xs[n]! - centre.x, nav.zs[n]! - centre.z) > 1.0);
-    if (!stands.length) return false;
-    yield* this.walk(stands.slice(0, 4), undefined, 20);
-    // A trip looks like anyone's: only a careless saboteur waits to be alone for it.
-    if (!this.skill.bold && !(yield* this.alone(6))) return false;
-    const f = this.feet();
-    this.ctl.yaw = Math.atan2(-(centre.x - f.x), -(centre.z - f.z));
-    this.ctl.pitch = -0.3;
-    yield;
-    this.act({ kind: 'sabotage', tool: 'clumsy' });
-    yield;
-    return true;
-  }
-
-  /** Spills a few bricks on the busy way between the brick works and the build. */
-  private *trap(): Job {
-    const sim = this.squad.game.sim;
-    const presses = this.machinesOf('press').map((id) => machineFront(sim.machines.get(id)!.def));
-    if (!presses.length) return false;
-    const centre = sim.buildCentre(sim.build(this.site));
-    const press = presses[Math.floor(this.random() * presses.length)]!;
-    const mid = add(centre, scale(sub(press, centre), 0.35 + this.random() * 0.3));
-    const n = this.squad.nav.closest(v3(mid.x, centre.y - 0.3, mid.z), 1.5, 1);
-    if (n === null) return false;
-    yield* this.walk([n], undefined, 20);
-    if (!(yield* this.alone(5))) return false;
-    this.ctl.yaw = Math.atan2(-(centre.x - mid.x), -(centre.z - mid.z));
-    this.act({ kind: 'sabotage', tool: 'trap' });
-    yield;
-    return true;
-  }
-
-  /**
-   * Tampers with a moulding machine, or now and then the electrical panel (the lights and
-   * every machine go off with it), while nobody is watching.
-   */
-  private *tamper(): Job {
-    const sim = this.squad.game.sim;
-    const panel = sim.power.on && sim.panel && this.random() < 0.35 ? sim.panel : null;
-    let target: Target;
-    if (panel) {
-      target = { key: 'panel', point: () => panel, ok: (o) => o.kind === 'panel' };
-    } else {
-      const presses = this.machinesOf('press').filter((id) => !sim.machines.get(id)!.jammed);
-      const id = presses[Math.floor(this.random() * presses.length)];
-      if (id === undefined) return false;
-      target = this.machineTarget(id);
-    }
-    const at = target.point()!;
-    const goals = this.stands(at, target.ok);
-    if (!goals.length) return false;
-    yield* this.walk(goals.slice(0, 3), () => !!this.aim(at, target.ok), 25);
-    if (!(yield* this.alone(8, at))) return false;
-    const sol = this.aim(at, target.ok);
-    if (!sol) return false;
-    this.act({ kind: 'sabotage', tool: 'tamper' }, sol.yaw, sol.pitch);
-    yield;
-    yield;
-    return true;
-  }
-
-  private *takePinned(id: number): Job {
-    const sim = this.squad.game.sim;
-    const page = sim.pages.get(id);
-    if (!page?.body) return false;
-    const at = page.body.translation();
-    if (this.watchers(at) > 0) return false;
-    return yield* this.use(
-      {
-        key: `page|${id}`,
-        point: () => {
-          const pg = sim.pages.get(id);
-          return pg?.body && pg.pinned !== null ? pg.body.translation() : null;
-        },
-        ok: (o) => o.kind === 'page' && o.pageId === id,
-      },
-      { kind: 'grab' },
-      0.9,
-    );
   }
 }
 
