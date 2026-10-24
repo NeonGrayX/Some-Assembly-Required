@@ -3,11 +3,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { ACT_TIMES, MACHINE_SIZE } from '@sar/shared';
 import type { MachineAct, MachineDef, MachineKind, MachineState, Made } from '@sar/shared';
 import { animateAvatar, makeAvatar, reachPose } from './avatar.ts';
-import { MachineView } from './brickworks.ts';
-import type { MachineLook } from './brickworks.ts';
 import { CarMachineView } from './carMachines.ts';
 import { moveFor } from './operate.ts';
 import { STRAY, stageOf } from './operating.ts';
+import { machineView } from './brickworks.ts';
+import type { MachineLook } from './machineLook.ts';
 
 beforeAll(() => {
   // Signs and displays are drawn on canvases: a stand-in that draws nothing will do.
@@ -74,7 +74,7 @@ const ACTS: Record<MachineKind, [MachineAct, number][]> = {
 };
 
 const LOOKS: [string, (def: MachineDef) => MachineLook][] = [
-  ['house', (def) => new MachineView(def)],
+  ['house', (def) => machineView(def)],
   ['car', (def) => new CarMachineView(def)],
 ];
 

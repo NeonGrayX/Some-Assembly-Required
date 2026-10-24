@@ -9,7 +9,9 @@ import {
   outputSlots,
 } from '@sar/shared';
 import type { MachineDef, MachineKind, MachineState, Made, OutputSlot } from '@sar/shared';
-import { MachineView, makeHeldTool } from './brickworks.ts';
+import { machineView } from './brickworks.ts';
+import { makeHeldTool } from './carried.ts';
+import type { MachineView } from './machineView.ts';
 
 beforeAll(() => {
   // Signs are drawn on canvases: a stand-in that draws nothing will do.
@@ -124,7 +126,7 @@ describe('the brick works', () => {
     const kinds = new Set<string>();
     for (const def of [...DEFS, ...HOUSE.machines]) {
       kinds.add(def.kind);
-      const view = new MachineView(def);
+      const view = machineView(def);
       for (const full of [false, true]) {
         view.update(state(def, full), {});
         const { x, y, z } = def.size;
@@ -163,7 +165,7 @@ describe('the brick works', () => {
           : e.slot !== undefined
             ? [making, full]
             : [full, full];
-      const view = new MachineView(def);
+      const view = machineView(def);
       view.update(before, {});
       const still = pose(view);
       view.play(e, 10);
@@ -180,13 +182,13 @@ describe('the brick works', () => {
       // Once the machine says it is done, it is drawn just as one that had it all along, with
       // nothing left of the work.
       view.update(after, {});
-      const fresh = new MachineView(def);
+      const fresh = machineView(def);
       fresh.update(after, {});
       expect(pose(view), e.kind).toEqual(pose(fresh));
       if (before === after) expect(pose(view), e.kind).toEqual(still);
     }
     // Not for a machine of another kind, or without what it needs to show.
-    const silo = new MachineView(DEFS.find((m) => m.kind === 'silo')!);
+    const silo = machineView(DEFS.find((m) => m.kind === 'silo')!);
     silo.play({ kind: 'moulded', mould: '2x4', colour: 'red' }, 0);
     silo.play({ kind: 'fill' }, 0);
     silo.play({ kind: 'toolUp', colour: 'red', slot: 0 }, 0);
@@ -210,13 +212,13 @@ describe('the brick works', () => {
         ...empty,
         out: empty.out.map((_, i) => (i === slot ? made(kind, slot) : null)),
       };
-      const once = new MachineView(def);
+      const once = machineView(def);
       once.update(done, {});
       const drawn = drawnIn(once, place);
-      expect(drawn, kind).toBeGreaterThan(drawnIn(new MachineView(def), place));
+      expect(drawn, kind).toBeGreaterThan(drawnIn(machineView(def), place));
       // The server says it is done a moment after the work ends here: it stays where it came
       // to rest until then.
-      const late = new MachineView(def);
+      const late = machineView(def);
       late.update(making, {});
       late.play(e, 0);
       late.tick(length - 0.01);
@@ -227,7 +229,7 @@ describe('the brick works', () => {
       expect(drawnIn(late, place), kind).toBe(drawn);
       expect(pose(late), kind).toEqual(pose(once));
       // Or a moment before.
-      const early = new MachineView(def);
+      const early = machineView(def);
       early.update(making, {});
       early.play(e, 0);
       early.tick(length / 2);
@@ -249,15 +251,15 @@ describe('the brick works', () => {
     const making = { ...loaded, making: { made: part, slot: 0, at: 0 } };
     const poured = { ...making, colour: 'yellow' as const };
     const done = { ...poured, making: null, out: [part] };
-    const bare = new MachineView(def);
+    const bare = machineView(def);
     bare.update(loaded, {});
     const empty = drawnIn(bare, place);
-    const once = new MachineView(def);
+    const once = machineView(def);
     once.update(done, {});
     const drawn = drawnIn(once, place);
     expect(drawn).toBeGreaterThan(empty);
     // Pellets poured in half a second in: the part is still in the mould, not in its place.
-    const view = new MachineView(def);
+    const view = machineView(def);
     view.update(making, {});
     view.play(moulded, 0);
     view.tick(0.5);
@@ -299,7 +301,7 @@ describe('the brick works', () => {
       [moulded, mouldIn],
       [mouldIn, moulded],
     ] as const) {
-      const view = new MachineView(def);
+      const view = machineView(def);
       view.update(making, {});
       view.play(first, 0);
       let last = own(view);
@@ -320,7 +322,7 @@ describe('the brick works', () => {
 
   it('keeps a mould going in on its way when the part moulded beside it lands', () => {
     const def = atOrigin('press');
-    const view = new MachineView(def);
+    const view = machineView(def);
     view.update(
       {
         ...state(def, true),
@@ -356,7 +358,7 @@ describe('the brick works', () => {
     const [green, amber, red] = [0x3bb54a, 0xf2a530, 0xd32f2f];
     /** Which of the stack light's lamps are lit for a machine in this state. */
     const lit = (m: MachineState) => {
-      const view = new MachineView(def);
+      const view = machineView(def);
       view.update(m, {});
       const glowing = new Set<number>();
       view.group.traverse((o) => {
@@ -381,7 +383,7 @@ describe('the brick works', () => {
 
   it('rebuilds what is in a machine only when that changes', () => {
     const def = DEFS.find((m) => m.kind === 'press')!;
-    const view = new MachineView(def);
+    const view = machineView(def);
     const svgs = {};
     view.update(state(def, true), svgs);
     const count = () => {
@@ -404,7 +406,7 @@ describe('the brick works', () => {
       const def = atOrigin(kind);
       const places = outputSlots(kind, def.size);
       expect(places.length).toBe(OUTPUT_ROOM[kind]);
-      const view = new MachineView(def);
+      const view = machineView(def);
       const svgs = {};
       const empty = state(def, false);
       view.update(empty, svgs);
@@ -431,7 +433,7 @@ describe('the brick works', () => {
     // state it was in.
     for (const kind of ['press', 'printer'] as const) {
       const def = atOrigin(kind);
-      const view = new MachineView(def);
+      const view = machineView(def);
       const m = state(def, true);
       view.update(m, {});
       const slot = kind === 'printer' ? -1 : 0;

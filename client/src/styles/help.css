@@ -1,0 +1,51 @@
+/* The help page (see ../style.css). */
+
+#help {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+#help .goal {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+
+#help table {
+  display: block;
+}
+
+#help tbody {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  break-inside: avoid;
+}
+
+#help tr.group th {
+  padding: 8px 0 3px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+#help td {
+  padding: 2px 0;
+  vertical-align: top;
+}
+
+#help td:first-child {
+  width: 42%;
+  padding-right: 12px;
+  font-weight: 700;
+}
+
+#help .saboteur-row td:first-child kbd {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--danger-contrast);
+}

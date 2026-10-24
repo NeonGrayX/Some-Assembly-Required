@@ -1,0 +1,184 @@
+/* The results (see ../style.css). */
+
+#results {
+  position: fixed;
+  inset: 0;
+  display: none;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--overlay);
+}
+
+#results.visible {
+  display: flex;
+}
+
+#results .sheet {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  max-width: calc(100vw - 32px);
+  max-height: none;
+  overflow: visible;
+  padding: 14px 24px 22px;
+  text-align: center;
+}
+
+#results .sheet > header {
+  align-self: stretch;
+  margin-bottom: 4px;
+}
+
+#results .sheet > header .eyebrow {
+  color: var(--text);
+  font-size: 13px;
+}
+
+#results h1 {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 1;
+  color: var(--danger);
+}
+
+#results.passed h1 {
+  color: var(--success);
+}
+
+#results.free h1 {
+  color: var(--text);
+}
+
+#results p {
+  margin: 0;
+}
+
+#results .reason {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+#results .roles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+#results .roles:empty {
+  display: none;
+}
+
+#results .roles span {
+  padding: 2px 9px 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+#results .roles .saboteur {
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+#results .roles .reader {
+  background: var(--sar-team-blue);
+  color: #fff;
+}
+
+#results .stage {
+  position: relative;
+  margin: 8px 0 4px;
+}
+
+#results .stage canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 52vh;
+  width: auto;
+  height: auto;
+  border-radius: var(--r-board);
+}
+
+#results .stage span {
+  position: absolute;
+  top: 10px;
+  padding: 2px 9px 3px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+#results .stage span:first-of-type {
+  left: 10px;
+}
+
+#results .stage span:last-of-type {
+  left: calc(50% + 10px);
+}
+
+#results .stats {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+#results .legend {
+  display: flex;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#results .legend i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+#results .legend .close {
+  background: #ff9f0a;
+}
+
+#results .legend .wrong {
+  background: #ff3b30;
+}
+
+#results .legend .missing {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+#results .btn {
+  margin-top: 14px;
+  padding: 0 30px;
+}
+
+#results:not(.free) .free-only,
+#results.free .stage span,
+#results.free .legend {
+  display: none;
+}
+
+#results .export-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+#results .export-row .btn {
+  margin-top: 0;
+}
+
+#results .export-msg {
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 13px;
+}

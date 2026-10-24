@@ -1,0 +1,367 @@
+/* The HUD over a game (see ../style.css). */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* The HUD only belongs to a game (and the frame test page, for its frame rate and graphs). */
+body:not([data-screen='game'], .frametest) #hud {
+  display: none;
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  border: 2px solid var(--sar-hud-ink);
+  box-shadow: 0 0 2px #000;
+}
+
+#hint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 24px);
+  transform: translateX(-50%);
+  padding: 4px 10px 5px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+#hint:empty {
+  display: none;
+}
+
+/* The round clock: a small panel on the game, in the theme's panel edge. */
+#timer {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  transform: translateX(-50%);
+  padding: 3px 16px 4px;
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  box-shadow: var(--panel-edge);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 32px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+#timer:empty {
+  display: none;
+}
+
+#timer.low {
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+#role {
+  position: absolute;
+  left: 50%;
+  top: 70px;
+  transform: translateX(-50%);
+  padding: 3px 12px 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+#role.saboteur {
+  background: var(--danger);
+  color: var(--danger-contrast);
+}
+
+#role.reader {
+  background: var(--sar-team-blue);
+  color: #fff;
+}
+
+#target,
+#pocket {
+  position: absolute;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 14px 8px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+#target > div,
+#pocket > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#target {
+  left: 12px;
+  top: 12px;
+  max-width: 330px;
+}
+
+#target.free canvas {
+  display: none;
+}
+
+#target canvas {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-cell);
+  background: var(--surface-2);
+}
+
+#target .name,
+#pocket .title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1.05;
+}
+
+#target small,
+#pocket small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#pocket {
+  right: 12px;
+  bottom: 12px;
+}
+
+#pocket .title {
+  font-size: 17px;
+}
+
+#pocket canvas {
+  flex: none;
+  width: 60px;
+  height: 84px;
+  border-radius: var(--r-cell);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+#reader {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  background: var(--overlay);
+}
+
+#reader canvas {
+  height: min(86vh, 840px);
+  width: auto;
+  border-radius: 3px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+}
+
+#reader .caption {
+  padding: 6px 14px 7px;
+  font-size: 15px;
+  text-align: center;
+}
+
+#status {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  color: var(--sar-hud-ink);
+  font: 12px var(--font-mono);
+  opacity: 0.8;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: auto;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.4);
+  text-underline-offset: 3px;
+}
+
+#status:hover {
+  opacity: 1;
+}
+
+#notice {
+  position: fixed;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(640px, 90vw);
+  padding: 9px 18px 10px;
+  font-size: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+
+#banner {
+  position: fixed;
+  left: 50%;
+  top: 112px;
+  transform: translateX(-50%);
+  padding: 7px 16px 8px;
+  background: var(--danger);
+  color: var(--danger-contrast);
+  font-size: 15px;
+}
+
+#spectating {
+  position: absolute;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  padding: 6px 14px 7px;
+  font-size: 15px;
+  text-align: center;
+}
+
+/* Saboteur tools: a card in the toast colours, headed in the danger colour of the role. */
+#tools {
+  position: absolute;
+  right: 12px;
+  bottom: 120px;
+  display: grid;
+  gap: 4px;
+  width: 300px;
+  padding: 0 0 10px;
+  border-radius: var(--r-ctl);
+  background: var(--toast-bg);
+  color: var(--toast-fg);
+  box-shadow: var(--panel-edge);
+  overflow: hidden;
+  font-size: 13px;
+}
+
+#tools h4 {
+  margin: 0 0 4px;
+  padding: 7px 12px;
+  background: var(--danger);
+  color: var(--danger-contrast);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#tools div {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  line-height: 1.3;
+}
+
+#tools small {
+  color: var(--toast-action);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#tools .wait {
+  opacity: 0.5;
+}
+
+#tools .worn {
+  color: var(--toast-action);
+}
+
+#tools .worn kbd {
+  border-color: var(--success);
+  background: var(--success);
+  color: var(--success-contrast);
+}
+
+#lobby.free-mode .not-free,
+#demo-panel.free-mode .not-free,
+#lobby:not(.saboteur-mode) .saboteur-only,
+#demo-panel:not(.saboteur-mode) .saboteur-only,
+#demo-panel:not(.blind-mode) .blind-only,
+#demo-panel:not(.saboteur-mode):not(.blind-mode) .role-choice {
+  display: none;
+}
+
+#chat {
+  position: absolute;
+  left: 12px;
+  bottom: 34px;
+  width: min(420px, 60vw);
+  color: var(--sar-hud-ink);
+  font-size: 15px;
+  text-shadow:
+    0 1px 2px #000,
+    0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+#chat div {
+  margin-top: 3px;
+}
+
+/* With the chat box open (or in a meeting) the log scrolls back through older lines. */
+#chat.open {
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.4) transparent;
+}
+
+#chat .scope {
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+#chat-input {
+  position: fixed;
+  left: 12px;
+  bottom: 8px;
+  z-index: 6;
+  width: min(420px, 60vw);
+  height: var(--ctl-h);
+  padding: 0 12px;
+  border: var(--bw) solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  box-shadow: var(--shadow);
+}
+
+/* Your own microphone, bottom left above the status line: dim when not sending. */
+#mic {
+  position: fixed;
+  left: 12px;
+  bottom: 34px;
+  padding: 3px 9px 4px;
+  font-size: 12px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#mic.live {
+  opacity: 1;
+  background: var(--success);
+  color: var(--success-contrast);
+}
+
+#mic.speaking {
+  box-shadow: 0 0 0 2px #7dff8f;
+}

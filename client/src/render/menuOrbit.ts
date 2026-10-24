@@ -1,8 +1,9 @@
 import { BRICK_TYPES, STUD, groundHeight } from '@sar/shared';
 import type { BoxDef, LevelDef, Vec3 } from '@sar/shared';
 import { PALM_CROWN } from './nature.ts';
-import { flagFly, mastSpread } from './pirate.ts';
 import { PINE_BOUGHS } from './props.ts';
+import { flagFly } from './pirate/flags.ts';
+import { mastSpread } from './pirate/ship.ts';
 
 /**
  * The slow fly-around of the yard behind the main menu. It circles the job site, starting on

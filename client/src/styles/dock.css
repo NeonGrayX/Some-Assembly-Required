@@ -1,0 +1,309 @@
+/* The dock: the side panel with its tabs (see ../style.css). */
+
+/*
+ * Every panel of a game sits in one place: the dock on the left, under the box art, with a tab
+ * for each (the lobby or the demo's choices, and How to play) and a button to fold it away.
+ * Dialogs that want an answer (settings, a meeting's vote, the results) open in the middle,
+ * and the app bar in the top right has the way back. The dock shows while the mouse is free;
+ * while playing only How to play stays, pinned with H.
+ */
+#dock {
+  position: fixed;
+  left: 12px;
+  top: 150px;
+  /* Above the HUD's cards (and the help it used to sit beside), below the app bar. */
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  /* Clear of the frame counter in the bottom left corner. */
+  max-height: calc(100% - 190px);
+  padding: 0;
+  font-size: 14px;
+}
+
+#dock .dock-tabs {
+  flex: none;
+  align-items: stretch;
+  padding: 4px 6px 0;
+}
+
+#dock .dock-tabs [role='tab'][hidden] {
+  display: none;
+}
+
+/* Fold: the dock shrinks to its tabs; a tab (or the button again) opens it. */
+#dock .fold {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+}
+
+#dock .fold .ico {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--t-fast, 0.15s) ease;
+}
+
+#dock.folded .fold .ico {
+  transform: rotate(180deg);
+}
+
+#dock .dock-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px 14px;
+}
+
+#dock .dock-pane[hidden],
+#dock.folded .dock-pane,
+#dock.folded #click-to-play {
+  display: none;
+}
+
+#dock.folded .dock-tabs {
+  border-bottom: 0;
+}
+
+#click-to-play {
+  flex: none;
+  margin: 0;
+  padding: 8px 16px 10px;
+  border-top: var(--bw) solid var(--rule);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 16px;
+}
+
+#click-to-play small {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font);
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+body.playing #click-to-play {
+  display: none;
+}
+
+/* While playing only How to play stays, and only pinned with H; meetings keep the view clear. */
+body.playing #dock:not(.pinned),
+body.meeting #dock,
+body:not([data-screen='game']) #dock {
+  display: none;
+}
+
+body.playing #dock.pinned {
+  pointer-events: none;
+}
+
+/*
+ * The host's settings, one per row with the name beside its list, so every chosen value has
+ * the panel's full width and nothing is squeezed however many settings there are.
+ */
+#lobby .settings {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+#lobby .settings > label.field {
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  line-height: 1.2;
+}
+
+#lobby h3 {
+  font-size: 19px;
+}
+
+#lobby .code {
+  padding: 1px 6px 2px 9px;
+  border: var(--bw) solid var(--rule);
+  border-radius: var(--r-cell);
+  font-family: var(--font-mono);
+  letter-spacing: 0.25em;
+  font-size: 17px;
+}
+
+#lobby .copy {
+  margin-left: auto;
+}
+
+#lobby ul {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+#lobby li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#lobby li + li {
+  border-top: 1px solid var(--border);
+}
+
+#lobby li .about {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 400;
+  font-size: 12px;
+  font-style: italic;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+#lobby li .tag {
+  margin-left: auto;
+  flex: none;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#lobby li .tag.ready {
+  padding: 1px 7px 2px;
+  border-radius: var(--r-pill);
+  background: var(--success);
+  color: var(--success-contrast);
+  font-weight: 700;
+}
+
+#lobby li.away {
+  opacity: 0.5;
+}
+
+#lobby label,
+#demo-panel label {
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+#lobby select,
+#demo-panel select {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+#lobby .row,
+#demo-panel .row {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Right under the build list, so it sits close to it; the pin checkbox just below. */
+#demo-panel .build-row {
+  margin: -2px 0 10px;
+}
+
+#lobby .row .btn,
+#demo-panel .row .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+#lobby .hint,
+#lobby .length-note,
+#demo-panel .hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+#lobby:not(.host) .host-only,
+#lobby.host .guest-only,
+#lobby:not(.rival) .rival-only {
+  display: none;
+}
+
+/* Rival teams: who is on which team. */
+#lobby li .team {
+  flex: none;
+  padding: 0 6px 1px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+#lobby li .team.red,
+#role.red,
+#results .roles .red,
+#reveal.red h1 {
+  background: var(--sar-team-red);
+  color: #fff;
+}
+
+#lobby li .team.blue,
+#role.blue,
+#results .roles .blue,
+#reveal.blue h1 {
+  background: var(--sar-team-blue);
+  color: #fff;
+}
+
+#demo-panel .body {
+  margin-top: 4px;
+}
+
+#demo-panel #demo-file-msg {
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-line;
+}
+
+#demo-panel #demo-file-msg.error {
+  color: var(--danger);
+}
+
+#demo-panel .choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 10px;
+}
+
+#demo-panel .choice > span {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+#demo-panel label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text);
+  cursor: pointer;
+}

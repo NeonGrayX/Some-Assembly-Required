@@ -1,0 +1,269 @@
+/* Touch screens (see ../style.css). */
+
+/* Words for the mouse and keyboard, or for a touch screen: body.touch is set on phones and tablets. */
+body.touch .mouse-only,
+body:not(.touch) .touch-only {
+  display: none !important;
+}
+
+body.touch button {
+  touch-action: manipulation;
+}
+
+#appbar .pause {
+  display: none;
+}
+
+/* On a touch screen there is no Esc: a Menu button stops play instead. */
+body.touch.playing #appbar .pause {
+  display: block;
+}
+
+body.touch.playing #appbar .esc-hint {
+  display: none;
+}
+
+/*
+ * The controls while playing by touch: a stick under the left thumb, buttons under the right,
+ * and a row of the rarer keys under the box art. The rest of the screen is for looking around.
+ */
+#touch {
+  position: fixed;
+  inset: 0;
+  display: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.touch.playing[data-screen='game'] #touch {
+  display: block;
+}
+
+#touch .stick {
+  --r: 66px;
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 28px + var(--r));
+  top: calc(100% - env(safe-area-inset-bottom) - 28px - var(--r));
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  margin: calc(var(--r) * -1) 0 0 calc(var(--r) * -1);
+  border: 3px solid color-mix(in srgb, var(--surface) 60%, transparent);
+  border-radius: 50%;
+  background: rgba(18, 20, 25, 0.28);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+#touch .stick.active {
+  opacity: 1;
+}
+
+/* Pushed past the ring: running. */
+#touch .stick.sprint {
+  border-color: var(--primary);
+}
+
+#touch .knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow:
+    var(--panel-edge),
+    0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+#touch .stick.sprint .knob {
+  background: var(--primary);
+}
+
+#touch .btn {
+  padding: 0 10px;
+  font-size: 14px;
+  opacity: 0.94;
+}
+
+/* The buttons sit on the 3D view, so they get the panels' plain fill to stay readable over it.
+   A touch screen has no hover, so nothing is lost by it. */
+#touch .btn:not(.btn-primary, [aria-pressed='true']),
+body.touch #appbar .pause {
+  background: linear-gradient(var(--surface), var(--surface)) var(--bg);
+}
+
+/* The pressed tint, over the page colour for the same reason. */
+#touch .btn[aria-pressed='true'] {
+  background: linear-gradient(var(--primary-soft), var(--primary-soft)) var(--bg);
+}
+
+#touch button[hidden] {
+  display: none;
+}
+
+/* A finger on it: what a press looks like in the theme. */
+#touch .btn.down {
+  transform: scale(0.96);
+  filter: brightness(0.92);
+}
+
+#touch .actions {
+  position: absolute;
+  right: calc(env(safe-area-inset-right) + 16px);
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  display: grid;
+  grid-template-columns: 74px 84px;
+  grid-template-areas:
+    'rotate careful'
+    'throw use'
+    'act jump';
+  align-items: end;
+  justify-items: center;
+  gap: 12px 10px;
+}
+
+#touch [data-touch='rotate'] {
+  grid-area: rotate;
+}
+
+#touch [data-touch='careful'] {
+  grid-area: careful;
+}
+
+#touch [data-touch='throw'] {
+  grid-area: throw;
+}
+
+/* Pull with empty hands, Drop while holding: they share a place. */
+#touch [data-touch='pull'],
+#touch [data-touch='drop'] {
+  grid-area: act;
+}
+
+#touch .actions .btn:not(.use, .jump) {
+  width: 74px;
+  padding: 0 4px;
+}
+
+/* The two buttons a thumb rests on are bigger than the rest. */
+#touch .use,
+#touch .jump {
+  width: 84px;
+  height: 64px;
+  font-size: 17px;
+}
+
+#touch .use {
+  grid-area: use;
+}
+
+#touch .jump {
+  grid-area: jump;
+}
+
+#touch .tools-row {
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 12px);
+  top: 96px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 6px;
+  max-width: min(330px, 44vw);
+}
+
+#touch .tools-row .btn {
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+/* Full screen gets a line of its own above the rest, so the buttons used more sit lower,
+   nearer the thumb. */
+#touch .tools-row .tools-top {
+  flex-basis: 100%;
+}
+
+/* The HUD around the touch controls: the box art and the page in your pocket made small. */
+body.touch #target {
+  /* Clear of the round clock beside it, in the widest face too. */
+  max-width: min(230px, calc(100vw - 190px));
+  padding: 5px 10px 5px 5px;
+  gap: 8px;
+}
+
+body.touch #target canvas {
+  width: 64px;
+  height: 64px;
+}
+
+body.touch #target .name {
+  overflow: hidden;
+  font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+body.touch #target small {
+  display: none;
+}
+
+body.touch #pocket {
+  top: 64px;
+  right: calc(env(safe-area-inset-right) + 12px);
+  bottom: auto;
+  padding: 5px 10px 5px 5px;
+}
+
+body.touch #pocket canvas {
+  width: 40px;
+  height: 56px;
+}
+
+body.touch #pocket .title {
+  font-size: 13px;
+}
+
+/* The saboteur's tools and the gear list: rows to tap, left of the action buttons. */
+body.touch #tools {
+  right: calc(env(safe-area-inset-right) + 196px);
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  width: 250px;
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+body.touch #tools div[data-key] {
+  min-height: 30px;
+}
+
+body.touch #chat {
+  bottom: 190px;
+  width: min(360px, 44vw);
+  font-size: 13px;
+}
+
+body.touch #mic {
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+}
+
+body.touch #status {
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* The page being read takes the screen; a tap puts it away. */
+body.touch #reader {
+  pointer-events: auto;
+}
+
+/* The dock cannot be used while playing by touch; Menu brings it back. */
+body.touch.playing #dock {
+  display: none;
+}

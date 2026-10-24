@@ -1,0 +1,89 @@
+/* The loading screen (see ../style.css). */
+
+/*
+ * Up from the first paint until the world is drawn (src/ui/loading.ts), on the theme's page
+ * colour with the cover's title, so the menu never shows over an empty page. A brick's
+ * studs light up as the steps go by; then it fades and the menu is there, over the world.
+ */
+#loading {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  transition: opacity 0.35s ease;
+}
+
+body:not(.booting) #loading {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* On a card of the theme's, like the menu's, so its text reads on the dark page colour. */
+#loading .loading-card {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: min(440px, calc(100vw - 32px));
+  padding: 26px 26px 22px;
+}
+
+#loading h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 7vw, 46px);
+  line-height: 1;
+  text-wrap: balance;
+}
+
+/* A 1x8 brick seen from the side: its studs fill in, two a step. */
+#loading .loading-studs {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 14px solid var(--border);
+  border-radius: 0 0 var(--r-cell) var(--r-cell);
+}
+
+#loading .loading-studs i {
+  width: 22px;
+  height: 10px;
+  border-radius: 3px 3px 0 0;
+  background: var(--border);
+  transition: background-color 0.3s ease;
+}
+
+#loading[data-step='1'] i:nth-child(-n + 2),
+#loading[data-step='2'] i:nth-child(-n + 4),
+#loading[data-step='3'] i:nth-child(-n + 6),
+#loading[data-step='4'] i:nth-child(-n + 7),
+#loading[data-step='done'] i {
+  background: var(--primary);
+}
+
+/* The stud being worked on now. */
+#loading[data-step='1'] i:nth-child(3),
+#loading[data-step='2'] i:nth-child(5),
+#loading[data-step='3'] i:nth-child(7),
+#loading[data-step='4'] i:nth-child(8) {
+  animation: loading-stud 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes loading-stud {
+  to {
+    background: var(--primary-soft);
+  }
+}
+
+#loading .loading-step {
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+#loading.failed .loading-step {
+  color: var(--danger);
+}
+
+#loading.failed .loading-studs i {
+  animation: none;
+}

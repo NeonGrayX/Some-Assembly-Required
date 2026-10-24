@@ -1,0 +1,84 @@
+/* Settings (see ../style.css). */
+
+#settings {
+  position: fixed;
+  inset: 0;
+  /* Above the app bar it was opened from. */
+  z-index: 9;
+  display: flex;
+  overflow-y: auto;
+  padding: 12px 0;
+  background: var(--overlay);
+}
+
+#settings .card {
+  margin: auto;
+  width: min(420px, calc(100vw - 32px));
+  max-height: none;
+  overflow: visible;
+  padding: 18px 22px 20px;
+}
+
+#settings h2 {
+  margin-bottom: 10px;
+  border-bottom: 0;
+  padding-bottom: 0;
+  font-size: 22px;
+}
+
+#settings .settings-tabs {
+  margin-bottom: 4px;
+}
+
+#settings h3 {
+  margin: 18px 0 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#settings label {
+  margin-bottom: 14px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+#settings label > span {
+  display: flex;
+  justify-content: space-between;
+}
+
+#settings output {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+#settings label.check {
+  display: flex;
+}
+
+#settings .range {
+  margin: 4px 0 0;
+}
+
+#settings .hint {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#settings #set-mic-note {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+#settings .close {
+  width: 100%;
+  margin-top: 4px;
+}

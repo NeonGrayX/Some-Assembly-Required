@@ -2,7 +2,7 @@ import { downloadBlob } from '../ui/dom.ts';
 
 /**
  * Small pieces the benchmark's pages (setup, bot results) are made of, drawn in the same
- * style as the frame-rate report (`.bench-sheet` in style.css): the theme's panels (.box),
+ * style as the frame-rate report (`.bench-sheet` in styles/bench.css): the theme's panels (.box),
  * buttons (.btn) and fields (.field), like the menus and settings.
  */
 
