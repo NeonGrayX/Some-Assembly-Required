@@ -588,7 +588,13 @@ export type ServerMsg =
 
 // ------------------------------------------------------------------ codec
 
-const packr = new Packr({ useFloat32: FLOAT32_OPTIONS.DECIMAL_FIT, useRecords: false });
+// The server decodes whatever any browser sends. No message refers back into itself, so the
+// structured clone extension (shared and cyclic references) is refused rather than decoded.
+const packr = new Packr({
+  useFloat32: FLOAT32_OPTIONS.DECIMAL_FIT,
+  useRecords: false,
+  structuredClone: false,
+});
 
 export function encode(msg: ClientMsg | ServerMsg): Uint8Array {
   return packr.pack(msg);

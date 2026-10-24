@@ -7,6 +7,10 @@ on:
   workflow_call:
   workflow_dispatch:
 
+# Builds and uploads workflow artifacts, which needs no write access to the repository.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
