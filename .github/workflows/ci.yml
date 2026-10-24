@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Checks only read the repository; nothing here needs to write to it.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
