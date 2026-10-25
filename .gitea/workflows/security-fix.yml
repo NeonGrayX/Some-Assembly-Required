@@ -1,0 +1,161 @@
+# .gitea/workflows/security-fix.yml - copy into every app repo Patchboard should fix.
+#
+# Started by Patchboard (or by hand: Actions -> Security fix -> Run workflow), never by a
+# push. It starts from the newest release tag, not from main, so a fix never ships
+# commits that were not released yet:
+#
+#   audit-fix  npm audit fix in every package-lock.json (lockfile only, never --force),
+#              then npm ci, the tests and the build. Only if all pass: commit, tag the
+#              next version. No change -> no tag, and Patchboard says so.
+#   rebuild    tag the next version on the same commit, so the Deploy workflow builds
+#              the image again with --pull: fresh base image, its OS fixes included.
+#
+# The new tag is deployed by the repo's own deploy.yml. Patchboard starts it, because a
+# tag pushed with the workflow token does not start other workflows - deploy.yml needs
+# `workflow_dispatch:` under `on:` for that (docs: Part 5).
+#
+# The fix commit also goes to the branch the workflow was started on (main), but only
+# when main has nothing unreleased on top of the base tag, so it can fast-forward.
+# Otherwise it is pushed as security-fix/<tag> to be merged by hand.
+name: Security fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'audit-fix (npm audit fix, then release) or rebuild (release the same code with a fresh image)'
+        required: true
+        default: audit-fix
+        type: choice
+        options:
+          - audit-fix
+          - rebuild
+      base:
+        description: 'Release tag to start from; empty = the newest vX.Y.Z'
+        required: false
+        default: ''
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out every tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Inputs reach the scripts as environment variables only, and are checked before
+      # use, so nothing typed into the dispatch form can become shell code.
+      - name: Find the base release
+        env:
+          MODE: ${{ inputs.mode }}
+          BASE: ${{ inputs.base }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -eu
+          case "$MODE" in audit-fix|rebuild) ;; *) echo "unknown mode: $MODE" >&2; exit 1 ;; esac
+          git fetch --quiet --tags --force origin
+          if [ -z "$BASE" ]; then
+            BASE="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+          fi
+          if ! printf '%s' "$BASE" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "No usable base tag (got '${BASE}'). Release once with ./deploy.sh first." >&2
+            exit 1
+          fi
+          git rev-parse --quiet --verify "refs/tags/${BASE}" >/dev/null || { echo "tag ${BASE} does not exist" >&2; exit 1; }
+          # The next version, counting each part to 9 and carrying, as deploy.sh does.
+          latest="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          v="${latest#v}"; major="${v%%.*}"; rest="${v#*.}"; minor="${rest%%.*}"; patch="${rest#*.}"
+          patch=$((patch + 1))
+          if [ "$patch" -gt 9 ]; then patch=0; minor=$((minor + 1)); fi
+          if [ "$minor" -gt 9 ]; then minor=0; major=$((major + 1)); fi
+          NEXT="v${major}.${minor}.${patch}"
+          git checkout --quiet --detach "refs/tags/${BASE}"
+          {
+            echo "MODE=${MODE}"
+            echo "BASE=${BASE}"
+            echo "NEXT=${NEXT}"
+            echo "BRANCH=${BRANCH}"
+          } >> "$GITHUB_ENV"
+          echo "Base ${BASE}, next ${NEXT}, mode ${MODE}"
+
+      - name: Set up Node
+        if: inputs.mode == 'audit-fix'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # --package-lock-only: the lockfile is changed without running any install script.
+      # Scripts run only in the npm ci below, exactly as in a normal build.
+      - name: npm audit fix
+        if: inputs.mode == 'audit-fix'
+        run: |
+          set -eu
+          locks="$(git ls-files '*package-lock.json' | grep -v '/node_modules/' || true)"
+          if [ -z "$locks" ]; then
+            echo "No package-lock.json in this repo: nothing for npm audit fix to do."
+            echo "CHANGED=no" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          for lock in $locks; do
+            dir="$(dirname "$lock")"
+            echo "::group::${dir}: npm audit (before)"
+            (cd "$dir" && npm audit || true)
+            echo "::endgroup::"
+            (cd "$dir" && npm audit fix --package-lock-only --ignore-scripts || true)
+          done
+          if git diff --quiet; then
+            echo "npm audit fix changed nothing - what is left needs a major upgrade by hand."
+            echo "CHANGED=no" >> "$GITHUB_ENV"
+          else
+            git diff --stat
+            echo "CHANGED=yes" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install, test and build what changed
+        if: inputs.mode == 'audit-fix' && env.CHANGED == 'yes'
+        run: |
+          set -eu
+          for lock in $(git diff --name-only | grep 'package-lock.json$'); do
+            dir="$(dirname "$lock")"
+            echo "::group::${dir}"
+            cd "$GITHUB_WORKSPACE/$dir"
+            npm ci
+            npm test --if-present
+            npm run build --if-present
+            echo "--- remaining (runtime dependencies) ---"
+            npm audit --omit=dev || true
+            echo "::endgroup::"
+          done
+
+      - name: Commit, tag and push
+        run: |
+          set -eu
+          git config user.name "Patchboard"
+          git config user.email "patchboard@noreply.invalid"
+          if [ "$MODE" = audit-fix ]; then
+            if [ "${CHANGED:-no}" != yes ]; then
+              echo "Nothing changed, so no release."
+              exit 0
+            fi
+            git commit --quiet -a -m "Security: npm audit fix on ${BASE}" -m "Started from Patchboard."
+            message="Security fix on ${BASE}: npm audit fix"
+          else
+            message="Rebuild of ${BASE} with fresh base images"
+          fi
+          git tag -a "$NEXT" -m "$message"
+
+          if [ "$MODE" = audit-fix ]; then
+            # Fast-forward the branch only if it has nothing unreleased on top of the base.
+            git fetch --quiet origin "$BRANCH"
+            if [ "$(git rev-parse "origin/${BRANCH}")" = "$(git rev-parse "refs/tags/${BASE}^{commit}")" ] \
+               && git push origin "HEAD:refs/heads/${BRANCH}"; then
+              echo "${BRANCH} now has the fix."
+            else
+              git push origin "HEAD:refs/heads/security-fix/${NEXT}"
+              echo "::warning::${BRANCH} has commits that are not released yet (or is protected). The fix is on security-fix/${NEXT} - merge it into ${BRANCH}."
+            fi
+          fi
+          git push origin "refs/tags/${NEXT}"
+          echo "Tagged ${NEXT}: ${message}"
