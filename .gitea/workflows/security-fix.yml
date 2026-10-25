@@ -5,8 +5,9 @@
 # commits that were not released yet:
 #
 #   audit-fix  npm audit fix in every package-lock.json (lockfile only, never --force),
-#              then npm ci, the tests and the build. Only if all pass: commit, tag the
-#              next version. No change -> no tag, and Patchboard says so.
+#              then npm ci in every directory with a lockfile, and the tests and the
+#              build where a lockfile changed. Only if all pass: tag the next version.
+#              No change -> no tag, and Patchboard says so.
 #   rebuild    tag the next version on the same commit, so the Deploy workflow builds
 #              the image again with --pull: fresh base image, its OS fixes included.
 #
@@ -72,6 +73,8 @@ jobs:
           if [ "$minor" -gt 9 ]; then minor=0; major=$((major + 1)); fi
           NEXT="v${major}.${minor}.${patch}"
           git checkout --quiet --detach "refs/tags/${BASE}"
+          git config user.name "Patchboard"
+          git config user.email "patchboard@noreply.invalid"
           {
             echo "MODE=${MODE}"
             echo "BASE=${BASE}"
@@ -87,7 +90,9 @@ jobs:
           node-version: 24
 
       # --package-lock-only: the lockfile is changed without running any install script.
-      # Scripts run only in the npm ci below, exactly as in a normal build.
+      # Scripts run only in the npm ci below, exactly as in a normal build. The change is
+      # committed here (not pushed), so the next step can put back a lockfile that an
+      # install script rewrote, and tests what is committed.
       - name: npm audit fix
         if: inputs.mode == 'audit-fix'
         run: |
@@ -110,18 +115,41 @@ jobs:
             echo "CHANGED=no" >> "$GITHUB_ENV"
           else
             git diff --stat
+            git commit --quiet -a -m "Security: npm audit fix on ${BASE}" -m "Started from Patchboard."
             echo "CHANGED=yes" >> "$GITHUB_ENV"
           fi
 
+      # Every directory with a lockfile is installed, not only the changed ones: a test
+      # may import code and packages from another one (a backend spec using
+      # frontend/node_modules). The root first, then deeper ones: before each npm ci its
+      # lockfile is put back as committed, which undoes a root postinstall that ran
+      # `npm install` in a subdirectory.
       - name: Install, test and build what changed
         if: inputs.mode == 'audit-fix' && env.CHANGED == 'yes'
         run: |
           set -eu
-          for lock in $(git diff --name-only | grep 'package-lock.json$'); do
+          locks="$(git ls-files '*package-lock.json' | grep -v '/node_modules/' | awk -F/ '{ print NF "\t" $0 }' | sort -n | cut -f2-)"
+          for lock in $locks; do
             dir="$(dirname "$lock")"
-            echo "::group::${dir}"
+            echo "::group::${dir}: npm ci"
+            git checkout --quiet HEAD -- "$lock"
+            (cd "$GITHUB_WORKSPACE/$dir" && npm ci --no-audit --no-fund)
+            echo "::endgroup::"
+          done
+          if ! git diff --quiet HEAD -- $locks; then
+            git diff --stat HEAD -- $locks
+            echo "Installing changed a lockfile, so the tests would not test what is committed." >&2
+            exit 1
+          fi
+          for lock in $(git diff --name-only HEAD^ HEAD | grep 'package-lock.json$'); do
+            dir="$(dirname "$lock")"
+            echo "::group::${dir}: test and build"
             cd "$GITHUB_WORKSPACE/$dir"
-            npm ci
+            # The runner image has no browsers. Tests that run in one (Vitest browser
+            # mode, Playwright) get the Chromium of the Playwright version in the lockfile.
+            if [ -x node_modules/.bin/playwright ]; then
+              npx --no-install playwright install --with-deps chromium
+            fi
             npm test --if-present
             npm run build --if-present
             echo "--- remaining (runtime dependencies) ---"
@@ -129,17 +157,14 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Commit, tag and push
+      - name: Tag and push
         run: |
           set -eu
-          git config user.name "Patchboard"
-          git config user.email "patchboard@noreply.invalid"
           if [ "$MODE" = audit-fix ]; then
             if [ "${CHANGED:-no}" != yes ]; then
               echo "Nothing changed, so no release."
               exit 0
             fi
-            git commit --quiet -a -m "Security: npm audit fix on ${BASE}" -m "Started from Patchboard."
             message="Security fix on ${BASE}: npm audit fix"
           else
             message="Rebuild of ${BASE} with fresh base images"
