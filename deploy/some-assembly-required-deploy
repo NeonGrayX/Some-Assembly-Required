@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# The only command the deploy key may run on the VPS (DEPLOYMENT.md).
+# Installed by hand, owned by root and not writable by the deploy user:
+#
+#   sudo install -o root -g root -m 755 deploy/some-assembly-required-deploy /usr/local/sbin/some-assembly-required-deploy
+#
+# and forced on the key in ~sar/.ssh/authorized_keys (root-owned, 644, in a
+# root-owned .ssh, 755):
+#
+#   restrict,command="/usr/local/sbin/some-assembly-required-deploy",from="10.10.11.216" ssh-ed25519 AAAA…
+#
+# The workflow (.gitea/workflows/deploy.yml) connects with
+#
+#   ssh sar@<host> "release <tag> <sha256:digest>"
+#
+# and sends nothing else: this app's releases carry no data files, so the input
+# is never read. The remote-release.sh installed on this host releases <tag> of
+# the one image below, refusing any image whose digest is not <digest>. Nothing
+# the key sends runs as code, and nothing else can be asked for: no shell, no
+# other image, no file.
+set -euo pipefail
+umask 077
+# sshd passes LANG and LC_* from the client (Debian's AcceptEnv): the patterns
+# below match in the C locale, whatever the key holder sends.
+export LC_ALL=C
+
+# Where compose.yaml and remote-release.sh live, and the image the workflow
+# pushes. Edit these two lines in the installed copy if yours differ.
+root=/srv/some-assembly-required
+image=git.grombach-home.de/neongrayx/some-assembly-required
+
+fail() { echo "deploy: $*" >&2; exit 2; }
+
+# The words of the command line the client asked for; never evaluated.
+read -r -a args <<<"${SSH_ORIGINAL_COMMAND:-}"
+if [ "${#args[@]}" -ne 3 ] || [ "${args[0]}" != release ]; then
+  fail "usage: release <tag> <sha256:digest>"
+fi
+tag="${args[1]}"
+digest="${args[2]}"
+[[ "$tag" =~ ^v[A-Za-z0-9_.-]{1,127}$ ]] || fail "not a release tag: ${tag}"
+[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "not an image digest: ${digest}"
+
+# The key holder's input goes nowhere: the release reads /dev/null instead.
+exec bash "$root/remote-release.sh" "$tag" "$image" "$digest" </dev/null
