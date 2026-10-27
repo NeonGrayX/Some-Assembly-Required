@@ -19,17 +19,15 @@
 # merged by hand. Branch and tag go in one atomic push: both arrive or neither, so a
 # run never leaves a branch with an untagged fix, nor a tag whose commit is on no branch.
 #
-# Who pushes. Gitea checks a protected tag (`v*`) against the users and teams on its
-# allow-list, and the Actions job token (user `gitea-actions`) can never be on it.
+# Who pushes:
 #   - Secret RELEASE_TOKEN set (an account-level secret, so every app repo has it): the
 #     push is made as Patchboard's bot - a token of the bot with scope
-#     `write:repository` and nothing else, the bot on the allow-list of `v*` (and of
-#     main, if the fix should fast-forward it). Its push starts the repo's workflows like
-#     any user's: deploy.yml starts for the tag (Patchboard finds that run and does not
-#     dispatch a second one). Use this when `v*` is protected.
-#   - Not set: the job token. Its push starts no workflow, so Patchboard dispatches
-#     deploy.yml. It fails (nothing pushed) once `v*` is protected: create the token and
-#     the secret first, then protect the tag.
+#     `write:repository` and nothing else (and the bot on main's push allow-list, if
+#     main is protected and the fix should fast-forward it). Its push starts the repo's
+#     workflows like any user's: deploy.yml starts for the tag (Patchboard finds that
+#     run and does not dispatch a second one), and CI checks the fix commit.
+#   - Not set: the Actions job token (user `gitea-actions`). Its push starts no
+#     workflow, so Patchboard dispatches deploy.yml, and no CI run checks the fix commit.
 #
 # Two jobs, so the code under test never shares a job with a token that can push:
 #
@@ -284,8 +282,8 @@ jobs:
           git_auth() { git -c core.hooksPath=/dev/null -c "http.extraheader=${auth}" "$@"; }
           refused() {
             echo "Gitea refused the push of ${NEXT} by ${pusher}: nothing was pushed." >&2
-            echo "A protected tag (v*) only takes pushes from accounts on its allow-list; the job token can never be on it." >&2
-            echo "Set the account secret RELEASE_TOKEN to a token of Patchboard's bot, on that list (Patchboard docs, Part 5), then run this again." >&2
+            echo "The account of RELEASE_TOKEN (Patchboard's bot) needs write access to this repository, and the job token needs write for contents (Patchboard docs, Part 5)." >&2
+            echo "Fix that, then run this again." >&2
             exit 1
           }
           if [ "$MODE" = audit-fix ]; then

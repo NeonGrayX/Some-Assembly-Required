@@ -32,8 +32,8 @@ jobs:
             done ) >/dev/null 2>&1 &
 
       # A dispatch can name any ref, also a branch called like a release. Only a
-      # tag deploys: with `v*` protected, only the accounts on its allow-list
-      # choose what reaches the VPS.
+      # tag deploys, and the forced command on the VPS
+      # (deploy/some-assembly-required-deploy) releases nothing but a v* tag.
       - name: Refuse anything but a release tag
         env:
           REF: ${{ github.ref }}
