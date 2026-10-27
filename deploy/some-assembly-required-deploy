@@ -7,7 +7,7 @@
 # and forced on the key in ~sar/.ssh/authorized_keys (root-owned, 644, in a
 # root-owned .ssh, 755):
 #
-#   restrict,command="/usr/local/sbin/some-assembly-required-deploy",from="10.10.11.216" ssh-ed25519 AAAA…
+#   restrict,command="/usr/local/sbin/some-assembly-required-deploy",from="<runner address>" ssh-ed25519 AAAA…
 #
 # The workflow (.gitea/workflows/deploy.yml) connects with
 #
