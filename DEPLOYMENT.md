@@ -72,7 +72,7 @@ the other apps; see Part 2 of the playbook.
 4. **Cloudflare:** an `A` record for `sar.arrow-lab.de` at the VPS, proxied, SSL mode Full,
    Always Use HTTPS on.
 5. **Port registry:** add `4380 | some-assembly-required` to the table in Part 0 of the
-   playbook (the theme-gallery repository).
+   playbook (the Arrow-Lab repository).
 
 ## Voice chat relay (optional)
 
