@@ -8,7 +8,7 @@ VPS swaps the container.
 
 ```
 ./deploy.sh  ->  tag v1.2.3 pushed to Gitea
-runner:  docker build -> docker push git.grombach-home.de/neongrayx/<repo>:v1.2.3
+runner:  docker build -> regctl push (gzip, 50 MB chunks) -> git.grombach-home.de/neongrayx/<repo>:v1.2.3
          ssh "release v1.2.3 sha256:<digest>" (the deploy key can do nothing else)
 VPS:     some-assembly-required-deploy -> remote-release.sh (both installed by hand)
          docker pull <image>@<digest> -> pin tag in /srv/some-assembly-required/.env -> compose up --wait

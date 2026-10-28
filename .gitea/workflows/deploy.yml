@@ -116,23 +116,58 @@ jobs:
             --tag "${IMAGE}:latest" \
             .
 
-      # The digest the registry stored for the tag. The VPS pulls exactly
-      # this image, whatever the tag points at by the time it gets there.
-      - name: Push the image
+      # Not `docker push`: it sends each layer in one request, and Cloudflare in
+      # front of the registry rejects request bodies over 100 MB. regctl uploads
+      # a layer over 50 MB in 50 MB chunks (the registry protocol's chunked
+      # upload), which Gitea reassembles; smaller layers go up in one request, as
+      # with docker push. Pulls are not limited.
+      #
+      # `docker save` on the runner gives uncompressed layers, and regctl uploads
+      # what it is given. So the image goes into a local OCI directory first and
+      # `image mod` gzips the layers on the way to the registry, as `docker push`
+      # would. The compression is deterministic: an unchanged layer keeps its
+      # digest and is not uploaded again.
+      #
+      # The digest the registry stored for the tag is recorded: the VPS
+      # pulls exactly this image, whatever the tag points at by then.
+      - name: Push the image (chunked)
         env:
           TAG: ${{ github.ref_name }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          REGCTL_VERSION: v0.11.6
+          REGCTL_SHA256: 8e0e62a497fcdb8048d18aa927a139613176ba0531f412bc541044e28f9856bd
         run: |
           set -eu
-          docker push "${IMAGE}:${TAG}"
-          docker push "${IMAGE}:latest"
-          digest="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${IMAGE}:${TAG}" \
-            | sed -n "s|^${IMAGE}@||p" | head -n 1)"
+          tmp="${RUNNER_TEMP:-/tmp}/regctl"
+          mkdir -p "$tmp"
+          command -v curl >/dev/null || { SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO=sudo; $SUDO apt-get update -qq && $SUDO apt-get install -y -qq curl; }
+          url="https://github.com/regclient/regclient/releases/download/${REGCTL_VERSION}/regctl-linux-amd64"
+          if ! curl -fsSL --retry 3 -o "$tmp/regctl" "$url"; then
+            echo "Could not download regctl ${REGCTL_VERSION} from GitHub (${url}). Nothing was pushed; run the workflow again once GitHub is reachable." >&2
+            exit 1
+          fi
+          if ! echo "${REGCTL_SHA256}  $tmp/regctl" | sha256sum -c --quiet -; then
+            echo "The downloaded regctl does not match REGCTL_SHA256. Nothing was pushed. If REGCTL_VERSION was changed, update REGCTL_SHA256 to match." >&2
+            exit 1
+          fi
+          chmod +x "$tmp/regctl"
+          export HOME="$tmp"   # keeps regctl's login out of the runner's home
+          printf '%s' "$REGISTRY_TOKEN" | "$tmp/regctl" registry login "$REGISTRY" -u "$REGISTRY_USER" --pass-stdin
+          "$tmp/regctl" registry set "$REGISTRY" --blob-max 52428800 --blob-chunk 52428800
+          docker save "${IMAGE}:${TAG}" -o "$tmp/image.tar"
+          "$tmp/regctl" image import "ocidir://$tmp/oci:${TAG}" "$tmp/image.tar"
+          rm -f "$tmp/image.tar"
+          "$tmp/regctl" image mod "ocidir://$tmp/oci:${TAG}" --layer-compress gzip --create "${IMAGE}:${TAG}"
+          digest="$("$tmp/regctl" image digest "${IMAGE}:${TAG}")"
           if ! printf '%s' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
             echo "No registry digest for ${IMAGE}:${TAG} (got '${digest}')." >&2
             exit 1
           fi
           echo "DIGEST=${digest}" >> "$GITHUB_ENV"
           echo "Digest: ${digest}"
+          "$tmp/regctl" image copy "${IMAGE}:${TAG}" "${IMAGE}:latest"
+          rm -rf "$tmp/oci"
 
       - name: Configure SSH
         env:
@@ -175,7 +210,7 @@ jobs:
       - name: Clean up credentials
         if: always()
         run: |
-          rm -rf "${RUNNER_TEMP:-/tmp}/ssh"
+          rm -rf "${RUNNER_TEMP:-/tmp}/ssh" "${RUNNER_TEMP:-/tmp}/regctl"
           if [ -n "${REGISTRY:-}" ]; then docker logout "$REGISTRY" >/dev/null 2>&1 || true; fi
 
       # Only this job's container: a service (Postgres) and anything `docker build`
