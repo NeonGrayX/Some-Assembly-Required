@@ -1,6 +1,6 @@
 # Runs on the VPS from /srv/some-assembly-required, next to the .env file that
-# remote-release.sh writes. The workflow uploads this file on every deploy, so a
-# change here goes live with the next tag.
+# remote-release.sh writes. It is installed here by hand, never uploaded by a deploy:
+# install a changed copy before pushing the tag that needs it.
 #
 # Which image and tag to run live in .env, not here - that is what makes a
 # rollback one command. Anything else you add to .env is kept across deploys:

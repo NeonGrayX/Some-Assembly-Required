@@ -11,13 +11,36 @@
 #   rebuild    tag the next version on the same commit, so the Deploy workflow builds
 #              the image again with --pull: fresh base image, its OS fixes included.
 #
-# The new tag is deployed by the repo's own deploy.yml. Patchboard starts it, because a
-# tag pushed with the workflow token does not start other workflows - deploy.yml needs
-# `workflow_dispatch:` under `on:` for that (docs: Part 5).
+# The new tag is deployed by the repo's own deploy.yml (docs: Part 5).
 #
 # The fix commit also goes to the branch the workflow was started on (main), but only
 # when main has nothing unreleased on top of the base tag, so it can fast-forward.
-# Otherwise it is pushed as security-fix/<tag> to be merged by hand.
+# Otherwise (or when main refuses the push) it is pushed as security-fix/<tag> to be
+# merged by hand. Branch and tag go in one atomic push: both arrive or neither, so a
+# run never leaves a branch with an untagged fix, nor a tag whose commit is on no branch.
+#
+# Who pushes:
+#   - Secret RELEASE_TOKEN set (an account-level secret, so every app repo has it): the
+#     push is made as Patchboard's bot - a token of the bot with scope
+#     `write:repository` and nothing else (and the bot on main's push allow-list, if
+#     main is protected and the fix should fast-forward it). Its push starts the repo's
+#     workflows like any user's: deploy.yml starts for the tag (Patchboard finds that
+#     run and does not dispatch a second one), and CI checks the fix commit.
+#   - Not set: the Actions job token (user `gitea-actions`). Its push starts no
+#     workflow, so Patchboard dispatches deploy.yml, and no CI run checks the fix commit.
+#
+# Two jobs, so the code under test never shares a job with a token that can push:
+#
+#   fix      (read-only token) resolves the fix, installs it, runs the tests and the
+#            build. The lockfile change and its hash are set as outputs in the step that
+#            resolves it, before any package code runs.
+#   release  (token that can push, used only in the last step) checks out the base tag
+#            afresh, applies exactly that lockfile change (lockfiles only), then commits,
+#            tags and pushes. Nothing in it runs package code or a tool from the runner's
+#            tool cache: an install script in `fix` could otherwise leave a git hook, a
+#            git config or a `git` of its own for the step that holds the token.
+#
+# Neither job keeps a git credential (persist-credentials: false).
 name: Security fix
 
 on:
@@ -36,19 +59,32 @@ on:
         required: false
         default: ''
 
+permissions: {}
+
 jobs:
   fix:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      base: ${{ steps.base.outputs.base }}
+      next: ${{ steps.base.outputs.next }}
+      changed: ${{ steps.audit.outputs.changed }}
+      fix: ${{ steps.audit.outputs.fix }}
+      fix_hash: ${{ steps.audit.outputs.fix_hash }}
 
     steps:
+      # fetch-depth 0 brings every tag and branch, so no later step needs a credential.
       - name: Check out every tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Inputs reach the scripts as environment variables only, and are checked before
       # use, so nothing typed into the dispatch form can become shell code.
       - name: Find the base release
+        id: base
         env:
           MODE: ${{ inputs.mode }}
           BASE: ${{ inputs.base }}
@@ -56,7 +92,6 @@ jobs:
         run: |
           set -eu
           case "$MODE" in audit-fix|rebuild) ;; *) echo "unknown mode: $MODE" >&2; exit 1 ;; esac
-          git fetch --quiet --tags --force origin
           if [ -z "$BASE" ]; then
             BASE="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
           fi
@@ -81,6 +116,10 @@ jobs:
             echo "NEXT=${NEXT}"
             echo "BRANCH=${BRANCH}"
           } >> "$GITHUB_ENV"
+          {
+            echo "base=${BASE}"
+            echo "next=${NEXT}"
+          } >> "$GITHUB_OUTPUT"
           echo "Base ${BASE}, next ${NEXT}, mode ${MODE}"
 
       - name: Set up Node
@@ -92,8 +131,11 @@ jobs:
       # --package-lock-only: the lockfile is changed without running any install script.
       # Scripts run only in the npm ci below, exactly as in a normal build. The change is
       # committed here (not pushed), so the next step can put back a lockfile that an
-      # install script rewrote, and tests what is committed.
+      # install script rewrote, and tests what is committed. The change itself (gzip,
+      # base64) and its hash are this step's outputs: the release job commits exactly
+      # that, as resolved here before any package code ran.
       - name: npm audit fix
+        id: audit
         if: inputs.mode == 'audit-fix'
         run: |
           set -eu
@@ -101,6 +143,7 @@ jobs:
           if [ -z "$locks" ]; then
             echo "No package-lock.json in this repo: nothing for npm audit fix to do."
             echo "CHANGED=no" >> "$GITHUB_ENV"
+            echo "changed=no" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           for lock in $locks; do
@@ -113,10 +156,24 @@ jobs:
           if git diff --quiet; then
             echo "npm audit fix changed nothing - what is left needs a major upgrade by hand."
             echo "CHANGED=no" >> "$GITHUB_ENV"
+            echo "changed=no" >> "$GITHUB_OUTPUT"
           else
             git diff --stat
+            fix="${RUNNER_TEMP:-/tmp}/fix.diff"
+            git diff --binary > "$fix"
+            encoded="$(gzip -9 -n -c "$fix" | base64 -w0)"
+            # A job output must stay well below 1 MB.
+            if [ "${#encoded}" -gt 900000 ]; then
+              echo "The lockfile change is too large to hand to the release job (${#encoded} bytes encoded). Apply it by hand." >&2
+              exit 1
+            fi
+            {
+              echo "fix_hash=$(sha256sum < "$fix" | cut -c1-64)"
+              echo "fix=${encoded}"
+            } >> "$GITHUB_OUTPUT"
             git commit --quiet -a -m "Security: npm audit fix on ${BASE}" -m "Started from Patchboard."
             echo "CHANGED=yes" >> "$GITHUB_ENV"
+            echo "changed=yes" >> "$GITHUB_OUTPUT"
           fi
 
       # Every directory with a lockfile is installed, not only the changed ones: a test
@@ -157,30 +214,100 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Tag and push
+  release:
+    needs: fix
+    if: inputs.mode == 'rebuild' || needs.fix.outputs.changed == 'yes'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out every tag
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # On a clean checkout of the base: the lockfile change exactly as `fix` resolved and
+      # tested it, never the workspace the tests ran in.
+      - name: Apply the tested fix
+        env:
+          MODE: ${{ inputs.mode }}
+          BASE: ${{ needs.fix.outputs.base }}
+          FIX: ${{ needs.fix.outputs.fix }}
+          FIX_HASH: ${{ needs.fix.outputs.fix_hash }}
         run: |
           set -eu
+          git checkout --quiet --detach "refs/tags/${BASE}"
+          [ "$MODE" = audit-fix ] || exit 0
+          fix="${RUNNER_TEMP:-/tmp}/fix.diff"
+          printf '%s' "$FIX" | base64 -d | gunzip -c > "$fix"
+          if [ "$(sha256sum < "$fix" | cut -c1-64)" != "$FIX_HASH" ]; then
+            echo "The lockfile change did not arrive as the fix job tested it." >&2
+            exit 1
+          fi
+          git -c core.hooksPath=/dev/null apply --index "$fix"
+          if git diff --cached --name-only | grep -vqE '(^|/)package-lock\.json$'; then
+            git diff --cached --stat
+            echo "npm audit fix changed more than lockfiles." >&2
+            exit 1
+          fi
+          git -c core.hooksPath=/dev/null -c user.name=Patchboard -c user.email=patchboard@noreply.invalid \
+            commit --quiet -m "Security: npm audit fix on ${BASE}" -m "Started from Patchboard."
+
+      # The only step with a credential, used as an HTTP header of these git commands and
+      # never written to .git/config: RELEASE_TOKEN if the account or the repository has
+      # it, else the job token (see the top of this file). One atomic push per attempt,
+      # the branch before the tag.
+      - name: Tag and push
+        env:
+          MODE: ${{ inputs.mode }}
+          BASE: ${{ needs.fix.outputs.base }}
+          NEXT: ${{ needs.fix.outputs.next }}
+          BRANCH: ${{ github.ref_name }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          JOB_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          set -eu
+          if [ -n "$RELEASE_TOKEN" ]; then
+            token="$RELEASE_TOKEN"
+            pusher="the account of RELEASE_TOKEN"
+          else
+            token="$JOB_TOKEN"
+            pusher="the job token"
+          fi
+          unset RELEASE_TOKEN JOB_TOKEN
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
+          # No hook runs while the token is in the environment.
+          git_auth() { git -c core.hooksPath=/dev/null -c "http.extraheader=${auth}" "$@"; }
+          refused() {
+            echo "Gitea refused the push of ${NEXT} by ${pusher}: nothing was pushed." >&2
+            echo "The account of RELEASE_TOKEN (Patchboard's bot) needs write access to this repository, and the job token needs write for contents (Patchboard docs, Part 5)." >&2
+            echo "Fix that, then run this again." >&2
+            exit 1
+          }
           if [ "$MODE" = audit-fix ]; then
-            if [ "${CHANGED:-no}" != yes ]; then
-              echo "Nothing changed, so no release."
-              exit 0
-            fi
             message="Security fix on ${BASE}: npm audit fix"
           else
             message="Rebuild of ${BASE} with fresh base images"
           fi
-          git tag -a "$NEXT" -m "$message"
+          git -c core.hooksPath=/dev/null -c user.name=Patchboard -c user.email=patchboard@noreply.invalid \
+            tag -a "$NEXT" -m "$message"
 
           if [ "$MODE" = audit-fix ]; then
             # Fast-forward the branch only if it has nothing unreleased on top of the base.
-            git fetch --quiet origin "$BRANCH"
-            if [ "$(git rev-parse "origin/${BRANCH}")" = "$(git rev-parse "refs/tags/${BASE}^{commit}")" ] \
-               && git push origin "HEAD:refs/heads/${BRANCH}"; then
+            git_auth fetch --quiet origin "$BRANCH"
+            if [ "$(git rev-parse FETCH_HEAD)" = "$(git rev-parse "refs/tags/${BASE}^{commit}")" ] \
+               && git_auth push --atomic origin "HEAD:refs/heads/${BRANCH}" "refs/tags/${NEXT}"; then
               echo "${BRANCH} now has the fix."
             else
-              git push origin "HEAD:refs/heads/security-fix/${NEXT}"
-              echo "::warning::${BRANCH} has commits that are not released yet (or is protected). The fix is on security-fix/${NEXT} - merge it into ${BRANCH}."
+              git_auth push --atomic origin "HEAD:refs/heads/security-fix/${NEXT}" "refs/tags/${NEXT}" || refused
+              echo "::warning::${BRANCH} has commits that are not released yet, or refused ${pusher}. The fix is on security-fix/${NEXT} - merge it into ${BRANCH}."
             fi
+            if [ "$pusher" = "the job token" ]; then
+              echo "::warning::Pushed with the job token: no CI run checks the fix commit, and a deploy.yml that waits for CI refuses ${NEXT}. Set RELEASE_TOKEN."
+            fi
+          else
+            git_auth push origin "refs/tags/${NEXT}" || refused
           fi
-          git push origin "refs/tags/${NEXT}"
           echo "Tagged ${NEXT}: ${message}"

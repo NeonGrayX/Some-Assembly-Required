@@ -3,8 +3,12 @@
 #   ./deploy.sh      (or: git tag -a v1.0.0 -m "..." && git push origin v1.0.0)
 #
 # Builds the Docker image on the runner, pushes it to this Gitea instance's
-# container registry, then uploads deploy/compose.yaml and deploy/remote-release.sh
-# over SSH and runs the script, which pulls the tag and swaps the container.
+# container registry and records the digest the registry took, then asks the VPS
+# over SSH for `release <tag> <digest>`. The deploy key can do nothing else: its
+# forced command (deploy/some-assembly-required-deploy) runs the
+# remote-release.sh installed on the VPS, which pulls exactly that digest and
+# swaps the container. compose.yaml and remote-release.sh are installed on the
+# VPS by hand, never uploaded by a deploy.
 name: Deploy
 
 on:
@@ -26,6 +30,21 @@ jobs:
               a=$(sed -n 's/^anon //p' /sys/fs/cgroup/memory.stat 2>/dev/null)
               if [ "${a:-0}" -gt "$max" ]; then max=$a; echo "$max" > /tmp/mem-anon-peak; fi
             done ) >/dev/null 2>&1 &
+
+      # A dispatch can name any ref, also a branch called like a release. Only a
+      # tag deploys, and the forced command on the VPS
+      # (deploy/some-assembly-required-deploy) releases nothing but a v* tag.
+      - name: Refuse anything but a release tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/tags/v*) ;;
+            *)
+              echo "deploy.yml deploys release tags (refs/tags/v*) only, not '${REF}'." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Check out the tag
         uses: actions/checkout@v4
@@ -97,6 +116,8 @@ jobs:
             --tag "${IMAGE}:latest" \
             .
 
+      # The digest the registry stored for the tag. The VPS pulls exactly
+      # this image, whatever the tag points at by the time it gets there.
       - name: Push the image
         env:
           TAG: ${{ github.ref_name }}
@@ -104,6 +125,14 @@ jobs:
           set -eu
           docker push "${IMAGE}:${TAG}"
           docker push "${IMAGE}:latest"
+          digest="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${IMAGE}:${TAG}" \
+            | sed -n "s|^${IMAGE}@||p" | head -n 1)"
+          if ! printf '%s' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
+            echo "No registry digest for ${IMAGE}:${TAG} (got '${digest}')." >&2
+            exit 1
+          fi
+          echo "DIGEST=${digest}" >> "$GITHUB_ENV"
+          echo "Digest: ${digest}"
 
       - name: Configure SSH
         env:
@@ -121,27 +150,27 @@ jobs:
           chmod 600 "${RUNNER_TEMP:-/tmp}/ssh/id"
           printf '%s\n' "$KNOWN_HOSTS" > "${RUNNER_TEMP:-/tmp}/ssh/known_hosts"
 
-      # One connection: unpack the compose file and the release script, then run
-      # it. A pull that fails leaves the running container alone, and a container
-      # that never turns healthy is replaced by the tag it replaced.
+      # One connection, and the only command the key may run: release the tag at
+      # the digest just pushed. Nothing is uploaded: the image name, the path,
+      # compose.yaml and remote-release.sh are the VPS's own
+      # (deploy/some-assembly-required-deploy, installed by hand with them). If
+      # the pull fails, the running container keeps serving. If the new
+      # container never becomes healthy, the script restores the previous tag.
       - name: Roll out on the VPS
         env:
           TAG: ${{ github.ref_name }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           set -eu
           SSH_DIR="${RUNNER_TEMP:-/tmp}/ssh"
           PORT="${DEPLOY_PORT:-22}"
-          ROOT="${DEPLOY_PATH:-/srv/some-assembly-required}"
-          tar -C deploy -cf - compose.yaml remote-release.sh \
-            | ssh -p "${PORT}" -i "${SSH_DIR}/id" \
-                -o UserKnownHostsFile="${SSH_DIR}/known_hosts" \
-                -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes \
-                "${DEPLOY_USER}@${DEPLOY_HOST}" \
-                "mkdir -p '${ROOT}' && tar -C '${ROOT}' -xf - && bash '${ROOT}/remote-release.sh' '${TAG}' '${IMAGE}'"
+          ssh -n -p "${PORT}" -i "${SSH_DIR}/id" \
+            -o UserKnownHostsFile="${SSH_DIR}/known_hosts" \
+            -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "release ${TAG} ${DIGEST}"
 
       - name: Clean up credentials
         if: always()

@@ -3,13 +3,15 @@
 https://sar.arrow-lab.de is deployed the way every arrow-lab.de app is, following the
 playbook at [docs.arrow-lab.de](https://docs.arrow-lab.de/) (agents:
 [llms.txt](https://docs.arrow-lab.de/llms.txt)). Push a `v*` tag, a Gitea runner builds the
-image and pushes it to the Gitea registry, then SSHes into the VPS and swaps the container.
+image and pushes it to the Gitea registry, then asks the VPS over SSH to release it there; the
+VPS swaps the container.
 
 ```
 ./deploy.sh  ->  tag v1.2.3 pushed to Gitea
 runner:  docker build -> docker push git.grombach-home.de/neongrayx/<repo>:v1.2.3
-         ssh (tar of deploy/compose.yaml + deploy/remote-release.sh, then run it)
-VPS:     docker pull -> pin tag in /srv/some-assembly-required/.env -> compose up --wait
+         ssh "release v1.2.3 sha256:<digest>" (the deploy key can do nothing else)
+VPS:     some-assembly-required-deploy -> remote-release.sh (both installed by hand)
+         docker pull <image>@<digest> -> pin tag in /srv/some-assembly-required/.env -> compose up --wait
 browser -> Cloudflare (HTTPS) -> VPS :443 nginx -> 127.0.0.1:4380 -> container :8080
 ```
 
@@ -29,15 +31,16 @@ instead; it uses `deploy/selfhost/`.
 
 ## Files
 
-| File                                       | What it does                                                                                                                                                                            |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Dockerfile`                               | Builds the client and the host executable; the runtime stage holds only the executable, listens on 8080 as a non-root user, writes `/build-info.json` from the tag and health-checks it |
-| `deploy/compose.yaml`                      | Runs on the VPS. Image and tag come from `.env`; the port is published on loopback only; read-only filesystem                                                                           |
-| `deploy/remote-release.sh`                 | Pulls the tag, pins it in `.env`, recreates the container, waits for the health check, and puts the previous tag back if it never passes                                                |
-| `deploy/nginx/some-assembly-required.conf` | The host's nginx site: TLS from the shared origin certificate, the `/ws` WebSocket, and CORS on `/build-info.json` for the arrow-lab.de landing page                                    |
-| `.gitea/workflows/deploy.yml`              | Runs on a `v*` tag: build, push, upload the two deploy files, run the release script                                                                                                    |
-| `deploy.sh`                                | Suggests the next version, then creates and pushes the tag                                                                                                                              |
-| `serve.sh`                                 | Local development on port 4380                                                                                                                                                          |
+| File                                       | What it does                                                                                                                                                                                               |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dockerfile`                               | Builds the client and the host executable; the runtime stage holds only the executable, listens on 8080 as a non-root user, writes `/build-info.json` from the tag and health-checks it                    |
+| `deploy/compose.yaml`                      | Installed on the VPS by hand, runs there. Image and tag come from `.env`; the port is published on loopback only; read-only filesystem                                                                     |
+| `deploy/remote-release.sh`                 | Installed on the VPS by hand. Pulls the tag (by the digest the workflow pushed), pins it in `.env`, recreates the container, waits for the health check, and puts the previous tag back if it never passes |
+| `deploy/nginx/some-assembly-required.conf` | The host's nginx site: TLS from the shared origin certificate, the `/ws` WebSocket, and CORS on `/build-info.json` for the arrow-lab.de landing page                                                       |
+| `deploy/some-assembly-required-deploy`     | The deploy key's forced command, installed by hand in `/usr/local/sbin/`: takes only `release <tag> <sha256:digest>` and runs the installed `remote-release.sh` with the image fixed in it                 |
+| `.gitea/workflows/deploy.yml`              | Runs on a `v*` tag: build, push, record the image digest, one SSH call `release <tag> <digest>`; uploads nothing                                                                                           |
+| `deploy.sh`                                | Suggests the next version, then creates and pushes the tag                                                                                                                                                 |
+| `serve.sh`                                 | Local development on port 4380                                                                                                                                                                             |
 
 ## Per-app setup (once, needs sudo)
 
@@ -46,20 +49,26 @@ The account-level Gitea setup (registry tokens, deploy key, `REGISTRY_USER`,
 the other apps; see Part 2 of the playbook.
 
 1. **Gitea:** the tag must reach the Gitea copy of this repository, since that is where the
-   workflow runs. Enable Actions on it, and add the repo secrets `DEPLOY_USER` = `sar` and
-   `DEPLOY_PATH` = `/srv/some-assembly-required`.
+   workflow runs. Enable Actions on it, and add the repo secret `DEPLOY_USER` = `sar` (the
+   only per-repo deploy secret; the wrapper knows the path, so a secret with the deploy path
+   is no longer read and can be deleted).
 2. **VPS: deploy user**
 
    ```bash
    sudo useradd --system --create-home --home-dir /srv/some-assembly-required --shell /bin/bash sar
    sudo usermod -aG docker sar
    sudo usermod -p '*' sar
-   sudo install -d -m 700 -o sar -g sar /srv/some-assembly-required/.ssh
-   echo 'restrict <deploy-key-pub>' | sudo tee -a /srv/some-assembly-required/.ssh/authorized_keys
-   sudo chown sar:sar /srv/some-assembly-required/.ssh/authorized_keys
-   sudo chmod 600 /srv/some-assembly-required/.ssh/authorized_keys
+   sudo install -d -m 755 -o root -g root /srv/some-assembly-required/.ssh
+   echo 'restrict,command="/usr/local/sbin/some-assembly-required-deploy",from="<runner address>" <deploy-key-pub>' \
+     | sudo tee -a /srv/some-assembly-required/.ssh/authorized_keys
+   sudo chown root:root /srv/some-assembly-required/.ssh /srv/some-assembly-required/.ssh/authorized_keys
+   sudo chmod 755 /srv/some-assembly-required/.ssh && sudo chmod 644 /srv/some-assembly-required/.ssh/authorized_keys
    sudo -iu sar docker login git.grombach-home.de -u NeonGrayX   # the read-only token
    ```
+
+   Root owns `.ssh` and `authorized_keys`, so the account cannot add keys for itself. For
+   `<runner address>` and the deploy files, see "Installing the deploy files and restricting
+   the key" below.
 
 3. **VPS: nginx site**
 
@@ -73,6 +82,55 @@ the other apps; see Part 2 of the playbook.
    Always Use HTTPS on.
 5. **Port registry:** add `4380 | some-assembly-required` to the table in Part 0 of the
    playbook (the Arrow-Lab repository).
+
+## Installing the deploy files and restricting the key
+
+A deploy uploads nothing: the deploy key's forced command `some-assembly-required-deploy`
+runs the `remote-release.sh` installed in `/srv/some-assembly-required`. So
+`deploy/compose.yaml`, `deploy/remote-release.sh` and the wrapper are installed on the VPS
+by hand: before the first tag after this change, and again before any tag whose release
+changes them (`git diff <deployed-tag> <new-tag> --stat -- deploy/`). From a checkout of the
+tag, as your admin account:
+
+```bash
+# on your machine
+ssh <admin>@212.227.184.160 'mkdir -p /tmp/some-assembly-required-deploy'
+scp deploy/compose.yaml deploy/remote-release.sh deploy/some-assembly-required-deploy \
+  <admin>@212.227.184.160:/tmp/some-assembly-required-deploy/
+# on the VPS
+cd /tmp/some-assembly-required-deploy \
+  && sudo install -o sar -g sar -m 755 remote-release.sh /srv/some-assembly-required/ \
+  && sudo install -o sar -g sar -m 644 compose.yaml /srv/some-assembly-required/ \
+  && sudo install -o root -g root -m 755 some-assembly-required-deploy /usr/local/sbin/some-assembly-required-deploy \
+  && cd / && rm -rf /tmp/some-assembly-required-deploy
+```
+
+The deploy key's line in `/srv/some-assembly-required/.ssh/authorized_keys` is one line, with
+the file root-owned 644 and the `.ssh` directory root-owned 755 (step 2 above):
+
+```
+restrict,command="/usr/local/sbin/some-assembly-required-deploy",from="<runner address>" ssh-ed25519 AAAA… gitea-deploy
+```
+
+```bash
+sudo chown root:root /srv/some-assembly-required/.ssh /srv/some-assembly-required/.ssh/authorized_keys
+sudo chmod 755 /srv/some-assembly-required/.ssh && sudo chmod 644 /srv/some-assembly-required/.ssh/authorized_keys
+```
+
+`<runner address>` is the address the VPS sees the runner connect from: the home
+connection's public address, not 10.10.11.216, unless there is a VPN. The sshd log shows it:
+`sudo journalctl -u ssh | grep 'Accepted publickey for sar'`. If that address is dynamic, a
+`from=` breaks the deploy at the next reconnect.
+
+The order, once: merge the change (untagged); install the files and the wrapper and restrict
+the key; only then push a tag. Until the key is restricted, the workflow's `release …` is an
+unknown shell command and the deploy fails.
+
+The check, from the runner host (the TrueNAS, 10.10.11.216):
+`ssh -i <deploy key> sar@212.227.184.160 id` prints
+`deploy: usage: release <tag> <sha256:digest>` and gives no shell; from any other address the
+key is refused. Anything by hand on the VPS goes through your admin account
+(`sudo -iu sar …`), as below.
 
 ## Voice chat relay (optional)
 
@@ -91,7 +149,7 @@ on:
    SAR_TURN_URL=turn:<vps-ip>:3478?transport=udp,turn:<vps-ip>:3478?transport=tcp
    ```
 
-3. Apply it: `bash /srv/some-assembly-required/remote-release.sh <the live tag>`.
+3. Apply it: `sudo -iu sar bash /srv/some-assembly-required/remote-release.sh <the live tag>`.
 
 ## Shared builds
 
@@ -128,11 +186,10 @@ curl -sI https://sar.arrow-lab.de/build-info.json | grep -i '^access-control-all
 
 ## Rollback
 
-On the VPS, as the deploy user:
+On the VPS, from your admin account as the deploy user (the deploy key opens no shell):
 
 ```bash
-sudo -iu sar
-bash /srv/some-assembly-required/remote-release.sh v1.0.0
+sudo -iu sar bash /srv/some-assembly-required/remote-release.sh v1.0.0
 ```
 
 Any pushed tag works; the last five are kept locally. A release that never becomes healthy is

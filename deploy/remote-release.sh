@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Runs on the VPS, as the deploy user, from the directory the workflow uploads it
-# into alongside compose.yaml. Pulls the image, pins it in .env, recreates the
+# Runs on the VPS, as the deploy user, from /srv/some-assembly-required next to
+# compose.yaml, where both are installed by hand. The deploy key reaches it only
+# through the forced command some-assembly-required-deploy, which passes the
+# image and the digest the workflow pushed. Pulls the image (by that digest, so
+# the registry cannot hand over another one), pins it in .env, recreates the
 # container and waits for its health check - and puts the previous tag back if
 # the new one never passes.
 #
-#   remote-release.sh <tag> [image]
+#   remote-release.sh <tag> [image] [digest]
 #
 # The image defaults to the one already in .env, so rolling back by hand is:
 #
 #   bash /srv/some-assembly-required/remote-release.sh v1.0.0
+#
+# Without a digest (a rollback by hand) the tag is pulled as the registry has it.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,10 +47,12 @@ pin() {
 compose() { docker compose --project-directory "$here" "$@"; }
 
 tag="${1:-}"
-[ -n "$tag" ] || fail "usage: remote-release.sh <tag> [image]"
+[ -n "$tag" ] || fail "usage: remote-release.sh <tag> [image] [digest]"
 # The docker tag grammar. Checked here as well as in the workflow because this
 # is also run by hand, and the value ends up in .env.
 [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "not a valid image tag: ${tag}"
+digest="${3:-}"
+[ -z "$digest" ] || [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "not an image digest: ${digest}"
 
 previous_image="$(recorded APP_IMAGE)"
 previous_tag="$(recorded APP_TAG)"
@@ -53,9 +60,23 @@ image="${2:-$previous_image}"
 [ -n "$image" ] || fail "no image given, and none recorded in ${here}/${env_file}"
 
 # Pull before touching anything: a mistyped tag or an expired registry login
-# fails here, with the old container still serving.
-echo "release: pulling ${image}:${tag}"
-docker pull --quiet "${image}:${tag}" >/dev/null || fail "could not pull ${image}:${tag}"
+# fails here, with the old container still serving. With a digest (every release
+# through the deploy key), exactly the image the workflow built and pushed,
+# whatever the registry's tag points at by now; the local tag is then set to it,
+# so compose runs that image.
+if [ -n "$digest" ]; then
+  echo "release: pulling ${image}:${tag} (${digest})"
+  docker pull --quiet "${image}@${digest}" >/dev/null \
+    || fail "could not pull ${image}@${digest}; nothing was changed"
+  docker tag "${image}@${digest}" "${image}:${tag}" \
+    || fail "could not tag ${image}@${digest} as ${tag}; nothing was changed"
+  docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${image}:${tag}" \
+    | grep -qxF "${image}@${digest}" \
+    || fail "${image}:${tag} is not the image the workflow built (${digest}); nothing was changed"
+else
+  echo "release: pulling ${image}:${tag}"
+  docker pull --quiet "${image}:${tag}" >/dev/null || fail "could not pull ${image}:${tag}"
+fi
 
 pin "$image" "$tag"
 echo "release: starting ${tag}"
