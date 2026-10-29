@@ -5,6 +5,7 @@ import type { BrickTypeId, ColourId } from '@sar/shared';
 import { brickGeometry, brickMaterial } from '../render/bricks.ts';
 import { catalogueOrder } from './brickFinder.ts';
 import { CORNER, addBrickLights, brickEdges, brickThumb, centreBrick } from './brickThumbs.ts';
+import { ico } from '../themes/icons.js';
 
 /**
  * The build editor's brick viewer: every brick type in a list, and the chosen one on its own
@@ -49,7 +50,7 @@ export function createBrickViewer(opts: BrickViewerOptions) {
       <div class="bv-top box">
         <strong class="bv-name"></strong>
         <span class="bv-info"></span>
-        <button type="button" class="bv-close close-x icon-btn" title="Close (Esc)" aria-label="Close">✕</button>
+        <button type="button" class="bv-close close-x icon-btn" title="Close (Esc)" aria-label="Close (Esc)">${ico('close')}</button>
       </div>
       <div class="bv-bottom box">
         <div class="bv-sides"></div>

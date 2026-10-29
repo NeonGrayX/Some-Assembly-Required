@@ -27,6 +27,7 @@ import type { ClientGame } from '../net/game.ts';
 import { ForumBrowser } from './forum.ts';
 import type { ForumHandlers } from './forum.ts';
 import { RoomBrowser } from './rooms.ts';
+import { ico } from '../themes/icons.js';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -283,7 +284,7 @@ export class LobbyPanel {
     $('#fill-bots').addEventListener('click', () =>
       this.game()?.send({ t: 'bots', fill: true, level: this.botLevel.value }),
     );
-    // Taking a bot out: the host's ✕ beside it in the list.
+    // Taking a bot out: the host's close button beside it in the list.
     const players = this.el.querySelector('.players')!;
     players.addEventListener('click', (e) => {
       const id = (e.target as HTMLElement).closest<HTMLElement>('[data-remove-bot]')?.dataset
@@ -345,7 +346,7 @@ export class LobbyPanel {
       .map((p) => {
         if (p.bot) {
           const remove = g.isHost
-            ? `<button type="button" class="btn remove-bot" data-remove-bot="${p.id}" aria-label="Take ${esc(p.name)} out">✕</button>`
+            ? `<button type="button" class="btn remove-bot" data-remove-bot="${p.id}" aria-label="Take ${esc(p.name)} out" title="Take ${esc(p.name)} out">${ico('close')}</button>`
             : '';
           // The host sees the level in its own list below the name.
           const level = g.isHost ? '' : ` · ${BOT_LEVEL_NAMES[p.bot].toLowerCase()}`;
@@ -354,7 +355,7 @@ export class LobbyPanel {
         }
         const tags = [
           p.id === g.lobby.host ? 'host' : '',
-          !p.connected ? 'reconnecting…' : p.ready ? '✔ ready' : 'not ready',
+          !p.connected ? 'reconnecting…' : p.ready ? `${ico('check')}ready` : 'not ready',
         ].filter(Boolean);
         const colour = `#${p.colour.toString(16).padStart(6, '0')}`;
         const team =

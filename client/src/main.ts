@@ -81,6 +81,7 @@ import { TouchControls, useLabel } from './ui/touch.ts';
 import { Voice } from './voice.ts';
 import type { Listener, Speaker } from './voice.ts';
 import { SCREAM_MS, reaches, voiceMix } from './voice-mix.ts';
+import { ico } from './themes/icons.js';
 import './style.css';
 
 // Levels are built at once, so the prop model files are read first.
@@ -970,6 +971,8 @@ let voiceGame: ClientGame | null = null;
 /** Until when each player's voice counts as a scream (they just stepped on a brick). */
 const screams = new Map<number, number>();
 const micEl = $('mic');
+micEl.innerHTML = ico('mic');
+const micText = micEl.appendChild(document.createElement('span'));
 
 /** Starts voice chat for a newly joined room (never in solo play), or stops it. */
 function voiceFor(g: ClientGame | null): Voice | null {
@@ -1035,17 +1038,17 @@ function updateVoice(g: ClientGame, eye: Vec3, alpha: number): void {
   view.showSpeaking((id) => v.speaking(id));
 
   const mode = v.micMode;
-  micEl.textContent = !Voice.micAvailable
-    ? '🎤 listen only (talking needs https://)'
+  micText.textContent = !Voice.micAvailable
+    ? 'listen only (talking needs https://)'
     : v.micError
-      ? '🎤 unavailable (see Settings)'
+      ? 'unavailable (see Settings)'
       : mode === 'off'
-        ? '🎤 off'
+        ? 'off'
         : v.sending
-          ? '🎤 on air'
+          ? 'on air'
           : mode === 'push'
-            ? '🎤 hold C to talk'
-            : '🎤 …';
+            ? 'hold C to talk'
+            : '…';
   micEl.classList.toggle('live', v.sending);
   micEl.classList.toggle('speaking', v.ownSpeaking);
 }

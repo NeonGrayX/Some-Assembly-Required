@@ -5,6 +5,8 @@
  * the tiles' order are remembered.
  */
 
+import { ico } from '../themes/icons.js';
+
 /** Kept clear between the card and the window's edges. */
 const EDGE = 8;
 /** How much of the card stays on screen when it is dragged towards an edge: its title bar. */
@@ -74,9 +76,9 @@ export class FloatCard {
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'perf-close';
-    close.textContent = '×';
-    close.title = 'Close';
-    close.setAttribute('aria-label', `Close ${title.toLowerCase()}`);
+    close.innerHTML = ico('close');
+    close.title = `Close ${title.toLowerCase()}`;
+    close.setAttribute('aria-label', close.title);
     close.addEventListener('click', onClose);
     bar.append(name, close);
     this.drags(bar, (r, dx, dy) => this.moveTo(r.left + dx, r.top + dy, r));
@@ -126,6 +128,7 @@ export class FloatCard {
     const grip = document.createElement('span');
     grip.className = 'perf-grip';
     grip.title = 'Drag to rearrange';
+    grip.innerHTML = ico('grip');
     handle.prepend(grip);
     this.tiles.set(id, tile);
     this.cols[col].append(tile);

@@ -8,6 +8,7 @@ import {
   profiler,
 } from '../profiler.ts';
 import { FloatCard } from './floatCard.ts';
+import { icon } from '../themes/icons.js';
 
 /** How far back the graphs reach. */
 const WINDOW_MS = 10_000;
@@ -399,6 +400,8 @@ export class PerfPanel {
     const summary = document.createElement('summary');
     const name = document.createElement('span');
     name.className = 'perf-name';
+    // The caret, turned down by style.css while the graph is open.
+    name.append(icon('forward', 'ico perf-caret'));
     if (colour) {
       const swatch = document.createElement('i');
       swatch.style.background = colour;
