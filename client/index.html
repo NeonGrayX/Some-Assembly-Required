@@ -594,10 +594,16 @@
         <h3>Build editor</h3>
         <div class="row ed-history">
           <button class="btn" id="ed-undo" type="button" title="Undo (Ctrl+Z)" disabled>
-            ↶ Undo
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 14L4 9l5-5" />
+              <path d="M4 9h11a5 5 0 0 1 0 10h-3" /></svg
+            >Undo
           </button>
           <button class="btn" id="ed-redo" type="button" title="Redo (Ctrl+Shift+Z)" disabled>
-            Redo ↷
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 14l5-5-5-5" />
+              <path d="M20 9H9a5 5 0 0 0 0 10h3" /></svg
+            >Redo
           </button>
           <button
             class="btn"
@@ -638,21 +644,14 @@
           <span class="picker-head"
             >Brick <strong id="ed-type-name"></strong
             ><button id="ed-type-fav" type="button" class="fav icon-btn" aria-pressed="false">
-              ☆
-            </button></span
-          >
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" />
+              </svg></button
+          ></span>
           <label class="field search">
-            <svg
-              class="ico"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              aria-hidden="true"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="M20 20l-4.2-4.2" />
             </svg>
             <input
               id="ed-type-search"
@@ -681,21 +680,14 @@
           <span class="picker-head"
             >Colour <strong id="ed-colour-name"></strong
             ><button id="ed-colour-fav" type="button" class="fav icon-btn" aria-pressed="false">
-              ☆
-            </button></span
-          >
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" />
+              </svg></button
+          ></span>
           <label class="field search">
-            <svg
-              class="ico"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              aria-hidden="true"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="M20 20l-4.2-4.2" />
             </svg>
             <input
               id="ed-colour-search"
@@ -721,9 +713,27 @@
         </button>
         <div class="stepper">
           <span>Step</span>
-          <button class="btn" id="ed-step-prev" type="button" aria-label="Previous step">−</button>
+          <button
+            class="btn"
+            id="ed-step-prev"
+            type="button"
+            aria-label="Previous step"
+            title="Previous step"
+          >
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          </button>
           <strong id="ed-step">1</strong>
-          <button class="btn" id="ed-step-next" type="button" aria-label="Next step">+</button>
+          <button
+            class="btn"
+            id="ed-step-next"
+            type="button"
+            aria-label="Next step"
+            title="Next step"
+          >
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
         </div>
         <label class="check"
           ><input id="ed-only-step" type="checkbox" /> Show only up to this step</label
@@ -778,7 +788,17 @@
       <aside id="ed-code" class="box hidden" aria-label="Build file, live">
         <header>
           <h3>Build file</h3>
-          <button id="ed-code-close" type="button" class="icon-btn" aria-label="Close">✕</button>
+          <button
+            id="ed-code-close"
+            type="button"
+            class="icon-btn"
+            aria-label="Close the build file"
+            title="Close the build file"
+          >
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
         </header>
         <p class="hint">
           Edits here change the build as you type, and changes to the build show up here. Put the

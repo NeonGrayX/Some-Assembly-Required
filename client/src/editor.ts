@@ -52,6 +52,7 @@ import {
 } from './ui/brickFinder.ts';
 import type { BrickFilter, ColourFilter } from './ui/brickFinder.ts';
 import { brickName, createBrickViewer } from './ui/brickViewer.ts';
+import { ico, icon } from './themes/icons.js';
 
 /**
  * In-browser editor for target builds, opened from the main menu. Uses the same grid, aiming and
@@ -189,7 +190,7 @@ const brickFilter: BrickFilter = {
 const colourFilter: ColourFilter = { query: '', group: null, favouritesOnly: false };
 
 function showFavourite(btn: HTMLButtonElement, on: boolean): void {
-  btn.textContent = on ? '★' : '☆';
+  // The star itself is in index.html; style.css fills it while it is pressed.
   btn.setAttribute('aria-pressed', String(on));
   const what = btn === typeFav ? 'brick' : 'colour';
   btn.title = on
@@ -222,7 +223,8 @@ function chipRow<K extends string>(
     row.append(b);
     return b;
   };
-  const fav = chip('★', 'Favourites only');
+  const fav = chip('', 'Favourites only');
+  fav.innerHTML = ico('star');
   fav.classList.add('fav-chip');
   const chips = options.map((o) => ({ id: o.id, b: chip(o.label) }));
   const show = () => {
@@ -657,7 +659,10 @@ function updateSummary(): void {
   for (const p of validateBuild(build)) {
     const warn = document.createElement('div');
     warn.className = 'warn';
-    warn.textContent = `⚠ step ${p.step + 1}${p.brick >= 0 ? `, brick ${p.brick + 1}` : ''}: ${p.message}`;
+    warn.append(
+      icon('warn'),
+      `step ${p.step + 1}${p.brick >= 0 ? `, brick ${p.brick + 1}` : ''}: ${p.message}`,
+    );
     summary.append(warn);
   }
 }
@@ -1202,9 +1207,9 @@ function syncCode(): void {
 
 function showCodeStatus(problems: string[], bad = false): void {
   codeStatus.classList.toggle('bad', bad);
-  codeStatus.textContent = problems.length
-    ? (bad ? '' : '⚠ ') + problems.slice(0, 3).join(' · ')
-    : '✓ The build matches the file.';
+  if (!problems.length) codeStatus.replaceChildren(icon('check'), 'The build matches the file.');
+  else if (bad) codeStatus.replaceChildren(problems.slice(0, 3).join(' · '));
+  else codeStatus.replaceChildren(icon('warn'), problems.slice(0, 3).join(' · '));
 }
 
 /** Builds what the text box says, as far as it can be read. */

@@ -7,6 +7,7 @@ import type {
   ForumSort,
   TargetBuild,
 } from '@sar/shared';
+import { ico } from '../themes/icons.js';
 
 /*
  * The community page, the menu's page for shared builds: a list of builds other players
@@ -105,6 +106,15 @@ function button(text: string, cls = 'btn'): HTMLButtonElement {
   const b = el('button', cls, text);
   b.type = 'button';
   return b;
+}
+
+/** A card's comment count: the chat icon and the number, said in words to a screen reader. */
+function commentCount(n: number): HTMLSpanElement {
+  const s = el('span', 'count');
+  s.title = plural(n, 'comment');
+  s.innerHTML = `${ico('chat')}<span aria-hidden="true">${n}</span>`;
+  s.append(el('span', 'sr-only', s.title));
+  return s;
 }
 
 /** A button that asks for a second click within a few seconds before it acts. */
@@ -317,7 +327,7 @@ export class ForumBrowser {
   private likeButton(p: ForumPostSummary, onChange?: (p: ForumPostSummary) => void) {
     const b = button('', 'btn like');
     const show = () => {
-      b.textContent = `♥ ${p.likes}`;
+      b.innerHTML = `${ico('heart')}${p.likes}`;
       b.setAttribute('aria-pressed', String(p.liked));
       b.setAttribute(
         'aria-label',
@@ -361,7 +371,7 @@ export class ForumBrowser {
     );
     if (p.description) text.append(el('span', 'about', p.description));
     const foot = el('div', 'foot');
-    foot.append(this.likeButton(p), el('span', 'count', `💬 ${p.comments}`));
+    foot.append(this.likeButton(p), commentCount(p.comments));
     li.append(this.picture(p.id, 'small'), open, text, foot);
     return li;
   }

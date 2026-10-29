@@ -14,6 +14,7 @@ import {
 } from './brickFinder.ts';
 import type { BrickFilter, ColourFilter } from './brickFinder.ts';
 import { brickThumb } from './brickThumbs.ts';
+import { ico } from '../themes/icons.js';
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -25,11 +26,6 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (text) e.textContent = text;
   return e;
 }
-
-const SEARCH_ICON =
-  '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" />' +
-  '<path d="m20 20-3.5-3.5" /></svg>';
 
 /** What a mould looks like in the list: the part it makes, in plain steel grey. */
 const MOULD_COLOUR: ColourId = 'light-grey';
@@ -258,7 +254,7 @@ export class MachinePicker {
   /** The search box: narrows the list as you type; Enter picks the first choice left. */
   private search(placeholder: string, label: string, onChange: (q: string) => void): void {
     const field = el('label', 'field search');
-    field.innerHTML = SEARCH_ICON;
+    field.innerHTML = ico('search');
     const input = document.createElement('input');
     input.type = 'search';
     input.placeholder = placeholder;
@@ -304,7 +300,11 @@ export class MachinePicker {
       row.append(b);
       return b;
     };
-    const fav = withFavourites ? chip('★', 'Favourites only') : null;
+    const fav = withFavourites ? chip('', 'Favourites only') : null;
+    if (fav) {
+      fav.innerHTML = ico('star');
+      fav.classList.add('fav-chip');
+    }
     const all = options.map((o) => ({ id: o.id, b: chip(o.label) }));
     const update = () => {
       fav?.setAttribute('aria-pressed', String(favouritesOnly));

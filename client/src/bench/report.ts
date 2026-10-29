@@ -1,6 +1,7 @@
 import { mapById } from '@sar/shared';
 import type { BenchResult } from './bench.ts';
 import { STUTTER_MS, buckets, histogram, percentile, summarize } from './stats.ts';
+import { icon } from '../themes/icons.js';
 import type { FrameSample, Summary } from './stats.ts';
 
 /** Graphs average over slices this long; the frame-time graph shows every frame. */
@@ -645,7 +646,8 @@ export class BenchReport {
         cell.title = detail;
         const more = document.createElement('span');
         more.className = 'bench-more';
-        more.textContent = 'key';
+        // Shut: the forward chevron; open: the one pointing down (style.css shows one).
+        more.append('key', icon('forward', 'ico when-shut'), icon('chevron', 'ico when-open'));
         const full = document.createElement('code');
         full.className = 'bench-detail';
         full.textContent = detail;
