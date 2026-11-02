@@ -134,6 +134,11 @@
   margin-bottom: 18px;
 }
 
+/* An odd one out at the end takes the whole row. */
+#menu .modes .btn:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 /* Two lines each, so taller than the one-line buttons. */
 #menu .modes .btn {
   flex-direction: column;

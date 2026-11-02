@@ -149,6 +149,10 @@ Page images are **rendered at runtime** from this data (an isometric Three.js re
 
 An in-browser editor (`client/src/editor.ts`, **Build editor** on the main menu) that reuses the game's snapping code to place bricks and split them into steps, and imports and exports build files. This is how new target builds are made. Its undo history, its brick and colour pickers and its live build file pane are classes of their own in `client/src/editor/`.
 
+### Asset viewer
+
+**Asset viewer** on the main menu (`client/src/assetViewer.ts`, `#assets`) lists every model in the game and shows the one picked on its own, drawn like the build editor by the game's view on the editor's map (`View.showStudio`, with `View.lightStudioFor` aiming the sun and its shadow at whatever size the model is). The list is made by `client/src/ui/assetCatalog.ts`: the players, the dog, the vacuum, the gear and the bricks, and every map's pieces taken from the map's own models (`buildLevelModels`), so a new piece shows up in it by itself. A kind of piece found on several maps or in several sizes is one entry with a variant for each; what is built like a room (a caravan, a sleeper carriage, the island's houses, the ship) is shown with everything in its footprint. The model gallery (`models.html`) shows the same models for working on them.
+
 ## Client architecture
 
 - **Game loop:** fixed 60 Hz simulation for local prediction, render at the display refresh rate.

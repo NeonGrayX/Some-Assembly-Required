@@ -369,6 +369,7 @@ const menu = new Menu({
   demo: (name) => void open(name, undefined, true, 'demo'),
   bench: () => benchSetup.show(),
   editor: () => void openEditor(),
+  assets: () => void openAssets(),
   forum: { art: (build) => printer.boxArt(build), use: (build) => demo.useBuild(build) },
 });
 
@@ -419,7 +420,7 @@ const touch = new TouchControls(input, {
   fullscreen: () => void toggleFullscreen(),
 });
 const picker = new MachinePicker((a) => pick(a), input);
-input.mayCapture = () => !picker.isOpen && !editorOpen;
+input.mayCapture = () => !picker.isOpen && !editorOpen && !assetsOpen;
 /** The silo or mould dispenser the picker is open for (see `pickFirst`). */
 let pickingFor: number | null = null;
 
@@ -468,12 +469,14 @@ reader.el.addEventListener('click', () => {
   if (input.touch) reader.close();
 });
 
-/** Back to the main menu, from a game (lobby, round or demo) or the build editor. */
+/** Back to the main menu, from a game (lobby, round or demo), the build editor or the asset viewer. */
 function toMenu(): void {
-  if (editorOpen) {
-    // Opened from the menu, the editor is one step on in the history: go back to it.
-    if ((history.state as { editor?: boolean } | null)?.editor) return history.back();
+  if (editorOpen || assetsOpen) {
+    // Opened from the menu, the editor or viewer is one step on in the history: go back to it.
+    const state = history.state as { editor?: boolean; assets?: boolean } | null;
+    if (state?.editor || state?.assets) return history.back();
     closeEditor();
+    closeAssets();
   }
   stopBench();
   const g = game;
@@ -512,21 +515,46 @@ async function openEditor(push = true): Promise<void> {
 }
 
 function closeEditor(): void {
+  if (!editorOpen) return;
   editorOpen = false;
   editor?.hideEditor();
   if (location.hash === '#editor')
     history.replaceState(null, '', location.pathname + location.search);
 }
 
-// The browser's back and forward buttons go in and out of the editor.
+let assetViewer: typeof import('./assetViewer.ts') | null = null;
+let assetsOpen = false;
+
+/** Opens the asset viewer from the main menu, as the build editor is; it is loaded the first time. */
+async function openAssets(push = true): Promise<void> {
+  if (game) return;
+  menu.hide();
+  assetsOpen = true;
+  if (push && location.hash !== '#assets') history.pushState({ assets: true }, '', '#assets');
+  assetViewer ??= await import('./assetViewer.ts');
+  if (assetsOpen) assetViewer.showAssets();
+  loadingDone();
+}
+
+function closeAssets(): void {
+  if (!assetsOpen) return;
+  assetsOpen = false;
+  assetViewer?.hideAssets();
+  if (location.hash === '#assets')
+    history.replaceState(null, '', location.pathname + location.search);
+}
+
+// The browser's back and forward buttons go in and out of the editor and the asset viewer.
 window.addEventListener('popstate', () => {
+  const wasOpen = editorOpen || assetsOpen;
+  if (location.hash !== '#editor') closeEditor();
+  if (location.hash !== '#assets') closeAssets();
   if (location.hash === '#editor') void openEditor(false);
-  else if (editorOpen) {
-    closeEditor();
-    menu.show();
-  }
+  else if (location.hash === '#assets') void openAssets(false);
+  else if (wasOpen) menu.show();
 });
 if (location.hash === '#editor') void openEditor(false);
+if (location.hash === '#assets') void openAssets(false);
 const lobbyPanel = new LobbyPanel(
   () => game,
   () => solo,
@@ -636,20 +664,22 @@ function frame(now: number): void {
   }
   profiler.next('logic.ui');
   const inRoom = !!g && !demo.active && !solo && !!g.roomCode;
-  const page = !g && !editorOpen ? openPage() : null;
+  const page = !g && !editorOpen && !assetsOpen ? openPage() : null;
   appBar.set(
-    editorOpen ? 'editor' : g ? 'game' : page ? 'page' : 'menu',
+    editorOpen || assetsOpen ? 'editor' : g ? 'game' : page ? 'page' : 'menu',
     editorOpen
       ? 'Build editor'
-      : !g
-        ? (page?.where ?? '')
-        : demo.active
-          ? 'Demo'
-          : solo
-            ? 'Solo game'
-            : g.roomCode
-              ? `Room ${g.roomCode}`
-              : 'Connecting…',
+      : assetsOpen
+        ? 'Asset viewer'
+        : !g
+          ? (page?.where ?? '')
+          : demo.active
+            ? 'Demo'
+            : solo
+              ? 'Solo game'
+              : g.roomCode
+                ? `Room ${g.roomCode}`
+                : 'Connecting…',
     !g ? null : inRoom ? 'room' : 'game',
     // The host can call a round off and take everyone back to the lobby for a new one.
     !!g && g.isHost && g.phase === 'building' && !demo.active && !bench,
@@ -666,8 +696,9 @@ function frame(now: number): void {
   if (!g) {
     voiceChat.stop();
     sfx.vacuumMotor(0, 0, false);
-    // The editor moves the camera and draws the view itself, on its own map.
-    if (editorOpen) {
+    // The editor and the asset viewer move the camera and draw the view themselves, on their
+    // own map.
+    if (editorOpen || assetsOpen) {
       perf.done();
       requestAnimationFrame(frame);
       return;
@@ -898,4 +929,5 @@ loadingStep('Mixing the paint…');
 requestAnimationFrame(frame);
 
 // ?bench in the address opens the benchmark's setup.
-if (params.has('bench') && location.hash !== '#editor') benchSetup.show();
+if (params.has('bench') && location.hash !== '#editor' && location.hash !== '#assets')
+  benchSetup.show();

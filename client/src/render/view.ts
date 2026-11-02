@@ -453,6 +453,32 @@ export class View {
     cam.updateProjectionMatrix();
   }
 
+  /**
+   * Moves the studio's sun and its shadow to light what is in `box` (the asset viewer's model,
+   * which can be anything from a key to a ship), from the same side as the build editor's. The
+   * shadow reaches `spread` times the model's size out over the floor round it.
+   */
+  lightStudioFor(box: THREE.Box3, spread = 1): void {
+    if (!this.studio) return;
+    const centre = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const reach = Math.max(0.5, size.x, size.z) * spread;
+    this.sun.position
+      .copy(STUDIO.sunAt)
+      .normalize()
+      .multiplyScalar(size.length() + 5)
+      .add(centre);
+    this.sun.target.position.copy(centre);
+    this.sun.target.updateMatrixWorld();
+    const floor = {
+      x0: box.min.x - reach,
+      x1: box.max.x + reach,
+      z0: box.min.z - reach,
+      z1: box.max.z + reach,
+    };
+    fitShadowTo(this.sun, floor, box.max.y + 0.1, box.min.y - 0.1);
+  }
+
   /** Puts the build editor's map away and brings the level back as it was. */
   hideStudio(): void {
     const s = this.studio;
