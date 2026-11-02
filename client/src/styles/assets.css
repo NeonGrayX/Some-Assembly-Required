@@ -1,0 +1,268 @@
+/*
+ * The asset viewer: the game's canvas behind everything, the list of models in a panel on the
+ * left where the build editor has its panel, and what is shown named in a box along the bottom.
+ */
+#assets,
+#assets-view,
+#assets-view canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+}
+
+#assets {
+  z-index: 3;
+}
+
+#assets-view {
+  touch-action: none;
+}
+
+#assets-panel {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  bottom: 12px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  font-size: 14px;
+}
+
+#assets-panel h3 {
+  margin: 0 4px;
+  font-size: 19px;
+}
+
+#av-search {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+#av-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+#av-list details {
+  margin-bottom: 6px;
+}
+
+#av-list summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+#av-list summary::-webkit-details-marker {
+  display: none;
+}
+
+#av-list summary::before {
+  content: '▸';
+  width: 10px;
+  transition: var(--fade);
+}
+
+#av-list details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#av-list summary small,
+#av-list button small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+#av-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 3px;
+  padding: 6px 10px;
+  border: 2px solid transparent;
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 14px var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: var(--fade);
+}
+
+#av-list button:hover {
+  border-color: var(--border);
+}
+
+#av-list button[aria-selected='true'] {
+  border-color: var(--primary);
+}
+
+#av-list .av-none,
+#assets-panel .av-loading {
+  margin: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#assets-panel .av-loading[hidden] {
+  display: none;
+}
+
+/* What is shown, and the ways to look at it: along the bottom, clear of the panel. */
+#av-info {
+  position: fixed;
+  left: 328px;
+  right: 12px;
+  bottom: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 10px 14px;
+}
+
+#av-info .av-title {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+#av-name {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 19px;
+}
+
+#av-what {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#av-info .av-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+#av-info label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+#av-info label.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+#av-info label[hidden] {
+  display: none;
+}
+
+#av-info select {
+  width: auto;
+  max-width: 220px;
+}
+
+#av-open {
+  width: 110px;
+}
+
+.av-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.av-sides .btn {
+  padding: 0 10px;
+}
+
+#av-help {
+  position: fixed;
+  left: 328px;
+  right: 12px;
+  bottom: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* A short or narrow screen: the panel against the side, the info box narrower beside it. */
+@media (max-width: 900px), (max-height: 500px) {
+  #assets-panel {
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 260px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  #av-info,
+  #av-help {
+    left: 272px;
+  }
+
+  #av-info {
+    padding: 8px 10px;
+  }
+
+  #av-help {
+    display: none;
+  }
+
+  #av-info {
+    bottom: 12px;
+  }
+}
+
+/* A phone held upright: the list is a sheet at the bottom, the info box under the app bar. */
+@media (max-width: 600px) {
+  #assets-panel {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: 42%;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  #av-info {
+    left: 12px;
+    top: 64px;
+    bottom: auto;
+    gap: 6px 10px;
+  }
+
+  #av-name {
+    font-size: 16px;
+  }
+
+  #av-what {
+    font-size: 12px;
+  }
+
+  .av-sides .btn {
+    padding: 0 8px;
+  }
+}

@@ -80,7 +80,7 @@ const TEAM_CLASS = ['red', 'blue'] as const;
 
 /**
  * The main menu, the hub every screen leads back to: name, join a room by its code, play solo,
- * the demo or the build editor, the room list (its second page) to find or create a room, and
+ * the demo, the build editor or the asset viewer, the room list (its second page) to find or create a room, and
  * the community page of shared builds.
  */
 export class Menu {
@@ -100,6 +100,7 @@ export class Menu {
     demo: (name: string) => void;
     bench: () => void;
     editor: () => void;
+    assets: () => void;
     /** The community page's: a build's box art, and picking a build for demo mode. */
     forum: Pick<ForumHandlers, 'art'> & { use: (build: TargetBuild) => string | null };
   }) {
@@ -151,6 +152,7 @@ export class Menu {
     $('#solo').addEventListener('click', () => handlers.solo(name()));
     $('#demo').addEventListener('click', () => handlers.demo(name()));
     $('#open-editor').addEventListener('click', () => handlers.editor());
+    $('#open-assets').addEventListener('click', () => handlers.assets());
     $('#bench').addEventListener('click', () => handlers.bench());
     (this.code.value ? this.code : this.name).focus();
   }
